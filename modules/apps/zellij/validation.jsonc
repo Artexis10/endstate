@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.zellij",
+  "moduleRevision": "365741b037adaba4b447d5427e2e7e1cbaa43321dfbe6d1115823a8b1515e40b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

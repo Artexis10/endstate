@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -150,6 +151,9 @@ func newLegacyMember(
 	ordinal uint64,
 	journalPath, journalDigest string,
 ) (legacyMemberDisk, []byte, error) {
+	if !validLegacyJournalIdentity(journalPath) {
+		return legacyMemberDisk{}, nil, fmt.Errorf("legacy member journal identity is invalid")
+	}
 	identity := legacyMemberIdentity{
 		Format: legacyMemberFormat, Version: transactionStoreVersion,
 		MemberID: memberID, RestoreRunID: restoreRunID, RunID: runID,
@@ -188,7 +192,7 @@ func decodeLegacyMember(data []byte) (legacyMemberDisk, time.Time, error) {
 	if disk.Format != legacyMemberFormat || disk.Version != transactionStoreVersion ||
 		!isOpaqueStoreID(disk.MemberID) || !isOpaqueStoreID(disk.RestoreRunID) ||
 		disk.RunID == "" || disk.RunID != strings.TrimSpace(disk.RunID) || containsControl(disk.RunID) ||
-		disk.JournalPath == "" || !filepath.IsAbs(disk.JournalPath) || filepath.Clean(disk.JournalPath) != disk.JournalPath ||
+		!validLegacyJournalIdentity(disk.JournalPath) ||
 		!isLowerHexDigest(disk.JournalDigest) {
 		return legacyMemberDisk{}, time.Time{}, fmt.Errorf("legacy member identity is invalid")
 	}
@@ -202,6 +206,19 @@ func decodeLegacyMember(data []byte) (legacyMemberDisk, time.Time, error) {
 		return legacyMemberDisk{}, time.Time{}, fmt.Errorf("legacy member digest or canonical bytes differ")
 	}
 	return disk, started, nil
+}
+
+func validLegacyJournalIdentity(value string) bool {
+	if value != "" && filepath.IsAbs(value) && filepath.Clean(value) == value && !containsControl(value) {
+		return true
+	}
+	const semanticPrefix = "$ENDSTATE_ROOT/logs/"
+	if !strings.HasPrefix(value, semanticPrefix) || containsControl(value) || strings.Contains(value, `\`) {
+		return false
+	}
+	relative := strings.TrimPrefix(value, "$ENDSTATE_ROOT/")
+	return relative != "" && relative != "." && relative != ".." && !path.IsAbs(relative) &&
+		path.Clean(relative) == relative && !strings.HasPrefix(relative, "../")
 }
 
 type memberRevertIdentity struct {

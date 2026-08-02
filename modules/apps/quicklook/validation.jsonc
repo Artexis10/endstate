@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.quicklook",
+  "moduleRevision": "225dcc821d353c42aebbcd27ec0e84c6b9fcf62de9f8f49158f6e87b23f746b3",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

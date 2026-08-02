@@ -366,8 +366,9 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	// --- 10. Plan config capture and publish one canonical artifact ---
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
-		Apps:      buildModuleMatchApps(captured),
-		Selection: appSelection,
+		Apps:              buildModuleMatchApps(captured),
+		Selection:         appSelection,
+		ValidationContext: currentValidationMode,
 		OnStage: func(stage bundle.Stage) {
 			emitter.EmitProgress("capture", string(stage))
 		},

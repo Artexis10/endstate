@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mongodb-compass",
+  "moduleRevision": "85b91b2b841ecb1df90711d32d7cfa392655e3bbaf833a6e58c6205e912a085e",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

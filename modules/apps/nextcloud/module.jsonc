@@ -59,11 +59,7 @@
   },
 
   "secrets": {
-    "files": [
-      // Credentials are stored by QtKeychain in Windows Credential Manager,
-      // not in a portable file. Listed here for documentation/awareness.
-      "Windows Credential Manager (QtKeychain): Nextcloud account password / app token"
-    ],
+    "files": [],
     "warning": "Nextcloud stores sync passwords and E2E credentials in the Windows Credential Manager, not in nextcloud.cfg. These are not captured; re-authenticate after restore. nextcloud.cfg does contain your username and server URL.",
     "restorer": "warn-only"
   },

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.totalcommander",
+  "moduleRevision": "fa12fedc9329fb587fbc0e488620c26acc5f586841c8f5406b6ae28c2eea78a1",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

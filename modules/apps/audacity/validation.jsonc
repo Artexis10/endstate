@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.audacity",
+  "moduleRevision": "c30480f10ccdd2d16a05dea82fbff473346d22db71f0a6360dbf152ff9e1cbc9",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

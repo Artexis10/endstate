@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.ssh-config",
+  "moduleRevision": "2b5ee814c516940482b8dca52c6a5f8b7606a7ec485ce1085541fcb366558277",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

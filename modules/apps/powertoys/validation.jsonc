@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.powertoys",
+  "moduleRevision": "fbd927bb42cf391a394401d20e4056105de634313f10c561f3896be3817c0c3d",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

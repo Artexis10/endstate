@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.yarn",
+  "moduleRevision": "c9024c44a4766717fdb8129024e94981cb42758611f6c8fe6afa9a22a03701ce",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

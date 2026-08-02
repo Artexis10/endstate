@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.yubikey-manager",
+  "moduleRevision": "b9df6d32f4f03e84896657086e848d07dd94e5074c15fce571ba96d48dfeb9c8",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/yubikey-manager/validation-fixtures/capture-contract-v1.jsonc",
+          "sha256": "958d5c518758fee236e94e138ab66ecfaa2e848b7b15910e4d5b1daee0dc7736"
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures YubiKey Manager UI preferences (theme, NFC/USB toggles, window geometry) from %APPDATA%\\com.yubico.authenticator. No credentials, OTP seeds, or key material are in scope. Confidence: medium — config path inferred from Flutter/Dart app defaults for Yubico Authenticator on Windows; actual file names may vary across YubiKey Manager vs Yubico Authenticator product variants. Authored secret warning: Flutter secure storage may contain OTP seeds, FIDO2 credentials, or other token-adjacent secrets that are bound to this device and MUST NOT be auto-restored. Any key/cert blobs are similarly off-limits. Authored excluded secret or machine-bound paths: %APPDATA%\\com.yubico.authenticator\\flutter_secure_storage, %APPDATA%\\com.yubico.authenticator\\*.key, %APPDATA%\\com.yubico.authenticator\\*.pem, %APPDATA%\\com.yubico.authenticator\\*.p12"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

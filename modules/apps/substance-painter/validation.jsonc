@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.substance-painter",
+  "moduleRevision": "e210204736694dc3cb8c900fa1146c1000a451d5015fabcb980c0dc66deafd9b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

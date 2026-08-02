@@ -38,6 +38,9 @@ func scanFilesystemState(ctx context.Context, root string) (filesystemState, err
 	if err := checkSnapshotContext(ctx); err != nil {
 		return filesystemState{}, err
 	}
+	if err := validateHostIO(ctx, root); err != nil {
+		return filesystemState{}, err
+	}
 	if err := rejectExistingTargetLinks(root); err != nil {
 		return filesystemState{}, err
 	}
@@ -75,6 +78,9 @@ func scanFilesystemNode(
 	portable := filepath.ToSlash(relative)
 	switch {
 	case info.Mode().IsRegular():
+		if err := validateHostIO(ctx, hostPath); err != nil {
+			return err
+		}
 		size, contentHash, err := hashStableRegularFile(ctx, hostPath, info)
 		if err != nil {
 			return err
@@ -84,6 +90,9 @@ func scanFilesystemNode(
 		}
 		return nil
 	case info.IsDir():
+		if err := validateHostIO(ctx, hostPath); err != nil {
+			return err
+		}
 		entries[portable] = filesystemEntry{Path: portable, Kind: StateDirectory, Mode: info.Mode().Perm()}
 		directoryEntries, err := os.ReadDir(hostPath)
 		if err != nil {
@@ -94,6 +103,9 @@ func scanFilesystemNode(
 				return err
 			}
 			childPath := filepath.Join(hostPath, directoryEntry.Name())
+			if err := validateHostIO(ctx, childPath); err != nil {
+				return err
+			}
 			childInfo, err := os.Lstat(childPath)
 			if err != nil {
 				return err
@@ -115,6 +127,9 @@ func scanFilesystemNode(
 func hashStableRegularFile(ctx context.Context, path string, expected os.FileInfo) (int64, string, error) {
 	if isLinkOrReparse(expected) || !expected.Mode().IsRegular() {
 		return 0, "", fmt.Errorf("file %q is not a safe regular file", path)
+	}
+	if err := validateHostIO(ctx, path); err != nil {
+		return 0, "", err
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -148,6 +163,9 @@ func hashStableRegularFile(ctx context.Context, path string, expected os.FileInf
 		if readErr != nil {
 			return 0, "", readErr
 		}
+	}
+	if err := validateHostIO(ctx, path); err != nil {
+		return 0, "", err
 	}
 	current, err := os.Lstat(path)
 	if err != nil {
@@ -210,6 +228,12 @@ func copyFilesystemSnapshot(ctx context.Context, source, destination string, exp
 	if err := checkSnapshotContext(ctx); err != nil {
 		return err
 	}
+	if err := validateHostIO(ctx, source); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, destination); err != nil {
+		return err
+	}
 	if err := rejectExistingTargetLinks(source); err != nil {
 		return err
 	}
@@ -225,6 +249,12 @@ func copyFilesystemSnapshot(ctx context.Context, source, destination string, exp
 
 func copySnapshotDirectory(ctx context.Context, source, destination, relative string, expected filesystemState) error {
 	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, source); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, destination); err != nil {
 		return err
 	}
 	entry, exists := expected.Entries[filepath.ToSlash(relative)]
@@ -245,6 +275,12 @@ func copySnapshotDirectory(ctx context.Context, source, destination, relative st
 	for _, directoryEntry := range directoryEntries {
 		childSource := filepath.Join(source, directoryEntry.Name())
 		childDestination := filepath.Join(destination, directoryEntry.Name())
+		if err := validateHostIO(ctx, childSource); err != nil {
+			return err
+		}
+		if err := validateHostIO(ctx, childDestination); err != nil {
+			return err
+		}
 		childRelative := directoryEntry.Name()
 		if relative != "." {
 			childRelative = filepath.Join(relative, directoryEntry.Name())
@@ -273,11 +309,20 @@ func copySnapshotDirectory(ctx context.Context, source, destination, relative st
 			return fmt.Errorf("unsupported snapshot entry kind %q", expectedEntry.Kind)
 		}
 	}
+	if err := validateHostIO(ctx, destination); err != nil {
+		return err
+	}
 	return os.Chmod(destination, entry.Mode.Perm())
 }
 
 func copySnapshotFile(ctx context.Context, source, destination string, mode os.FileMode) (resultErr error) {
 	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, source); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, destination); err != nil {
 		return err
 	}
 	info, err := os.Lstat(source)
@@ -321,6 +366,9 @@ func copySnapshotFile(ctx context.Context, source, destination string, mode os.F
 			return readErr
 		}
 	}
+	if err := validateHostIO(ctx, source); err != nil {
+		return err
+	}
 	current, err := os.Lstat(source)
 	if err != nil || isLinkOrReparse(current) || !os.SameFile(openedInfo, current) ||
 		current.Mode().Perm() != openedInfo.Mode().Perm() || current.Size() != openedInfo.Size() {
@@ -330,6 +378,9 @@ func copySnapshotFile(ctx context.Context, source, destination string, mode os.F
 		return err
 	}
 	if err := output.Close(); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, destination); err != nil {
 		return err
 	}
 	return os.Chmod(destination, mode.Perm())

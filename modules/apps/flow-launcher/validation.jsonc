@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.flow-launcher",
+  "moduleRevision": "a4b3ccce118230b94d8e2afe837c74efcaa180a6ac0e9546c37bf3ce415a81d9",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

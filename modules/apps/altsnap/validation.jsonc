@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.altsnap",
+  "moduleRevision": "a85d3219f4fe2082d11edfb2d7bea4bd37b027d89b8fb64434ce74a462a8bdb5",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

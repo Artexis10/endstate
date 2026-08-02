@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.powershell-profile",
+  "moduleRevision": "e0ebfaa5fa0ea0c914b2e79a5776ac4e100634a0da1103773cf15c11191c048b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

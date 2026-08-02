@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.jellyfin-server",
+  "moduleRevision": "65b867439b4edd38912c00aac1899f32bf91aadc58639e2d25ad2e85b7a3a4f1",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

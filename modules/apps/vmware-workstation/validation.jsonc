@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.vmware-workstation",
+  "moduleRevision": "f936caf61a8eb86013bb276b39ad06d6f16ed9ec8eebc2eada7cd92da38aabd2",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

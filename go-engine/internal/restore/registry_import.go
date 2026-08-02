@@ -4,6 +4,8 @@
 package restore
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -14,7 +16,19 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
+)
+
+var (
+	registryImportQueryNative  = queryRegistryImportTarget
+	registryImportExportNative = func(key, path string) error {
+		return exec.Command("reg", "export", key, path, "/y").Run()
+	}
+	registryImportApplyNative = func(path string) error {
+		return exec.Command("reg", "import", path).Run()
+	}
 )
 
 // ValidateRegistryTarget validates that target is an HKCU (current user) registry
@@ -81,6 +95,24 @@ func ValidateRegistryImportScope(source, target string) error {
 	return nil
 }
 
+// ValidateRegistryImportActionScope resolves an import source exactly as a
+// restore run would, then proves that its registry sections stay within the
+// declared target. It does not modify the source or registry.
+func ValidateRegistryImportActionScope(action RestoreAction, opts RestoreOptions) error {
+	if err := ValidateRegistryTarget(action.Target); err != nil {
+		return err
+	}
+	source, err := resolveRestoreSource(action.Source, opts)
+	if err != nil {
+		return err
+	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext}
+	if _, err := boundary.stat("registry-import-preflight-source-stat", source); err != nil {
+		return err
+	}
+	return ValidateRegistryImportScope(source, action.Target)
+}
+
 func decodeRegistryImport(data []byte) (string, error) {
 	switch {
 	case len(data) >= 2 && data[0] == 0xff && data[1] == 0xfe:
@@ -123,12 +155,16 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 		Target:      entry.Target,
 		RestoreType: "registry-import",
 	}
+	defer projectValidationRestoreResult(result, entry, opts)
 
 	// Validate target key (cross-platform — no OS dependency).
 	if err := ValidateRegistryTarget(entry.Target); err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()
 		return result, nil
+	}
+	if opts.ValidationContext != nil {
+		return restoreRegistryImportValidation(result, entry, source, opts)
 	}
 
 	// Check whether the source .reg file exists.
@@ -155,8 +191,12 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 	}
 
 	// Probe whether the target key exists (used for TargetExistedBefore and backup).
-	queryCmd := exec.Command("reg", "query", entry.Target)
-	keyExists := queryCmd.Run() == nil
+	keyExists, queryErr := registryImportQueryNative(entry.Target)
+	if queryErr != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("registry query failed: %v", queryErr)
+		return result, nil
+	}
 	result.TargetExistedBefore = keyExists
 
 	// Backup the existing registry key when requested.
@@ -171,11 +211,14 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 				result.Error = fmt.Sprintf("backup: cannot create backup directory: %v", mkErr)
 				return result, nil
 			}
-			// Use a sanitized filename derived from the registry key.
-			safeKey := strings.NewReplacer(`\`, "_", ` `, "_").Replace(entry.Target)
-			backupPath := filepath.Join(backupDir, safeKey+".reg")
-			exportCmd := exec.Command("reg", "export", entry.Target, backupPath, "/y")
-			if exportErr := exportCmd.Run(); exportErr != nil {
+			backupPath, cleanup, reserveErr := reserveRegistryImportBackup(legacyValidationBoundary{}, backupDir, normalizeRegistryImportKey(entry.Target))
+			if reserveErr != nil {
+				result.Status = "failed"
+				result.Error = fmt.Sprintf("backup: reserve destination: %v", reserveErr)
+				return result, nil
+			}
+			if exportErr := registryImportExportNative(entry.Target, backupPath); exportErr != nil {
+				cleanup()
 				result.Status = "failed"
 				result.Error = fmt.Sprintf("backup: reg export failed: %v", exportErr)
 				return result, nil
@@ -192,8 +235,7 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 	}
 
 	// Import the .reg file.
-	importCmd := exec.Command("reg", "import", source)
-	if err := importCmd.Run(); err != nil {
+	if err := registryImportApplyNative(source); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("reg import failed: %v", err)
 		return result, nil
@@ -201,4 +243,233 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 
 	result.Status = "restored"
 	return result, nil
+}
+
+func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction, source string, opts RestoreOptions) (*RestoreResult, error) {
+	context := opts.ValidationContext
+	boundary := legacyValidationBoundary{context: context, backupDir: restoreBackupDirectory(opts)}
+	semanticKey, err := validationmode.NormalizeHKCU(entry.Target)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+		return result, nil
+	}
+	mappedKey, err := context.MapHKCU(semanticKey)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+		return result, nil
+	}
+	if _, err := boundary.stat("registry-import-source-stat", source); os.IsNotExist(err) {
+		if entry.Optional {
+			result.Status = "skipped_missing_source"
+			return result, nil
+		}
+		result.Status = "failed"
+		result.Error = "source not found"
+		return result, nil
+	} else if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("validate registry import source: %v", err)
+		return result, nil
+	}
+	sourceData, err := boundary.readFile("registry-import-source-read", source)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("read registry import safely: %v", err)
+		return result, nil
+	}
+	mappedImport, err := registryfile.RewriteSubtree(sourceData, semanticKey, mappedKey)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+		return result, nil
+	}
+
+	if runtime.GOOS != "windows" {
+		result.Status = "failed"
+		result.Error = "registry-import is only supported on Windows"
+		return result, nil
+	}
+
+	keyExists, err := registryImportQueryNative(mappedKey)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("registry query failed: %v", err)
+		return result, nil
+	}
+	result.TargetExistedBefore = keyExists
+
+	var semanticCurrent []byte
+	if keyExists {
+		exportPath, cleanup, err := validationRegistryTemp(context, "registry-current-*.reg")
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("validate registry state: create disposable export: %v", err)
+			return result, nil
+		}
+		defer cleanup()
+		if err := context.ValidateSandboxPath(exportPath); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("validate registry state: validate disposable export: %v", err)
+			return result, nil
+		}
+		if err := boundary.authorizeIO("registry-import-current-native-export", exportPath); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("validate registry state: validate disposable export: %v", err)
+			return result, nil
+		}
+		if err := registryImportExportNative(mappedKey, exportPath); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("validate registry state: reg export failed: %v", err)
+			return result, nil
+		}
+		exported, err := boundary.readFile("registry-import-current-export-read", exportPath)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("validate registry state: read disposable export: %v", err)
+			return result, nil
+		}
+		semanticCurrent, err = registryfile.RewriteSubtree(exported, mappedKey, semanticKey)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("validate registry state: validate registry export: %v", err)
+			return result, nil
+		}
+		semanticDesired, err := registryfile.RewriteSubtree(sourceData, semanticKey, semanticKey)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("validate registry state: validate registry import: %v", err)
+			return result, nil
+		}
+		if bytes.Equal(semanticCurrent, semanticDesired) {
+			result.Status = "skipped_up_to_date"
+			return result, nil
+		}
+	}
+
+	if entry.Backup && keyExists {
+		backupDir := opts.BackupDir
+		if backupDir == "" {
+			backupDir = defaultBackupDir(opts.RunID)
+		}
+		if err := boundary.validateConcrete(backupDir); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("backup: invalid backup directory: %v", err)
+			return result, nil
+		}
+		if err := boundary.mkdirAll("registry-import-backup-directory-mkdir", backupDir, 0o755); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("backup: cannot create backup directory: %v", err)
+			return result, nil
+		}
+		backupPath, cleanup, err := reserveRegistryImportBackup(boundary, backupDir, semanticKey)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("backup: reserve destination: %v", err)
+			return result, nil
+		}
+		if err := boundary.atomicWrite("registry-import-backup-write", backupPath, semanticCurrent, 0o600); err != nil {
+			cleanup()
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("backup: write semantic export: %v", err)
+			return result, nil
+		}
+		result.BackupPath = backupPath
+		result.BackupCreated = true
+	}
+
+	if opts.DryRun {
+		result.Status = "restored"
+		return result, nil
+	}
+
+	importPath, cleanup, err := validationRegistryTemp(context, "registry-import-*.reg")
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("create disposable registry import: %v", err)
+		return result, nil
+	}
+	defer cleanup()
+	if err := context.ValidateSandboxPath(importPath); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("validate disposable registry import: %v", err)
+		return result, nil
+	}
+	if err := boundary.atomicWrite("registry-import-temporary-write", importPath, mappedImport, 0o600); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("write disposable registry import: %v", err)
+		return result, nil
+	}
+	if err := context.ValidateSandboxPath(importPath); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("revalidate disposable registry import: %v", err)
+		return result, nil
+	}
+	if err := boundary.authorizeIO("registry-import-native-input", importPath); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("revalidate disposable registry import: %v", err)
+		return result, nil
+	}
+	if err := registryImportApplyNative(importPath); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("reg import failed: %v", err)
+		return result, nil
+	}
+
+	result.Status = "restored"
+	return result, nil
+}
+
+func reserveRegistryImportBackup(boundary legacyValidationBoundary, backupDir, semanticKey string) (string, func(), error) {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(semanticKey), "/", `\`))
+	keyHash := fmt.Sprintf("%x", sha256.Sum256([]byte(normalized)))
+	keyDir := filepath.Join(backupDir, keyHash)
+	if err := boundary.mkdirAll("registry-import-backup-key-directory-mkdir", keyDir, 0o755); err != nil {
+		return "", func() {}, err
+	}
+	for index := 1; index <= 1_000_000; index++ {
+		actionDir := filepath.Join(keyDir, fmt.Sprintf("action-%06d", index))
+		if err := boundary.mkdir("registry-import-backup-action-mkdir", actionDir, 0o700); err != nil {
+			if os.IsExist(err) {
+				continue
+			}
+			return "", func() {}, err
+		}
+		path := filepath.Join(actionDir, "prior.reg")
+		cleanup := func() {
+			_ = boundary.remove("registry-import-backup-reservation-file-remove", path)
+			_ = boundary.remove("registry-import-backup-reservation-directory-remove", actionDir)
+		}
+		return path, cleanup, nil
+	}
+	return "", func() {}, fmt.Errorf("registry backup reservation exhausted")
+}
+
+func validationRegistryTemp(context *validationmode.Context, pattern string) (string, func(), error) {
+	tempRoot, ok := context.VirtualRoot("TEMP")
+	if !ok {
+		return "", func() {}, fmt.Errorf("validation TEMP root is unavailable")
+	}
+	boundary := legacyValidationBoundary{context: context}
+	if err := boundary.mkdirAll("registry-temporary-directory-mkdir", tempRoot, 0o755); err != nil {
+		return "", func() {}, err
+	}
+	if err := context.ValidateSandboxPath(tempRoot); err != nil {
+		return "", func() {}, err
+	}
+	file, err := boundary.createTemp("registry-temporary-create", tempRoot, pattern)
+	if err != nil {
+		return "", func() {}, err
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		_ = boundary.remove("registry-temporary-cleanup", path)
+		return "", func() {}, err
+	}
+	if err := context.ValidateSandboxPath(path); err != nil {
+		_ = boundary.remove("registry-temporary-cleanup", path)
+		return "", func() {}, err
+	}
+	return path, func() { _ = boundary.remove("registry-temporary-remove", path) }, nil
 }

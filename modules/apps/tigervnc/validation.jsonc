@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.tigervnc",
+  "moduleRevision": "3f9f31c5d13a7cb46b808454cedb876be9ce02587b70c50463471be4046b960e",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures TigerVNC Viewer preferences from HKCU\\Software\\TigerVNC\\vncviewer (connection defaults, display/encoding options, UI behaviour). Saved VNC password is documented in secrets and excluded from auto-restore. HKCU-only capture. Confidence: medium — registry path inferred from TigerVNC source and community reports; no official backup documentation exists. Authored secret warning: TigerVNC Viewer may store a saved VNC password as an obfuscated value under HKCU\\Software\\TigerVNC\\vncviewer\\Password. While TigerVNC uses a fixed XOR obfuscation key (not machine-bound), auto-restoring saved passwords is inadvisable — re-enter the password after a rebuild. Authored excluded secret or machine-bound paths: HKCU\\Software\\TigerVNC\\vncviewer\\Password"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

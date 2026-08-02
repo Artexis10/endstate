@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.cemu",
+  "moduleRevision": "1fcc11512b0206ed43d9403e0f03838f95ab5dc4a10d20dea2af2cdedecd2cb6",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

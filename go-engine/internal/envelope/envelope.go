@@ -15,14 +15,24 @@ import (
 // Envelope is the top-level JSON output structure emitted by every --json command.
 // Field order matches the contract document for readability.
 type Envelope struct {
-	SchemaVersion string      `json:"schemaVersion"`
-	CLIVersion    string      `json:"cliVersion"`
-	Command       string      `json:"command"`
-	RunID         string      `json:"runId"`
-	TimestampUTC  string      `json:"timestampUtc"`
-	Success       bool        `json:"success"`
-	Data          interface{} `json:"data"`
-	Error         *Error      `json:"error"`
+	SchemaVersion string            `json:"schemaVersion"`
+	CLIVersion    string            `json:"cliVersion"`
+	Command       string            `json:"command"`
+	RunID         string            `json:"runId"`
+	TimestampUTC  string            `json:"timestampUtc"`
+	Success       bool              `json:"success"`
+	TestMode      *TestModeIdentity `json:"testMode,omitempty"`
+	Data          interface{}       `json:"data"`
+	Error         *Error            `json:"error"`
+}
+
+// TestModeIdentity is the non-authoritative scenario identity exposed by the
+// internal CI validation mode. It deliberately contains no filesystem roots,
+// package source, nonce, or other authority-bearing data.
+type TestModeIdentity struct {
+	Active     bool   `json:"active"`
+	ScenarioID string `json:"scenarioId"`
+	ModuleID   string `json:"moduleId"`
 }
 
 // BuildRunID returns a run identifier in the format:

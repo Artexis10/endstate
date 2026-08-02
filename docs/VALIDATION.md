@@ -1,6 +1,65 @@
 # Sandbox-Based Module Validation
 
+## CI synthetic evidence
+
+The pull-request workflow runs the production catalog through the workflow-built
+`endstate.exe` in eight synthetic shards, then aggregates compact JSON evidence.
+It also runs every tracked bundle twice and a synthetic Notepad++
+engine-contract canary. These are `catalog`, `engine-contract`, and
+scenario-specific configuration proof only: they are not live-install, hosted,
+GUI, public compatibility, or release proof.
+
+### Synthetic fixture convention
+
+For schema-v1 `fixture.type: auto`, the harness constructs deterministic
+representative fixtures: a capture destination with an extension is a file, and
+an extensionless destination is a directory. This is only fixture construction;
+it does not infer or claim the live application's target type. Modules that need
+an exact type-sensitive shape use a tracked SHA-256-bound declarative fixture.
+
+To exercise the CI commands locally after building both binaries, keep result
+files beneath the active temp root in `endstate-validation-results`:
+
+```powershell
+cd go-engine
+go build -o endstate.exe ./cmd/endstate
+go build -o endstate-validation.exe ./cmd/endstate-validation
+$resultRoot = Join-Path $env:TEMP 'endstate-validation-results'
+New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
+$commit = (git -C .. rev-parse HEAD).ToLower()
+.\endstate-validation.exe shard --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --shards 8 --shard 0 --result (Join-Path $resultRoot 'shard-0.json')
+.\endstate-validation.exe catalog --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --result (Join-Path $resultRoot 'catalog.json')
+.\endstate-validation.exe canary --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --result (Join-Path $resultRoot 'canary.json')
+```
+
+Aggregation requires all eight shard files plus `catalog.json` and `canary.json`
+in one explicit temp-root input directory. It fails closed on missing, foreign,
+malformed, failed, or identity-drifting evidence. The canary record is a
+schema-v1 wrapper that binds the planned Notepad++ row, commit, engine hash,
+repository hash, status, and result. Final evidence is written under
+`RUNNER_TEMP` in CI; the harness uses private system-temp scratch files.
+
 This document describes how to use the automated Sandbox-based validation loop to test Endstate modules without touching the host environment.
+
+### Revision pin synchronization
+
+Validation sidecars pin the canonical production-module revision. Check drift
+without changing files with:
+
+```powershell
+.\endstate-validation.exe sync-revisions --repo (Resolve-Path ..)
+```
+
+It exits nonzero when a pin is stale. Only the explicit `--write` form updates
+stale sibling `modules/apps/<id>/validation.jsonc` pins:
+
+```powershell
+.\endstate-validation.exe sync-revisions --repo (Resolve-Path ..) --write
+```
+
+The command preflights every module and sidecar before any write, replaces only
+the 64-byte `moduleRevision` value, preserves comments/formatting/line endings,
+and never reads or changes validation debt authority.
 
 ## Overview
 
@@ -13,7 +72,7 @@ The validation loop performs a complete capture/restore cycle inside Windows San
 5. **Restore** - Restore files using the module's `restore` definitions
 6. **Verify** - Run verification checks from the module's `verify` section
 
-The result is a deterministic **PASS/FAIL** output with full artifacts for debugging.
+The result is a deterministic **PASS/FAIL** output with full artifacts for debugging. Sandbox direct-copy output is curation-only evidence; it is not `catalog`, `engine-contract`, configuration-roundtrip, live-install, or GUI proof.
 
 ## Prerequisites
 

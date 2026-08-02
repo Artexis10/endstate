@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.revo-uninstaller",
+  "moduleRevision": "0df04f8c7e40dfbd08bbca68587b31ab84137f209d9effc5d7b4f89739293771",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.faststone-image-viewer",
+  "moduleRevision": "02177cb619d0278b458f7ab6f940fd3102bd87aa68fb2e4e6b2880ba18f57025",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

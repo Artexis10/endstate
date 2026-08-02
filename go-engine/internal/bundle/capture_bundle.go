@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -21,6 +22,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 const (
@@ -58,6 +60,9 @@ type CaptureBundleRequest struct {
 	Share bool
 	// Name is the human label for the bundle (--name), recorded in metadata.
 	Name string
+	// ValidationContext virtualizes capture-side host I/O only. Nil preserves
+	// production collection and publication behavior.
+	ValidationContext *validationmode.Context
 }
 
 // CaptureBundleDiagnostic records a non-fatal per-config-set capture outcome.
@@ -111,6 +116,129 @@ func LegacyCaptureID(moduleID string) string {
 	return "legacy-" + hex.EncodeToString(hash.Sum(nil))
 }
 
+// ProjectCapturePlanningManifest produces the declaration/provenance view used
+// to validate an already-selected capture plan before collection starts. It is
+// deliberately a planning projection, not a claim that collection succeeded;
+// the final artifact is still assembled only from collected results below.
+// Keeping this projection in bundle makes legacy rewriting and generation
+// provenance share the production source of truth.
+func ProjectCapturePlanningManifest(apps []manifest.App, legacyModules []*modules.Module, plans []ConfigSetCapturePlan) (*manifest.Manifest, error) {
+	projected := &manifest.Manifest{Version: 1, Apps: append([]manifest.App(nil), apps...)}
+	if len(plans) > 0 {
+		projected.Version = 2
+	}
+	verifiedModules := map[string]struct{}{}
+	appendVerifies := func(mod *modules.Module) {
+		if mod == nil {
+			return
+		}
+		if _, exists := verifiedModules[mod.ID]; exists {
+			return
+		}
+		verifiedModules[mod.ID] = struct{}{}
+		projected.Verify = append(projected.Verify, projectModuleVerifies(mod)...)
+	}
+
+	legacy := append([]*modules.Module(nil), legacyModules...)
+	sort.SliceStable(legacy, func(left, right int) bool {
+		if legacy[left] == nil {
+			return false
+		}
+		if legacy[right] == nil {
+			return true
+		}
+		return legacy[left].ID < legacy[right].ID
+	})
+	seenLegacy := map[string]struct{}{}
+	for _, mod := range legacy {
+		if mod == nil || mod.EffectiveSchemaVersion() != 1 {
+			continue
+		}
+		if _, duplicate := seenLegacy[mod.ID]; duplicate {
+			continue
+		}
+		seenLegacy[mod.ID] = struct{}{}
+		projected.ConfigModules = append(projected.ConfigModules, mod.ID)
+		layoutID := legacyModuleDirName(mod.ID)
+		legacyCaptureID := ""
+		payloadRoot := ""
+		if projected.Version == 2 {
+			legacyCaptureID = LegacyCaptureID(mod.ID)
+			payloadRoot = ConfigPayloadRoot(mod.ID, legacyCaptureID)
+			layoutID = strings.TrimPrefix(payloadRoot, "configs/")
+			projected.LegacyConfigLanes = append(projected.LegacyConfigLanes, manifest.LegacyConfigLane{
+				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1,
+				PayloadRoot: payloadRoot,
+			})
+		}
+		for _, restore := range mod.Restore {
+			entry := rewriteLegacyRestore(restore, layoutID)
+			entry.FromModule = mod.ID
+			entry.LegacyCaptureID = legacyCaptureID
+			projected.Restore = append(projected.Restore, entry)
+		}
+		appendVerifies(mod)
+	}
+
+	planning := append([]ConfigSetCapturePlan(nil), plans...)
+	sort.SliceStable(planning, func(left, right int) bool {
+		return capturePlanIdentity(planning[left]) < capturePlanIdentity(planning[right])
+	})
+	for _, plan := range planning {
+		snapshot, err := moduleSnapshotIdentity(plan.Module)
+		if err != nil {
+			return nil, err
+		}
+		captureID := CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
+		projected.ConfigCaptures = append(projected.ConfigCaptures, projectConfigCapture(
+			plan, ConfigPayloadRoot(plan.Module.ID, captureID), []manifest.PayloadManifestEntry{}, snapshot,
+		))
+		appendVerifies(plan.Module)
+	}
+	return projected, nil
+}
+
+func validateCaptureModuleIdentities(candidates []*modules.Module, plans []ConfigSetCapturePlan) error {
+	all := append([]*modules.Module(nil), candidates...)
+	for _, plan := range plans {
+		all = append(all, plan.Module)
+	}
+	seen := make(map[string]string, len(all))
+	for _, mod := range all {
+		if mod == nil {
+			continue
+		}
+		identity, err := captureModuleObjectIdentity(mod)
+		if err != nil {
+			return fmt.Errorf("capture bundle: module identity for %s: %w", mod.ID, err)
+		}
+		if previous, exists := seen[mod.ID]; exists && previous != identity {
+			return fmt.Errorf("capture bundle: ambiguous capture module identity for %s", mod.ID)
+		}
+		seen[mod.ID] = identity
+	}
+	return nil
+}
+
+// captureModuleObjectIdentity binds decisions to the exact semantic module
+// object used by collection. Revision alone is insufficient for hand-built v1
+// modules, while ID alone lets a foreign duplicate donate verifier authority.
+func captureModuleObjectIdentity(mod *modules.Module) (string, error) {
+	if mod == nil {
+		return "", fmt.Errorf("module is nil")
+	}
+	canonical, err := json.Marshal(mod)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("endstate\x00capture-module-object\x00v1\x00"))
+	_, _ = hash.Write([]byte(mod.Revision))
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write(canonical)
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 // CreateCaptureBundle creates either a v1 compatibility bundle or a
 // structurally isolated v2 bundle. Only successful, nonempty generation
 // captures enable v2.
@@ -118,12 +246,46 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	if strings.TrimSpace(request.ManifestPath) == "" || strings.TrimSpace(request.OutputPath) == "" {
 		return nil, fmt.Errorf("capture bundle: manifestPath and outputPath are required")
 	}
-	baseManifest, err := manifest.LoadManifest(request.ManifestPath)
+	selected := append([]*modules.Module(nil), request.Modules...)
+	for _, plan := range request.GenerationPlans {
+		selected = append(selected, plan.Module)
+	}
+	if err := preflightRegistryCaptureBoundaries(selected, request.ValidationContext); err != nil {
+		return nil, err
+	}
+	if err := validateCaptureModuleIdentities(request.Modules, request.GenerationPlans); err != nil {
+		return nil, err
+	}
+	if request.ValidationContext != nil {
+		moduleID := request.ValidationContext.Descriptor().ModuleID
+		for _, target := range []struct {
+			coordinate string
+			path       string
+		}{{"manifestPath", request.ManifestPath}, {"outputPath", request.OutputPath}} {
+			if err := request.ValidationContext.ValidateSandboxPath(filepath.Clean(target.path)); err != nil {
+				return nil, captureIsolation(moduleID, target.coordinate, "path", target.coordinate, err)
+			}
+		}
+	}
+	var baseManifest *manifest.Manifest
+	var err error
+	var validationCaptureApp *manifest.App
+	if request.ValidationContext != nil && strings.EqualFold(request.ValidationContext.Descriptor().Inventory.Driver, "validation") {
+		inventory := request.ValidationContext.Descriptor().Inventory
+		expected := manifest.App{ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref}, Driver: inventory.Driver, Source: inventory.Source, DisplayName: inventory.DisplayName}
+		validationCaptureApp = &expected
+		baseManifest, err = manifest.LoadManifestForValidationCapture(request.ManifestPath, expected)
+	} else {
+		baseManifest, err = manifest.LoadManifest(request.ManifestPath)
+	}
 	if err != nil {
+		if request.ValidationContext != nil {
+			return nil, captureIsolation(captureRequestModuleID(request), "manifestPath", "path", "manifestPath", validationmode.ErrUnsafePath)
+		}
 		return nil, fmt.Errorf("capture bundle: load source manifest: %w", err)
 	}
 
-	stagingRoot, err := os.MkdirTemp("", "endstate-capture-bundle-")
+	stagingRoot, err := createCaptureWorkRoot(request.ValidationContext, "endstate-capture-bundle-")
 	if err != nil {
 		return nil, fmt.Errorf("capture bundle: create staging root: %w", err)
 	}
@@ -138,20 +300,29 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		return capturePlanIdentity(plans[left]) < capturePlanIdentity(plans[right])
 	})
 	configCaptures := make([]manifest.ConfigCapture, 0, len(plans))
+	successfulGenerationModules := make([]*modules.Module, 0, len(plans))
 	diagnostics := append([]CaptureBundleDiagnostic(nil), request.PreplanningDiagnostics...)
 	var payloadValidationWarnings []string
 	sensitiveExcluded := 0
 	for _, plan := range plans {
-		capture, excluded, diagnostic := collectGenerationCapture(plan, stagingRoot)
+		capture, excluded, diagnostic, isolationErr := collectGenerationCapture(plan, stagingRoot, request.ValidationContext)
+		if isolationErr != nil {
+			return nil, isolationErr
+		}
 		sensitiveExcluded += excluded
 		if diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
-		if warning := validateCapturedPayload(plan, *capture, stagingRoot); warning != "" {
+		warning, validationErr := validateCapturedPayload(plan, *capture, stagingRoot, request.ValidationContext)
+		if validationErr != nil {
+			return nil, validationErr
+		}
+		if warning != "" {
 			payloadValidationWarnings = append(payloadValidationWarnings, warning)
 		}
 		configCaptures = append(configCaptures, *capture)
+		successfulGenerationModules = append(successfulGenerationModules, plan.Module)
 	}
 	sort.Slice(configCaptures, func(left, right int) bool { return configCaptures[left].CaptureID < configCaptures[right].CaptureID })
 	sortCaptureDiagnostics(diagnostics)
@@ -170,11 +341,17 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		// credential-shaped store is a bad trade.
 		captureModules, deniedModules = partitionShareDeniedModules(captureModules)
 	}
-	legacy, err := collectLegacyCaptureLanes(captureModules, stagingRoot, manifestVersion == 2)
+	legacy, err := collectLegacyCaptureLanes(captureModules, stagingRoot, manifestVersion == 2, request.ValidationContext)
 	if err != nil {
 		return nil, err
 	}
 
+	verifiedModules := append([]*modules.Module(nil), legacy.capturedModules...)
+	verifiedModules = append(verifiedModules, successfulGenerationModules...)
+	baseManifest.Verify, err = capturedModuleVerifies(verifiedModules)
+	if err != nil {
+		return nil, err
+	}
 	prepareCaptureManifest(baseManifest, manifestVersion, configCaptures, legacy)
 	var redaction RedactionReport
 	if request.Share {
@@ -184,6 +361,9 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		var redactErr error
 		redaction, redactErr = redactShareTree(stagingRoot, captureHostname())
 		if redactErr != nil {
+			if request.ValidationContext != nil {
+				return nil, captureIsolation(captureRequestModuleID(request), "share.redaction", "portable", "configs", validationmode.ErrUnsafePath)
+			}
 			return nil, fmt.Errorf("capture bundle: redact share payloads: %w", redactErr)
 		}
 		// Decided at capture time and encoded in the restore types, so an older
@@ -192,16 +372,31 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		// sniff.
 		baseManifest.Restore = preferMergeForShare(baseManifest.Restore, stagingRoot)
 	}
-	stagedManifest := filepath.Join(stagingRoot, "manifest.jsonc")
+	stagedManifest, err := resolveCapturePortable(request.ValidationContext, captureRequestModuleID(request), "manifest.publish", stagingRoot, "manifest.jsonc")
+	if err != nil {
+		return nil, err
+	}
 	manifestBytes, err := json.MarshalIndent(baseManifest, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("capture bundle: marshal manifest: %w", err)
 	}
 	if err := os.WriteFile(stagedManifest, manifestBytes, 0o644); err != nil {
+		if request.ValidationContext != nil {
+			return nil, captureIsolation(captureRequestModuleID(request), "manifest.publish", "portable", "manifest.jsonc", validationmode.ErrUnsafePath)
+		}
 		return nil, fmt.Errorf("capture bundle: write manifest: %w", err)
 	}
-	if _, err := manifest.LoadManifest(stagedManifest); err != nil {
-		return nil, fmt.Errorf("capture bundle: strict final manifest validation: %w", err)
+	var strictErr error
+	if validationCaptureApp != nil {
+		_, strictErr = manifest.LoadProjectedManifestForValidationCapture(stagedManifest, *validationCaptureApp)
+	} else {
+		_, strictErr = manifest.LoadManifest(stagedManifest)
+	}
+	if strictErr != nil {
+		if request.ValidationContext != nil {
+			return nil, captureIsolation(captureRequestModuleID(request), "manifest.publish", "portable", "manifest.jsonc", validationmode.ErrUnsafePath)
+		}
+		return nil, fmt.Errorf("capture bundle: strict final manifest validation: %w", strictErr)
 	}
 
 	captureIDs := make([]string, 0, len(configCaptures))
@@ -247,13 +442,23 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	if err != nil {
 		return nil, fmt.Errorf("capture bundle: marshal metadata: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(stagingRoot, "metadata.json"), metadataBytes, 0o644); err != nil {
+	metadataPath, err := resolveCapturePortable(request.ValidationContext, captureRequestModuleID(request), "metadata.publish", stagingRoot, "metadata.json")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(metadataPath, metadataBytes, 0o644); err != nil {
+		if request.ValidationContext != nil {
+			return nil, captureIsolation(captureRequestModuleID(request), "metadata.publish", "portable", "metadata.json", validationmode.ErrUnsafePath)
+		}
 		return nil, fmt.Errorf("capture bundle: write metadata: %w", err)
 	}
 	if request.OnStage != nil {
 		request.OnStage(StagePackaging)
 	}
 	if err := writeCaptureZipAtomically(stagingRoot, request.OutputPath); err != nil {
+		if request.ValidationContext != nil {
+			return nil, captureIsolation(captureRequestModuleID(request), "outputPath", "path", "outputPath", validationmode.ErrUnsafePath)
+		}
 		return nil, err
 	}
 
@@ -272,29 +477,40 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	}, nil
 }
 
-func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*manifest.ConfigCapture, int, *CaptureBundleDiagnostic) {
+func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string, context *validationmode.Context) (*manifest.ConfigCapture, int, *CaptureBundleDiagnostic, error) {
 	diagnostic := capturePlanDiagnostic(plan)
-	collection, err := CollectConfigSet(plan, stagingRoot)
+	collection, err := CollectConfigSetWithValidation(plan, stagingRoot, context)
 	if err != nil {
+		var isolation *CaptureIsolationError
+		if errors.As(err, &isolation) {
+			return nil, 0, nil, err
+		}
+		var boundary *registrySecretBoundaryError
+		if errors.As(err, &boundary) {
+			return nil, 0, nil, err
+		}
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()
-		return nil, 0, &diagnostic
+		return nil, 0, &diagnostic, nil
 	}
 	if collection.FilesCollected == 0 {
 		removeCapturePayload(stagingRoot, collection.PayloadRoot)
 		diagnostic.Status = CaptureBundleStatusSkipped
 		diagnostic.Code = CaptureBundleDiagnosticEmpty
 		diagnostic.Detail = "generation capture produced no regular files"
-		return nil, collection.SecretsExcluded, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic, nil
 	}
-	payloadHost, err := containedHostPath(stagingRoot, collection.PayloadRoot)
+	payloadHost, err := resolveCapturePortable(context, plan.Module.ID, "payloadRoot", stagingRoot, collection.PayloadRoot)
 	if err != nil {
 		removeCapturePayload(stagingRoot, collection.PayloadRoot)
+		if context != nil {
+			return nil, collection.SecretsExcluded, nil, captureIsolation(plan.Module.ID, "payloadRoot", "portable", collection.PayloadRoot, validationmode.ErrUnsafePath)
+		}
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = ConfigCaptureUnsafePath
 		diagnostic.Detail = err.Error()
-		return nil, collection.SecretsExcluded, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic, nil
 	}
 	payloadManifest, err := BuildPayloadManifest(payloadHost)
 	if err == nil {
@@ -302,23 +518,34 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 	}
 	if err != nil {
 		removeCapturePayload(stagingRoot, collection.PayloadRoot)
+		if context != nil {
+			return nil, collection.SecretsExcluded, nil, captureIsolation(plan.Module.ID, "payloadRoot", "portable", collection.PayloadRoot, validationmode.ErrUnsafePath)
+		}
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()
-		return nil, collection.SecretsExcluded, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic, nil
 	}
 	snapshot, err := WriteModuleSnapshot(stagingRoot, plan.Module)
 	if err != nil {
 		removeCapturePayload(stagingRoot, collection.PayloadRoot)
+		if context != nil {
+			return nil, collection.SecretsExcluded, nil, captureIsolation(plan.Module.ID, "captureModule.snapshotPath", "portable", "provenance/modules", validationmode.ErrUnsafePath)
+		}
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()
-		return nil, collection.SecretsExcluded, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic, nil
 	}
 
+	capture := projectConfigCapture(plan, collection.PayloadRoot, payloadManifest, snapshot)
+	return &capture, collection.SecretsExcluded, nil, nil
+}
+
+func projectConfigCapture(plan ConfigSetCapturePlan, payloadRoot string, payloadManifest []manifest.PayloadManifestEntry, snapshot ModuleSnapshot) manifest.ConfigCapture {
 	evidence := plan.Instance.Evidence
-	return &manifest.ConfigCapture{
-		CaptureID:   collection.CaptureID,
+	return manifest.ConfigCapture{
+		CaptureID:   CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID),
 		ModuleID:    plan.Module.ID,
 		ConfigSetID: plan.Set.ID,
 		SourceInstance: manifest.ConfigSourceInstance{
@@ -336,9 +563,9 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		CaptureModule: manifest.CaptureModuleProvenance{
 			SchemaVersion: plan.Module.EffectiveSchemaVersion(), ContentHash: snapshot.ContentHash, SnapshotPath: snapshot.Path,
 		},
-		PayloadRoot:     collection.PayloadRoot,
+		PayloadRoot:     payloadRoot,
 		PayloadManifest: payloadManifest,
-	}, collection.SecretsExcluded, nil
+	}
 }
 
 // validateCapturedPayload runs the target generation's own declarative
@@ -353,18 +580,21 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 // record, contrary to the invariant that losing settings must never be an
 // invisible downgrade. Instead the caller surfaces a friendly warning marking
 // the set as possibly-unrestorable, and returns "" when the payload is clean.
-func validateCapturedPayload(plan ConfigSetCapturePlan, capture manifest.ConfigCapture, stagingRoot string) string {
+func validateCapturedPayload(plan ConfigSetCapturePlan, capture manifest.ConfigCapture, stagingRoot string, context *validationmode.Context) (string, error) {
 	if plan.Generation == nil || len(plan.Generation.Validate) == 0 {
-		return ""
+		return "", nil
 	}
-	payloadHost, err := containedHostPath(stagingRoot, capture.PayloadRoot)
+	payloadHost, err := resolveCapturePortable(context, plan.Module.ID, "payloadRoot", stagingRoot, capture.PayloadRoot)
 	if err != nil {
-		return ""
+		if context != nil {
+			return "", err
+		}
+		return "", nil
 	}
 	if err := configvalidate.ValidateStaging(payloadHost, plan.Generation.Validate); err != nil {
-		return capturePayloadValidationWarning(plan.Module)
+		return capturePayloadValidationWarning(plan.Module), nil
 	}
-	return ""
+	return "", nil
 }
 
 // capturePayloadValidationWarning renders the user-facing, jargon-free warning
@@ -384,16 +614,17 @@ func capturePayloadValidationWarning(mod *modules.Module) string {
 }
 
 type legacyCaptureCollection struct {
-	lanes     []manifest.LegacyConfigLane
-	restores  []manifest.RestoreEntry
-	moduleIDs []string
-	included  []string
-	skipped   []string
-	warnings  []string
-	modules   []LegacyModuleCaptureResult
+	lanes           []manifest.LegacyConfigLane
+	restores        []manifest.RestoreEntry
+	moduleIDs       []string
+	capturedModules []*modules.Module
+	included        []string
+	skipped         []string
+	warnings        []string
+	modules         []LegacyModuleCaptureResult
 }
 
-func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string, mixedV2 bool) (*legacyCaptureCollection, error) {
+func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string, mixedV2 bool, context *validationmode.Context) (*legacyCaptureCollection, error) {
 	legacy := &legacyCaptureCollection{}
 	mods := append([]*modules.Module(nil), candidates...)
 	sort.SliceStable(mods, func(left, right int) bool {
@@ -422,13 +653,20 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{ModuleID: mod.ID, Paths: []string{}, Status: LegacyCaptureStatusSkipped})
 			continue
 		}
-		workRoot, err := os.MkdirTemp("", "endstate-legacy-capture-")
+		workRoot, err := createCaptureWorkRoot(context, "endstate-legacy-capture-")
 		if err != nil {
 			return nil, fmt.Errorf("capture bundle: create legacy staging for %s: %w", mod.ID, err)
 		}
-		fileCollected, secretsExcluded, fileErr := CollectConfigFiles(mod, workRoot)
+		fileCollected, secretsExcluded, fileErr := CollectConfigFilesWithValidation(mod, workRoot, context)
 		if fileErr != nil {
 			_ = os.RemoveAll(workRoot)
+			var isolation *CaptureIsolationError
+			if errors.As(fileErr, &isolation) {
+				return nil, fileErr
+			}
+			if isRegistryCaptureBoundaryFailure(fileErr) {
+				return nil, fileErr
+			}
 			legacy.skipped = append(legacy.skipped, shortID)
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s: %v", mod.ID, fileErr))
 			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
@@ -436,14 +674,32 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			})
 			continue
 		}
-		registryCollected, registryErr := CollectRegistryKeys(mod, workRoot)
+		registryCollected, registryErr := CollectRegistryKeysWithValidation(mod, workRoot, context)
 		hadCollectionError := false
 		if registryErr != nil {
+			var isolation *CaptureIsolationError
+			if errors.As(registryErr, &isolation) {
+				_ = os.RemoveAll(workRoot)
+				return nil, registryErr
+			}
+			if isRegistryCaptureBoundaryFailure(registryErr) {
+				_ = os.RemoveAll(workRoot)
+				return nil, registryErr
+			}
 			hadCollectionError = true
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s registry: %v", mod.ID, registryErr))
 		}
-		registryValuesCollected, registryValuesErr := CollectRegistryValues(mod, workRoot)
+		registryValuesCollected, registryValuesErr := CollectRegistryValuesWithValidation(mod, workRoot, context)
 		if registryValuesErr != nil {
+			var isolation *CaptureIsolationError
+			if errors.As(registryValuesErr, &isolation) {
+				_ = os.RemoveAll(workRoot)
+				return nil, registryValuesErr
+			}
+			if isRegistryCaptureBoundaryFailure(registryValuesErr) {
+				_ = os.RemoveAll(workRoot)
+				return nil, registryValuesErr
+			}
 			hadCollectionError = true
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s registry values: %v", mod.ID, registryValuesErr))
 		}
@@ -470,26 +726,40 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			// folder gets a human-readable name so mixed-v2 bundles read like
 			// plain v1 ones (configs/powertoys-135f78ef/) instead of an opaque
 			// configs/legacy-<64hex>/.
-			layoutID = readableConfigDirName(mod.ID, legacyCaptureID)
+			layoutID = strings.TrimPrefix(ConfigPayloadRoot(mod.ID, legacyCaptureID), "configs/")
 		}
 		sourceRoot := filepath.Join(workRoot, "configs", shortID)
-		destinationRoot, err := containedHostPath(stagingRoot, path.Join("configs", layoutID))
+		if context != nil {
+			sourceRoot, err = resolveCapturePortable(context, mod.ID, "legacy.sourceRoot", workRoot, path.Join("configs", shortID))
+			if err != nil {
+				_ = os.RemoveAll(workRoot)
+				return nil, err
+			}
+		}
+		destinationRoot, err := resolveCapturePortable(context, mod.ID, "legacy.payloadRoot", stagingRoot, path.Join("configs", layoutID))
 		if err != nil {
 			_ = os.RemoveAll(workRoot)
 			return nil, fmt.Errorf("capture bundle: legacy root for %s: %w", mod.ID, err)
 		}
 		if err := os.MkdirAll(filepath.Dir(destinationRoot), 0o755); err != nil {
 			_ = os.RemoveAll(workRoot)
+			if context != nil {
+				return nil, captureIsolation(mod.ID, "legacy.payloadRoot", "portable", path.Join("configs", layoutID), validationmode.ErrUnsafePath)
+			}
 			return nil, fmt.Errorf("capture bundle: create legacy parent for %s: %w", mod.ID, err)
 		}
 		if err := os.Rename(sourceRoot, destinationRoot); err != nil {
 			_ = os.RemoveAll(workRoot)
+			if context != nil {
+				return nil, captureIsolation(mod.ID, "legacy.payloadRoot", "portable", path.Join("configs", layoutID), validationmode.ErrUnsafePath)
+			}
 			return nil, fmt.Errorf("capture bundle: stage legacy payload for %s: %w", mod.ID, err)
 		}
 		_ = os.RemoveAll(workRoot)
 
 		legacy.included = append(legacy.included, shortID)
 		legacy.moduleIDs = append(legacy.moduleIDs, mod.ID)
+		legacy.capturedModules = append(legacy.capturedModules, mod)
 		legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
 			ModuleID:        mod.ID,
 			Paths:           rewriteLegacyCollectionPaths(collected, shortID, layoutID),
@@ -561,6 +831,31 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 	})
 	sort.Slice(legacy.modules, func(left, right int) bool { return legacy.modules[left].ModuleID < legacy.modules[right].ModuleID })
 	return legacy, nil
+}
+
+func createCaptureWorkRoot(context *validationmode.Context, pattern string) (string, error) {
+	if context == nil {
+		return os.MkdirTemp("", pattern)
+	}
+	parent := filepath.Join(context.Root(), "state", "capture-work")
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return "", captureIsolation(context.Descriptor().ModuleID, "capture.workRoot", "portable", "capture-work", validationmode.ErrUnsafePath)
+	}
+	if err := context.ValidateSandboxPath(parent); err != nil {
+		return "", captureIsolation(context.Descriptor().ModuleID, "capture.workRoot", "portable", "capture-work", err)
+	}
+	root, err := os.MkdirTemp(parent, pattern)
+	if err != nil {
+		return "", captureIsolation(context.Descriptor().ModuleID, "capture.workRoot", "portable", "capture-work", validationmode.ErrUnsafePath)
+	}
+	return root, nil
+}
+
+func captureRequestModuleID(request CaptureBundleRequest) string {
+	if request.ValidationContext != nil {
+		return request.ValidationContext.Descriptor().ModuleID
+	}
+	return "capture"
 }
 
 // stagedLegacyRestores holds a successfully captured schema-v1 module whose
@@ -766,6 +1061,56 @@ func rewriteLegacyRestore(restore modules.RestoreDef, layoutID string) manifest.
 		Exclude: append([]string(nil), restore.Exclude...), Key: restore.Key, ValueName: restore.ValueName,
 		ValueType: restore.ValueType, Data: restore.Data,
 	}
+}
+
+func projectModuleVerifies(mod *modules.Module) []manifest.VerifyEntry {
+	if mod == nil || len(mod.Verify) == 0 {
+		return nil
+	}
+	projected := make([]manifest.VerifyEntry, 0, len(mod.Verify))
+	for _, verify := range mod.Verify {
+		projected = append(projected, manifest.VerifyEntry{
+			Type: verify.Type, Command: verify.Command, Path: verify.Path,
+			ValueName: verify.ValueName, ValueType: verify.ValueType, Data: verify.Data,
+		})
+	}
+	return projected
+}
+
+// capturedModuleVerifies accepts only the exact module objects whose payloads
+// made it into the artifact. It never looks a successful ID back up in the
+// broader candidate set, where a foreign duplicate could donate authority.
+func capturedModuleVerifies(capturedModules []*modules.Module) ([]manifest.VerifyEntry, error) {
+	ordered := append([]*modules.Module(nil), capturedModules...)
+	sort.SliceStable(ordered, func(left, right int) bool {
+		if ordered[left] == nil {
+			return false
+		}
+		if ordered[right] == nil {
+			return true
+		}
+		return ordered[left].ID < ordered[right].ID
+	})
+	seen := make(map[string]string, len(ordered))
+	var projected []manifest.VerifyEntry
+	for _, mod := range ordered {
+		if mod == nil {
+			continue
+		}
+		identity, err := captureModuleObjectIdentity(mod)
+		if err != nil {
+			return nil, err
+		}
+		if previous, duplicate := seen[mod.ID]; duplicate {
+			if previous != identity {
+				return nil, fmt.Errorf("capture bundle: ambiguous captured module identity for %s", mod.ID)
+			}
+			continue
+		}
+		seen[mod.ID] = identity
+		projected = append(projected, projectModuleVerifies(mod)...)
+	}
+	return projected, nil
 }
 
 func prepareCaptureManifest(base *manifest.Manifest, version int, captures []manifest.ConfigCapture, legacy *legacyCaptureCollection) {

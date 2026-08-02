@@ -1,1 +1,7 @@
 * text=auto
+
+# Validation trust boundaries hash raw bytes. Keep every hash-bound text asset
+# byte-identical across Windows, macOS, and Linux checkouts.
+modules/apps/**/seed.ps1 text eol=lf
+modules/apps/**/validation-fixtures/** text eol=lf
+go-engine/internal/validationharness/testdata/restore-contract/** text eol=lf

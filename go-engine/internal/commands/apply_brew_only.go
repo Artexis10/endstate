@@ -66,7 +66,10 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	presentCount, skippedRealizer := 0, 0
 	for _, e := range entries {
 		if e.isManual {
-			expanded, exists := checkVerifyPath(e.app.Manual.VerifyPath)
+			expanded, exists, verifyPathErr := checkVerifyPathWithValidation(e.app.Manual.VerifyPath, currentValidationMode)
+			if verifyPathErr != nil {
+				return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
 			a := ApplyAction{ID: e.app.ID, Driver: "manual", Name: e.name, Manual: e.app.Manual}
 			if exists {
 				a.Status, a.Reason, a.Message = "present", "already_installed", fmt.Sprintf("Verified at %s", expanded)
@@ -177,7 +180,10 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		if !e.isManual {
 			continue
 		}
-		expanded, exists := checkVerifyPath(e.app.Manual.VerifyPath)
+		expanded, exists, verifyPathErr := checkVerifyPathWithValidation(e.app.Manual.VerifyPath, currentValidationMode)
+		if verifyPathErr != nil {
+			return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+		}
 		if exists {
 			emitter.EmitItem(e.app.ID, "manual", "present", "", fmt.Sprintf("Verified at %s", expanded), e.name)
 			verifyPass++

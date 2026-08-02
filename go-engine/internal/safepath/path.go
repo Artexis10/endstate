@@ -46,12 +46,19 @@ func ValidateRoot(root string) error {
 	return err
 }
 
+// IsLinkOrReparse reports whether info describes a symbolic link or a
+// platform-specific reparse point. Callers that walk protected trees use this
+// instead of relying on ModeSymlink alone on Windows.
+func IsLinkOrReparse(info os.FileInfo) bool {
+	return isLinkOrReparse(info)
+}
+
 func Resolve(root, portableRelative string) (string, error) {
 	rootPath, err := validateRoot(root)
 	if err != nil {
 		return "", err
 	}
-	normalized, err := normalizePortable(portableRelative)
+	normalized, err := NormalizePortable(portableRelative)
 	if err != nil {
 		return "", err
 	}
@@ -70,7 +77,7 @@ func MkdirParent(root, portableRelative string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	normalized, err := normalizePortable(portableRelative)
+	normalized, err := NormalizePortable(portableRelative)
 	if err != nil {
 		return err
 	}
@@ -143,7 +150,9 @@ func rejectRootChainLinks(root string) (os.FileInfo, error) {
 	return rootInfo, nil
 }
 
-func normalizePortable(value string) (string, error) {
+// NormalizePortable validates and canonicalizes a portable relative path
+// without consulting a filesystem root or following links.
+func NormalizePortable(value string) (string, error) {
 	if value == "" || value != strings.TrimSpace(value) || strings.ContainsRune(value, '\x00') {
 		return "", pathError(CodeUnsafePath, value, ErrUnsafePath)
 	}

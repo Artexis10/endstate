@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.kubectl",
+  "moduleRevision": "3d42d74557903e8a48de578da3f06de382745e869482b9b04cb0c82dc4d965c9",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

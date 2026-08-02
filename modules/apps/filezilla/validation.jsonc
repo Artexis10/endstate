@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.filezilla",
+  "moduleRevision": "19810cc5dcb1c3fa2165c8beec0464f92dcd0c91788be4cf1e18157e8d49246a",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

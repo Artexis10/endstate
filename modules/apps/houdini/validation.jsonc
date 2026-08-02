@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.houdini",
+  "moduleRevision": "8513718df18f492dfda92389d8f8fed1039a3f85e047c890a3ba39ac97be2b35",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "nestedSummary": 1,
+          "payload": 1,
+          "provenance": 1,
+          "rebuild": 1,
+          "revert": 1,
+          "rewrittenRestore": 1,
+          "verify": 2
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

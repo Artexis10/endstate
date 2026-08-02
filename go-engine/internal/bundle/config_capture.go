@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 const (
@@ -118,6 +119,13 @@ func readableConfigDirName(identifier, captureID string) string {
 	}
 }
 
+// ConfigPayloadRoot returns the canonical portable payload root for a captured
+// config set. CaptureID remains the opaque provenance identity; this root is
+// the readable directory used by collection and every manifest projection.
+func ConfigPayloadRoot(moduleID, captureID string) string {
+	return path.Join("configs", readableConfigDirName(moduleID, captureID))
+}
+
 // sanitizeConfigDirSegment lowercases an identifier and reduces it to the
 // path-safe [a-z0-9.-] alphabet, collapsing every other run of characters into a
 // single dash. A leading "apps." catalog prefix is dropped for brevity
@@ -182,8 +190,18 @@ var openConfigCaptureSource = os.Open
 // CollectConfigSet preflights and copies one generation capture into only its
 // configs/<captureId>/ root. The root is removed on every collection error.
 func CollectConfigSet(plan ConfigSetCapturePlan, stagingRoot string) (_ *ConfigSetCollection, returnErr error) {
+	return CollectConfigSetWithValidation(plan, stagingRoot, nil)
+}
+
+// CollectConfigSetWithValidation runs the ordinary generation collector while
+// resolving host reads and portable writes through optional validation
+// authority. A nil context is the production path.
+func CollectConfigSetWithValidation(plan ConfigSetCapturePlan, stagingRoot string, context *validationmode.Context) (_ *ConfigSetCollection, returnErr error) {
 	if plan.Module == nil || plan.Set == nil || plan.Generation == nil || plan.Module.ID == "" || plan.Set.ID == "" || plan.Generation.ID == "" || plan.Instance.ID == "" {
 		return nil, captureError(ConfigCaptureInvalidPlan, "module, set, generation, and instance identities are required")
+	}
+	if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
+		return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
 	}
 	if err := validateConfigSetCapturePlan(plan); err != nil {
 		return nil, err
@@ -199,30 +217,47 @@ func CollectConfigSet(plan ConfigSetCapturePlan, stagingRoot string) (_ *ConfigS
 	}
 
 	captureID := CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
-	payloadRoot := path.Join("configs", readableConfigDirName(plan.Module.ID, captureID))
-	preflight, err := preflightConfigCopies(plan)
+	payloadRoot := ConfigPayloadRoot(plan.Module.ID, captureID)
+	preflight, err := preflightConfigCopies(plan, context)
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(stagingRoot) == "" {
 		return nil, captureError(ConfigCaptureUnsafePath, "staging root is empty")
 	}
+	if context != nil {
+		if err := context.ValidateSandboxPath(filepath.Clean(stagingRoot)); err != nil {
+			return nil, captureIsolation(plan.Module.ID, "stagingRoot", "portable", "staging-root", err)
+		}
+	}
 	if err := ensureNoLinksInExistingPath(stagingRoot); err != nil {
+		if context != nil {
+			return nil, captureIsolation(plan.Module.ID, "stagingRoot", "portable", "staging-root", validationmode.ErrUnsafePath)
+		}
 		return nil, capturePathError(err, "staging root %q", stagingRoot)
 	}
-	payloadHost, err := containedHostPath(stagingRoot, payloadRoot)
+	payloadHost, err := resolveCapturePortable(context, plan.Module.ID, "payloadRoot", stagingRoot, payloadRoot)
 	if err != nil {
 		return nil, capturePathError(err, "payload root %q", payloadRoot)
 	}
 	if _, err := os.Lstat(payloadHost); err == nil {
 		return nil, captureError(ConfigCaptureDestinationCollision, "destination payload root already exists: %s", payloadRoot)
 	} else if !os.IsNotExist(err) {
+		if context != nil {
+			return nil, captureIsolation(plan.Module.ID, "payloadRoot", "portable", payloadRoot, validationmode.ErrUnsafePath)
+		}
 		return nil, captureError(ConfigCaptureIO, "inspect payload root %q: %v", payloadRoot, err)
 	}
 	if err := ensureNoLinksInExistingPath(filepath.Dir(payloadHost)); err != nil {
+		if context != nil {
+			return nil, captureIsolation(plan.Module.ID, "payloadRoot", "portable", payloadRoot, validationmode.ErrUnsafePath)
+		}
 		return nil, capturePathError(err, "payload parent for %q", payloadRoot)
 	}
 	if err := os.MkdirAll(payloadHost, 0o755); err != nil {
+		if context != nil {
+			return nil, captureIsolation(plan.Module.ID, "payloadRoot", "portable", payloadRoot, validationmode.ErrUnsafePath)
+		}
 		return nil, captureError(ConfigCaptureIO, "create payload root %q: %v", payloadRoot, err)
 	}
 	createdPayload := true
@@ -233,17 +268,26 @@ func CollectConfigSet(plan ConfigSetCapturePlan, stagingRoot string) (_ *ConfigS
 	}()
 	files := make([]string, 0, len(preflight.items))
 	for _, item := range preflight.items {
-		destination, err := containedHostPath(payloadHost, item.dest)
+		destination, err := resolveCapturePortable(context, plan.Module.ID, "capture.files[].dest", payloadHost, item.dest)
 		if err != nil {
 			return nil, capturePathError(err, "destination %q", item.dest)
 		}
 		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			if context != nil {
+				return nil, captureIsolation(plan.Module.ID, "capture.files[].dest", "portable", item.dest, validationmode.ErrUnsafePath)
+			}
 			return nil, captureError(ConfigCaptureIO, "create destination directory for %q: %v", item.dest, err)
 		}
 		if err := ensureNoLinksInExistingPath(filepath.Dir(destination)); err != nil {
+			if context != nil {
+				return nil, captureIsolation(plan.Module.ID, "capture.files[].dest", "portable", item.dest, validationmode.ErrUnsafePath)
+			}
 			return nil, capturePathError(err, "destination %q", item.dest)
 		}
 		if err := copyRegularFile(item.source, destination, item.digest); err != nil {
+			if context != nil {
+				return nil, captureIsolation(plan.Module.ID, "capture.files[].source", "path", "capture.files[].source", validationmode.ErrUnsafePath)
+			}
 			return nil, capturePathError(err, "copy %q to %q", item.source, item.dest)
 		}
 		files = append(files, item.dest)
@@ -317,18 +361,34 @@ func moduleMatchesPinnedSnapshot(mod *modules.Module) bool {
 	return reflect.DeepEqual(pinned, mod)
 }
 
-func preflightConfigCopies(plan ConfigSetCapturePlan) (*configCopyPreflight, error) {
+func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Context) (*configCopyPreflight, error) {
+	if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
+		return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
+	}
 	capture := plan.Generation.Capture
 	excludeGlobs := capture.ExcludeGlobs
 	var secretFiles []string
 	if plan.Module.Secrets != nil {
 		secretFiles = plan.Module.Secrets.Files
 	}
+	policy := validationmode.HostPathPolicy{InstanceRoot: plan.Instance.Root}
+	resolvedSecrets, err := resolveCaptureSecretPatterns(context, plan.Module.ID, secretFiles, policy)
+	if err != nil {
+		return nil, err
+	}
 	preflight := &configCopyPreflight{}
 	for index, declaration := range capture.Files {
-		source, err := modules.ExpandInstancePath(declaration.Source, plan.Instance, modules.HostPath)
+		var source string
+		if context != nil {
+			source, err = resolveCaptureHost(context, plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), declaration.Source, policy)
+		} else {
+			source, err = modules.ExpandInstancePath(declaration.Source, plan.Instance, modules.HostPath)
+			if err != nil {
+				return nil, captureError(ConfigCaptureUnsafePath, "capture.files[%d].source: %v", index, err)
+			}
+		}
 		if err != nil {
-			return nil, captureError(ConfigCaptureUnsafePath, "capture.files[%d].source: %v", index, err)
+			return nil, err
 		}
 		destinationExpanded, err := modules.ExpandInstancePath(declaration.Dest, plan.Instance, modules.PortableRelativePath)
 		if err != nil {
@@ -339,16 +399,19 @@ func preflightConfigCopies(plan ConfigSetCapturePlan) (*configCopyPreflight, err
 			return nil, captureError(ConfigCaptureUnsafePath, "capture.files[%d].dest: %v", index, err)
 		}
 
-		if matchesSecrets(source, secretFiles) {
+		if captureMatchesSecrets(source, secretFiles, resolvedSecrets, context != nil) {
 			preflight.secretsExcluded++
 			continue
 		}
-		if matchesExcludeGlobs(source, excludeGlobs) {
+		if matchesExcludeGlobs(filepath.Base(source), excludeGlobs) {
 			continue
 		}
 		if err := ensureNoLinksInExistingPath(source); err != nil {
 			if os.IsNotExist(err) && declaration.Optional {
 				continue
+			}
+			if context != nil {
+				return nil, captureIsolation(plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", declaration.Source, validationmode.ErrUnsafePath)
 			}
 			return nil, capturePathError(err, "source %q", source)
 		}
@@ -358,11 +421,20 @@ func preflightConfigCopies(plan ConfigSetCapturePlan) (*configCopyPreflight, err
 				continue
 			}
 			if os.IsNotExist(err) {
+				if context != nil {
+					return nil, captureError(ConfigCaptureMissingRequired, "missing required source at capture.files[%d].source (module: %s)", index, plan.Module.ID)
+				}
 				return nil, captureError(ConfigCaptureMissingRequired, "missing required source: %s (module: %s)", source, plan.Module.ID)
+			}
+			if context != nil {
+				return nil, captureIsolation(plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", declaration.Source, validationmode.ErrUnsafePath)
 			}
 			return nil, captureError(ConfigCaptureIO, "inspect source %q: %v", source, err)
 		}
 		if isLinkOrReparse(info) {
+			if context != nil {
+				return nil, captureIsolation(plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", declaration.Source, validationmode.ErrUnsafePath)
+			}
 			return nil, captureError(ConfigCaptureLinkUnsupported, "source %q is a link or reparse point", source)
 		}
 		if info.Mode().IsRegular() {
@@ -370,14 +442,20 @@ func preflightConfigCopies(plan ConfigSetCapturePlan) (*configCopyPreflight, err
 				continue
 			}
 			if err := addConfigCopyItem(preflight, source, destination); err != nil {
+				if context != nil {
+					return nil, captureIsolation(plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", declaration.Source, validationmode.ErrUnsafePath)
+				}
 				return nil, err
 			}
 			continue
 		}
 		if !info.IsDir() {
+			if context != nil {
+				return nil, captureIsolation(plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", declaration.Source, validationmode.ErrUnsafePath)
+			}
 			return nil, captureError(ConfigCaptureLinkUnsupported, "source %q is not a regular file or directory", source)
 		}
-		if err := preflightConfigDirectory(preflight, source, destination, excludeGlobs, secretFiles); err != nil {
+		if err := preflightConfigDirectory(preflight, source, destination, excludeGlobs, secretFiles, resolvedSecrets, context, plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), declaration.Source); err != nil {
 			return nil, err
 		}
 	}
@@ -385,37 +463,54 @@ func preflightConfigCopies(plan ConfigSetCapturePlan) (*configCopyPreflight, err
 	return preflight, nil
 }
 
-func preflightConfigDirectory(preflight *configCopyPreflight, sourceRoot, destinationRoot string, excludeGlobs, secretFiles []string) error {
+func preflightConfigDirectory(preflight *configCopyPreflight, sourceRoot, destinationRoot string, excludeGlobs, secretFiles, resolvedSecrets []string, context *validationmode.Context, moduleID, coordinate, authored string) error {
 	return filepath.WalkDir(sourceRoot, func(source string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if context != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
 			return captureError(ConfigCaptureIO, "walk source %q: %v", source, walkErr)
 		}
 		if source == sourceRoot {
 			return nil
 		}
+		if context != nil {
+			if err := context.ValidateSandboxPath(filepath.Clean(source)); err != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, err)
+			}
+		}
 		info, err := entry.Info()
 		if err != nil {
+			if context != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
 			return captureError(ConfigCaptureIO, "inspect source %q: %v", source, err)
 		}
 		if isLinkOrReparse(info) {
+			if context != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
 			return captureError(ConfigCaptureLinkUnsupported, "source %q is a link or reparse point", source)
 		}
-		if matchesSecrets(source, secretFiles) {
+		relative, err := filepath.Rel(sourceRoot, source)
+		if err != nil {
+			if context != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
+			return captureError(ConfigCaptureUnsafePath, "relative source path for %q: %v", source, err)
+		}
+		if captureMatchesSecrets(source, secretFiles, resolvedSecrets, context != nil) {
 			preflight.secretsExcluded++
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if matchesExcludeGlobs(source, excludeGlobs) {
+		if matchesExcludeGlobs(relative, excludeGlobs) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
-		}
-		relative, err := filepath.Rel(sourceRoot, source)
-		if err != nil {
-			return captureError(ConfigCaptureUnsafePath, "relative source path for %q: %v", source, err)
 		}
 		if isBloatDirSegment(relative) {
 			if entry.IsDir() {
@@ -427,6 +522,9 @@ func preflightConfigDirectory(preflight *configCopyPreflight, sourceRoot, destin
 			return nil
 		}
 		if !info.Mode().IsRegular() {
+			if context != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
 			return captureError(ConfigCaptureLinkUnsupported, "source %q is not a regular file", source)
 		}
 		if isOversizedInstaller(source, info.Size()) {
@@ -434,9 +532,16 @@ func preflightConfigDirectory(preflight *configCopyPreflight, sourceRoot, destin
 		}
 		destination, err := normalizePortablePath(path.Join(destinationRoot, filepath.ToSlash(relative)))
 		if err != nil {
+			if context != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
 			return captureError(ConfigCaptureUnsafePath, "destination for %q: %v", source, err)
 		}
-		return addConfigCopyItem(preflight, source, destination)
+		err = addConfigCopyItem(preflight, source, destination)
+		if err != nil && context != nil {
+			return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+		}
+		return err
 	})
 }
 
@@ -574,6 +679,10 @@ func captureError(code, format string, args ...any) error {
 }
 
 func capturePathError(err error, format string, args ...any) error {
+	var isolation *CaptureIsolationError
+	if errors.As(err, &isolation) {
+		return err
+	}
 	detail := fmt.Sprintf(format, args...)
 	if errors.Is(err, errBundleLink) {
 		return captureError(ConfigCaptureLinkUnsupported, "%s: %v", detail, err)

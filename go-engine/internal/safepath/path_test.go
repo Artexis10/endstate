@@ -60,6 +60,18 @@ func TestResolveRejectsUnsafePortablePaths(t *testing.T) {
 	}
 }
 
+func TestNormalizePortableValidatesSyntaxWithoutFilesystemState(t *testing.T) {
+	got, err := NormalizePortable(`apps\fixture\settings.reg`)
+	if err != nil || got != "apps/fixture/settings.reg" {
+		t.Fatalf("NormalizePortable() = %q, %v", got, err)
+	}
+	for _, value := range []string{"", ".", "../escape", "~/settings.reg", "%APPDATA%/settings.reg", "$HOME/settings.reg", "apps/fixture/settings\x00.reg", "apps/fixture/ settings.reg"} {
+		if _, err := NormalizePortable(value); !errors.Is(err, ErrUnsafePath) {
+			t.Fatalf("NormalizePortable(%q) error = %v, want ErrUnsafePath", value, err)
+		}
+	}
+}
+
 func TestResolveRequiresAbsoluteExistingDirectoryRoot(t *testing.T) {
 	file := filepath.Join(safePathTestRoot(t), "file")
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {

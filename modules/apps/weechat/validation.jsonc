@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.weechat",
+  "moduleRevision": "67f7c1e6b3cf7b497e4d7aafc3e4e12a7187b4f266b61badc9c323883e67bcd4",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.fastrawviewer",
+  "moduleRevision": "e74728cb944b372b0483e1a5fd5dc1c0c5f95957db3c2d50c25a9ee49530657b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

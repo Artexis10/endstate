@@ -29,6 +29,31 @@ func TestLegacyCaptureIDIsStableDomainSeparatedAndPortable(t *testing.T) {
 	}
 }
 
+func TestProjectCapturePlanningManifestUsesCollectionPayloadRoots(t *testing.T) {
+	dir := t.TempDir()
+	legacy := testLegacyCaptureModule(t, dir, "apps.legacy", "legacy")
+	plan := testGenerationCapturePlan(t, "apps.v2", "instance-a", filepath.Join(dir, "v2"), false, false)
+
+	projected, err := ProjectCapturePlanningManifest(nil, []*modules.Module{legacy}, []ConfigSetCapturePlan{plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyID := LegacyCaptureID(legacy.ID)
+	if len(projected.LegacyConfigLanes) != 1 || projected.LegacyConfigLanes[0].PayloadRoot != ConfigPayloadRoot(legacy.ID, legacyID) {
+		t.Fatalf("legacy projection = %+v", projected.LegacyConfigLanes)
+	}
+	if len(projected.ConfigCaptures) != 1 {
+		t.Fatalf("generation projection = %+v", projected.ConfigCaptures)
+	}
+	wantGenerationRoot := ConfigPayloadRoot(plan.Module.ID, CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID))
+	if projected.ConfigCaptures[0].PayloadRoot != wantGenerationRoot {
+		t.Fatalf("generation payload root = %q, want %q", projected.ConfigCaptures[0].PayloadRoot, wantGenerationRoot)
+	}
+	if got := strings.ReplaceAll(projected.Restore[0].Source, `\`, "/"); !strings.HasPrefix(got, "./"+ConfigPayloadRoot(legacy.ID, legacyID)+"/") {
+		t.Fatalf("legacy restore source = %q", got)
+	}
+}
+
 func TestCreateCaptureBundleVersionMatrix(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -135,6 +160,76 @@ func TestCreateCaptureBundleZeroFilePlanIsTypedSkipAndCannotEnableV2(t *testing.
 	}
 	if len(metadata.CaptureWarnings) != 1 || metadata.CaptureWarnings[0] != captureBundleDiagnosticWarning(diagnostic) {
 		t.Fatalf("empty capture metadata warning = %q", metadata.CaptureWarnings)
+	}
+}
+
+func TestCreateCaptureBundlePublishesVerifyContractOnlyForCapturedModules(t *testing.T) {
+	dir := t.TempDir()
+	captured := testLegacyCaptureModule(t, dir, "apps.captured", "captured")
+	captured.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Captured\settings.json`}}
+
+	skipped := testLegacyCaptureModule(t, dir, "apps.skipped", "skipped")
+	skipped.Capture.Files[0].Source = filepath.Join(dir, "missing.json")
+	skipped.Verify = []modules.VerifyDef{{Type: "command-exists", Command: "must-not-be-published"}}
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{skipped, captured}, nil)
+	if _, err := CreateCaptureBundle(request); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := loadCaptureBundle(t, request.OutputPath)
+	if len(loaded.Verify) != 1 || loaded.Verify[0].Type != "file-exists" || loaded.Verify[0].Path != captured.Verify[0].Path {
+		t.Fatalf("artifact verify contract = %+v, want only successfully captured module", loaded.Verify)
+	}
+	firstManifest, err := json.Marshal(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Modules = []*modules.Module{captured, skipped}
+	request.OutputPath = filepath.Join(dir, "capture-reordered.zip")
+	if _, err := CreateCaptureBundle(request); err != nil {
+		t.Fatal(err)
+	}
+	reordered, _ := loadCaptureBundle(t, request.OutputPath)
+	secondManifest, err := json.Marshal(reordered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstManifest, secondManifest) {
+		t.Fatalf("candidate order changed final manifest:\nfirst=%s\nsecond=%s", firstManifest, secondManifest)
+	}
+}
+
+func TestCapturedModuleVerifiesIncludesSuccessfulLegacyAndGenerationLanes(t *testing.T) {
+	legacy := &modules.Module{ID: "apps.legacy", Verify: []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Legacy\settings.json`}}}
+	generation := &modules.Module{ID: "apps.generation", Verify: []modules.VerifyDef{{Type: "command-exists", Command: "generation-app"}}}
+
+	projected, err := capturedModuleVerifies([]*modules.Module{legacy, generation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projected) != 2 || projected[0].Command != "generation-app" || projected[1].Path != legacy.Verify[0].Path {
+		t.Fatalf("captured lane verifies = %+v", projected)
+	}
+}
+
+func TestCreateCaptureBundleRejectsForeignDuplicateModuleIdentity(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "v2-root")
+	writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("v2"))
+	plan := testGenerationCapturePlan(t, "apps.duplicate", "instance-a", root, false, false)
+	actual := reparseCapturePlanModuleWithVerify(t, &plan, modules.VerifyDef{
+		Type: "file-exists", Path: `%APPDATA%\Actual\settings.json`,
+	})
+	foreign := reparseModuleWithVerify(t, actual, modules.VerifyDef{
+		Type: "command-exists", Command: "foreign-must-not-publish",
+	})
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{foreign, actual}, []ConfigSetCapturePlan{plan})
+	if _, err := CreateCaptureBundle(request); err == nil || !strings.Contains(err.Error(), "ambiguous capture module identity") {
+		t.Fatalf("CreateCaptureBundle duplicate identity error = %v", err)
+	}
+	if _, err := os.Lstat(request.OutputPath); !os.IsNotExist(err) {
+		t.Fatalf("ambiguous module candidates published an artifact: %v", err)
 	}
 }
 
@@ -554,6 +649,33 @@ func testGenerationCapturePlan(t *testing.T, moduleID, instanceID, root string, 
 			Evidence: modules.InstanceEvidence{Type: "path", Path: root},
 		},
 	}
+}
+
+func reparseCapturePlanModuleWithVerify(t *testing.T, plan *ConfigSetCapturePlan, verify modules.VerifyDef) *modules.Module {
+	t.Helper()
+	mod := reparseModuleWithVerify(t, plan.Module, verify)
+	plan.Module = mod
+	plan.Set = &mod.Config.Sets[0]
+	plan.Generation = &plan.Set.Generations[0]
+	return mod
+}
+
+func reparseModuleWithVerify(t *testing.T, source *modules.Module, verify modules.VerifyDef) *modules.Module {
+	t.Helper()
+	var value map[string]any
+	if err := json.Unmarshal(source.CanonicalSnapshot(), &value); err != nil {
+		t.Fatal(err)
+	}
+	value["verify"] = []modules.VerifyDef{verify}
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modules.ParseModuleJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mod
 }
 
 func loadCaptureBundle(t *testing.T, zipPath string) (*manifest.Manifest, BundleMetadata) {

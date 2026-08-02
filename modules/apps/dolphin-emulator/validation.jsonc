@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.dolphin-emulator",
+  "moduleRevision": "1b09d1dd18494f212047e30951c7a5c2e831d883ad9d73232eb1918e41f217db",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

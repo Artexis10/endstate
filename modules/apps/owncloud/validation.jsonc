@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.owncloud",
+  "moduleRevision": "792dfbec032dae5ccb31fd19628030bd5835d4e8e80d8081095046ca7838c378",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "generation-preferences-g1-1c4479cb88b9",
+        "mode": "config-generation-v2",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/owncloud/validation-fixtures/generation-preferences-g1.jsonc",
+          "sha256": "2b374eb1f654341e8e1e1de8f6dcf1a99f49c9a3606fb8f2cbb59dfa3fb54d3d"
+        },
+        "expected": {
+          "identityMode": "derived-from-fixture",
+          "detectorId": "installed",
+          "configSetId": "preferences",
+          "generationId": "g1",
+          "fingerprint": "1c4479cb88b97756a6d73c39f0435c93f1ed53c58337f8562790d8ef060e26e6"
+        }
+      },
+      {
+        "id": "generation-preferences-g2-899536c068d4",
+        "mode": "config-generation-v2",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/owncloud/validation-fixtures/generation-preferences-g2.jsonc",
+          "sha256": "29cbcdd0bacc73ee76f00682ac2295355dee310ad53e3ffc281e753d8b0e8438"
+        },
+        "expected": {
+          "identityMode": "derived-from-fixture",
+          "detectorId": "installed",
+          "configSetId": "preferences",
+          "generationId": "g2",
+          "fingerprint": "899536c068d45769a2292adc25ab331226c5fc8eb4c71f89da00b61a3a3cdfba"
+        }
+      },
+      {
+        "id": "migration-preferences-g1-to-g2",
+        "mode": "config-migration-v2",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/owncloud/validation-fixtures/migration-preferences-g1-to-g2.jsonc",
+          "sha256": "135455832261afe7bb823d1aec8f73ce5b0f672b52be18fa96481a1f0595234f"
+        },
+        "expected": {
+          "identityMode": "derived-from-fixture",
+          "detectorId": "installed",
+          "configSetId": "preferences",
+          "generationId": "g2",
+          "fingerprint": "899536c068d45769a2292adc25ab331226c5fc8eb4c71f89da00b61a3a3cdfba",
+          "migrationFrom": "g1",
+          "migrationTo": "g2"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

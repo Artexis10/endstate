@@ -96,8 +96,11 @@ func validateJournalActions(transactionRoot string, actions []JournalAction) err
 				}
 				missingParentOwners[canonical] = index
 			}
-			if err := validateConcreteHostPath(action.Target); err != nil || containsControl(action.Target) {
-				return fmt.Errorf("journal filesystem action[%d] has unsafe target", index)
+			if containsControl(action.Target) {
+				return fmt.Errorf("journal filesystem action[%d] has unsafe target %q: target contains control characters", index, action.Target)
+			}
+			if err := validateConcreteHostPath(action.Target); err != nil {
+				return fmt.Errorf("journal filesystem action[%d] has unsafe target %q: %w", index, action.Target, err)
 			}
 			if err := validateSnapshotPathSeparation(transactionRoot, action.Target); err != nil {
 				return fmt.Errorf("journal filesystem action[%d] target: %w", index, err)
@@ -349,6 +352,9 @@ func verifySnapshotArtifacts(ctx context.Context, snapshotRoot string, actions [
 	if err := checkSnapshotContext(ctx); err != nil {
 		return nil, nil, err
 	}
+	if err := validateHostIO(ctx, snapshotRoot); err != nil {
+		return nil, nil, err
+	}
 	if err := rejectExistingTargetLinks(snapshotRoot); err != nil {
 		return nil, nil, err
 	}
@@ -366,6 +372,9 @@ func verifySnapshotArtifacts(ctx context.Context, snapshotRoot string, actions [
 	}
 	for index, action := range actions {
 		actionRoot := filepath.Join(snapshotRoot, formatActionIndex(index))
+		if err := validateHostIO(ctx, actionRoot); err != nil {
+			return nil, nil, err
+		}
 		entries, err := os.ReadDir(actionRoot)
 		if err != nil {
 			return nil, nil, err
@@ -374,6 +383,9 @@ func verifySnapshotArtifacts(ctx context.Context, snapshotRoot string, actions [
 		case ActionRegistrySet:
 			if len(entries) != 1 || entries[0].Name() != "prior.registry" || entries[0].IsDir() {
 				return nil, nil, fmt.Errorf("registry snapshot action[%d] layout is not canonical", index)
+			}
+			if err := validateHostIO(ctx, action.Prior.BackupPath); err != nil {
+				return nil, nil, err
 			}
 			snapshot, err := loadRegistrySnapshot(action.Prior.BackupPath)
 			if err != nil {
@@ -404,10 +416,7 @@ func verifySnapshotArtifacts(ctx context.Context, snapshotRoot string, actions [
 		}
 	}
 	var files, directories []string
-	err = filepath.Walk(snapshotRoot, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
+	err = walkSnapshotArtifacts(ctx, snapshotRoot, func(path string, info os.FileInfo) error {
 		if err := checkSnapshotContext(ctx); err != nil {
 			return err
 		}
@@ -430,4 +439,37 @@ func verifySnapshotArtifacts(ctx context.Context, snapshotRoot string, actions [
 	sort.Strings(files)
 	sort.Strings(directories)
 	return files, directories, nil
+}
+
+func walkSnapshotArtifacts(ctx context.Context, root string, visit func(string, os.FileInfo) error) error {
+	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, root); err != nil {
+		return err
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if err := visit(root, info); err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	if err := validateHostIO(ctx, root); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		child := filepath.Join(root, entry.Name())
+		if err := walkSnapshotArtifacts(ctx, child, visit); err != nil {
+			return err
+		}
+	}
+	return nil
 }

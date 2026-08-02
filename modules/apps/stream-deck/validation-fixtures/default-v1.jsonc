@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    { "coordinate": "capture.files[0]", "kind": "directory" },
+    { "coordinate": "capture.files[1]", "kind": "directory" },
+    { "coordinate": "capture.files[2]", "kind": "directory" }
+  ]
+}

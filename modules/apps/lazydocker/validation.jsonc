@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.lazydocker",
+  "moduleRevision": "a96f7b4b3a28f0630247d9ef1a15013758efc8b21ac77504814aac3acbee9ee7",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

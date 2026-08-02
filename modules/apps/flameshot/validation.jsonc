@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.flameshot",
+  "moduleRevision": "12c754ac29e6185b0f4bdfdbdc6d75e8b866246b352f99f45be0f0b77c99101f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

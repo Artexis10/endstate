@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.pycharm-professional",
+  "moduleRevision": "eda7d4f6aa54967b58d5677b3dba9c027f6fac319e01d6a0b7b0dc51b9022772",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

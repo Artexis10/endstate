@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.davinci-resolve",
+  "moduleRevision": "81ce9a9d6e78829523cdec3b8286ed29cacc14c08166542537b22c3893c7a4ad",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

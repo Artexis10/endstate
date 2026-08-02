@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // Journal records the results of a restore run for use by the revert command.
@@ -40,7 +42,31 @@ type JournalEntry struct {
 // WriteJournal writes a restore journal to logsDir as an atomic temp+rename
 // operation. The journal filename is restore-journal-<runID>.json.
 func WriteJournal(logsDir, runID, manifestPath, manifestDir, exportRoot string, results []RestoreResult) error {
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
+	return WriteJournalWithValidation(logsDir, runID, manifestPath, manifestDir, exportRoot, results, nil)
+}
+
+// WriteJournalWithValidation writes the legacy journal while projecting
+// validation-owned manifest authorities to stable semantic display paths.
+func WriteJournalWithValidation(
+	logsDir, runID, manifestPath, manifestDir, exportRoot string,
+	results []RestoreResult,
+	context *validationmode.Context,
+) (returnErr error) {
+	if context != nil {
+		defer func() {
+			if returnErr != nil {
+				returnErr = fmt.Errorf("%s", replaceFoldMany(returnErr.Error(), [][2]string{
+					{context.Root(), "$ENDSTATE_ROOT"},
+					{context.Descriptor().Nonce, "validation"},
+				}))
+			}
+		}()
+	}
+	boundary := legacyValidationBoundary{context: context}
+	if err := boundary.authorizeIO("journal-logs-directory", logsDir); err != nil {
+		return err
+	}
+	if err := boundary.mkdirAll("journal-logs-mkdir", logsDir, 0755); err != nil {
 		return fmt.Errorf("cannot create logs directory: %w", err)
 	}
 
@@ -62,6 +88,18 @@ func WriteJournal(logsDir, runID, manifestPath, manifestDir, exportRoot string, 
 		entries = append(entries, entry)
 	}
 
+	if context != nil {
+		var err error
+		if manifestPath, err = semanticJournalPath(context, manifestPath); err != nil {
+			return err
+		}
+		if manifestDir, err = semanticJournalPath(context, manifestDir); err != nil {
+			return err
+		}
+		if exportRoot, err = semanticJournalPath(context, exportRoot); err != nil {
+			return err
+		}
+	}
 	journal := Journal{
 		RunID:        runID,
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
@@ -79,16 +117,27 @@ func WriteJournal(logsDir, runID, manifestPath, manifestDir, exportRoot string, 
 	journalFile := filepath.Join(logsDir, fmt.Sprintf("restore-journal-%s.json", runID))
 	tmpFile := journalFile + ".tmp"
 
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	if err := boundary.writeFile("journal-temp-write", tmpFile, data, 0644); err != nil {
 		return fmt.Errorf("cannot write journal temp file: %w", err)
 	}
 
-	if err := os.Rename(tmpFile, journalFile); err != nil {
-		os.Remove(tmpFile)
+	if err := boundary.rename("journal-publish", tmpFile, journalFile); err != nil {
+		_ = boundary.remove("journal-temp-cleanup", tmpFile)
 		return fmt.Errorf("cannot rename journal file: %w", err)
 	}
 
 	return nil
+}
+
+func semanticJournalPath(context *validationmode.Context, value string) (string, error) {
+	if value == "" || !filepath.IsAbs(value) {
+		return value, nil
+	}
+	semantic, err := context.DisplayPath(filepath.Clean(value))
+	if err != nil {
+		return "", fmt.Errorf("journal identity escaped validation-owned storage: %w", err)
+	}
+	return semantic, nil
 }
 
 // ReadJournal reads and parses a restore journal from the given path.

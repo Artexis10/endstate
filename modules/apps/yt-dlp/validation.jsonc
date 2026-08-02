@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.yt-dlp",
+  "moduleRevision": "b3b2e5c68dc30eeaa688282aecf7016bd09adeb633b02f903e29c8745b64cbbd",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

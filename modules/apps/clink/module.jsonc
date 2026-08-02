@@ -22,58 +22,26 @@
 
   "restore": [
     {
-      // Clink settings (output of `clink set`); overridable via %CLINK_SETTINGS%
-      "type": "copy",
-      "source": "./payload/apps/clink/clink_settings",
-      "target": "%LOCALAPPDATA%\\clink\\clink_settings",
-      "backup": true,
-      "optional": true
-    },
-    {
-      // Readline init file (key bindings, colored completions)
-      "type": "copy",
-      "source": "./payload/apps/clink/.inputrc",
-      "target": "%LOCALAPPDATA%\\clink\\.inputrc",
-      "backup": true,
-      "optional": true
-    },
-    {
-      // Optional startup script run when the first CMD prompt is shown
-      "type": "copy",
-      "source": "./payload/apps/clink/clink_start.cmd",
-      "target": "%LOCALAPPDATA%\\clink\\clink_start.cmd",
-      "backup": true,
-      "optional": true
-    },
-    {
-      // Whole profile directory (catches custom *.lua scripts and any extra config),
-      // history and logs excluded below
+      // Whole profile: settings, inputrc, startup scripts, and custom Lua scripts.
+      // History and logs are excluded below.
       "type": "copy",
       "source": "./payload/apps/clink/profile",
       "target": "%LOCALAPPDATA%\\clink",
       "backup": true,
       "optional": true,
       "exclude": [
-        "**\\clink_history",
         "**\\clink_history*",
-        "**\\*.log",
-        "**\\clink.log"
+        "**\\*.log"
       ]
     }
   ],
 
   "capture": {
     "files": [
-      { "source": "%LOCALAPPDATA%\\clink\\clink_settings", "dest": "apps/clink/clink_settings", "optional": true },
-      { "source": "%LOCALAPPDATA%\\clink\\.inputrc", "dest": "apps/clink/.inputrc", "optional": true },
-      { "source": "%LOCALAPPDATA%\\clink\\clink_start.cmd", "dest": "apps/clink/clink_start.cmd", "optional": true },
-      // Whole profile directory captures custom Lua scripts and any other config files
       { "source": "%LOCALAPPDATA%\\clink", "dest": "apps/clink/profile", "optional": true }
     ],
     "excludeGlobs": [
-      "**\\clink_history",
       "**\\clink_history*",
-      "**\\clink.log",
       "**\\*.log"
     ]
   },

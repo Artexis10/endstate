@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.emacs",
+  "moduleRevision": "5d6277a9c259b769a701d0136bec6d7f3b7c2320bdf3bc8edd5cde31aa32795b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

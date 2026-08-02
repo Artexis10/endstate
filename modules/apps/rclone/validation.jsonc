@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.rclone",
+  "moduleRevision": "b2aceb365c495cd4ca8c1e1a33eb9dae995c1ffaeb59caa4b5ae894bdfa11cc1",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

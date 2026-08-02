@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.simplewall",
+  "moduleRevision": "b6ee6c52cb399af508709d7ac9c0b80f63a6f924db4c59b06f08ff3a8b65ac43",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

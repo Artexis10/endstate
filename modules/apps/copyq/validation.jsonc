@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.copyq",
+  "moduleRevision": "00d040ba47b5c474f5ee3e34bbb10cbc2b1a2dc520def5637cba8bce7ee9e4df",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

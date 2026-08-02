@@ -115,6 +115,7 @@ type JournalIntent struct {
 	lineage         JournalLineage
 	actions         []JournalAction
 	validations     []JournalValidation
+	boundary        HostBoundary
 }
 
 type journalPhase string
@@ -303,5 +304,6 @@ func cloneJournalIntent(intent *JournalIntent) *JournalIntent {
 		transactionRoot: intent.transactionRoot, path: intent.path, digest: intent.digest,
 		lineage: cloneJournalLineage(intent.lineage), actions: cloneJournalActions(intent.actions),
 		validations: append([]JournalValidation{}, intent.validations...),
+		boundary:    intent.boundary,
 	}
 }

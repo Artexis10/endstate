@@ -4,13 +4,606 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
+
+func cliValidationRoot(t *testing.T) string {
+	t.Helper()
+	return cliValidationRootWithInventory(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", Source: "winget", InitialState: "present",
+	})
+}
+
+func TestHostedAuthorityEnvironmentIsClearedForTests(t *testing.T) {
+	for _, name := range []string{"GITHUB_WORKSPACE", "RUNNER_WORKSPACE"} {
+		if value, set := os.LookupEnv(name); set {
+			t.Fatalf("%s remained in the test process: %q", name, value)
+		}
+	}
+}
+
+func TestMain(m *testing.M) {
+	// Validation mode deliberately guards ambient hosted workspaces. Unit tests
+	// create their own disposable authority, so inherited runner workspaces are
+	// foreign host state rather than part of the fixture contract.
+	_ = os.Unsetenv("GITHUB_WORKSPACE")
+	_ = os.Unsetenv("RUNNER_WORKSPACE")
+	os.Exit(m.Run())
+}
+
+func cliValidationRootWithInventory(t *testing.T, inventory validationmode.Inventory) string {
+	t.Helper()
+	root, err := os.MkdirTemp(os.TempDir(), "endstate-validation-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	nonce := strings.TrimPrefix(filepath.Base(root), "endstate-validation-")
+	descriptor := validationmode.Descriptor{
+		SchemaVersion: 1,
+		ScenarioID:    "cli-validation",
+		Nonce:         nonce,
+		ModuleID:      "apps.notepad-plus-plus",
+		Inventory:     inventory,
+	}
+	data, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".endstate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".endstate", "validation-mode.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func decodeCLIEnvelope(t *testing.T, output string) map[string]interface{} {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &decoded); err != nil {
+		t.Fatalf("decode envelope %q: %v", output, err)
+	}
+	return decoded
+}
+
+func TestRunCLIInactiveOmitsTestModeAndPreservesDispatch(t *testing.T) {
+	t.Setenv(validationmode.TestModeEnvironment, "")
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	called := false
+	dispatchFn = func(p parsedArgs) (interface{}, *envelope.Error) {
+		called = true
+		return map[string]bool{"ok": true}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	if !called {
+		t.Fatal("inactive run did not dispatch")
+	}
+	decoded := decodeCLIEnvelope(t, stdout.String())
+	if _, exists := decoded["testMode"]; exists {
+		t.Fatalf("inactive envelope included testMode: %s", stdout.String())
+	}
+}
+
+func TestRunCLIActiveSuccessAndFailureIncludeSafeIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failure *envelope.Error
+		want    float64
+	}{
+		{name: "success", want: 0},
+		{name: "failure", failure: envelope.NewError(envelope.ErrManifestParseError, "bad manifest"), want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			originalDispatch := dispatchFn
+			t.Cleanup(func() { dispatchFn = originalDispatch })
+			dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+				return map[string]string{"result": "ordinary-dispatch"}, tc.failure
+			}
+			var stdout, stderr bytes.Buffer
+			code := runCLI([]string{"plan", "--json"}, &stdout, &stderr)
+			if float64(code) != tc.want {
+				t.Fatalf("exit = %d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+			}
+			decoded := decodeCLIEnvelope(t, stdout.String())
+			identity, ok := decoded["testMode"].(map[string]interface{})
+			if !ok || identity["active"] != true || identity["scenarioId"] != "cli-validation" || identity["moduleId"] != "apps.notepad-plus-plus" {
+				t.Fatalf("testMode = %#v", decoded["testMode"])
+			}
+			for _, forbidden := range []string{"root", "nonce", "source"} {
+				if _, exists := identity[forbidden]; exists {
+					t.Fatalf("testMode leaked %s: %#v", forbidden, identity)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCLIActiveCaptureDefaultsToDescriptorDriver(t *testing.T) {
+	root := cliValidationRootWithInventory(t, validationmode.Inventory{
+		AppID: "tool", Driver: "chocolatey", Ref: "vendor-tool",
+		DisplayName: "Tool", InitialState: "present",
+	})
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(p parsedArgs) (interface{}, *envelope.Error) {
+		if !reflect.DeepEqual(p.drivers, []string{"chocolatey"}) {
+			t.Fatalf("capture drivers = %v, want descriptor driver", p.drivers)
+		}
+		return struct{}{}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"capture", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunCLIInvalidActivationFailsBeforeDispatch(t *testing.T) {
+	t.Setenv(validationmode.TestModeEnvironment, "yes")
+	t.Setenv(validationmode.RootEnvironment, "")
+	sensitiveManifest := filepath.Join(t.TempDir(), "must-not-leak.jsonc")
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+		t.Fatal("dispatch ran after invalid activation")
+		return nil, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--manifest", sensitiveManifest, "--debug-cli", "--json"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	for _, form := range []string{sensitiveManifest, strings.ReplaceAll(sensitiveManifest, `\`, `\\`), filepath.ToSlash(sensitiveManifest)} {
+		if strings.Contains(stdout.String(), form) || strings.Contains(stderr.String(), form) {
+			t.Fatalf("invalid activation leaked pre-validation debug path %q: stdout=%s stderr=%s", form, stdout.String(), stderr.String())
+		}
+	}
+	decoded := decodeCLIEnvelope(t, stdout.String())
+	if _, exists := decoded["testMode"]; exists {
+		t.Fatalf("untrusted activation claimed testMode: %s", stdout.String())
+	}
+	errorObject := decoded["error"].(map[string]interface{})
+	if errorObject["code"] != string(envelope.ErrTestModeInvalid) {
+		t.Fatalf("error code = %v", errorObject["code"])
+	}
+}
+
+func TestRunCLIActiveDebugAndEventsRedactValidationAuthority(t *testing.T) {
+	root := cliValidationRoot(t)
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	loadedContext, err := validationmode.LoadFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+		emitter := events.NewEmitter("redaction-run", true)
+		emitter.EmitArtifact("capture", "manifest", filepath.Join(root, "artifacts", "captured.jsonc"))
+		reason := filepath.ToSlash(filepath.Join(root, "reasons", "configured"))
+		remediation := filepath.Join(root, "remediation", "retry.txt")
+		emitter.EmitConfigMigration(events.ConfigMigrationProgress{
+			CaptureID:   "capture-settings",
+			ConfigSetID: "settings",
+			Stage:       events.ConfigMigrationStaging,
+			Status:      events.ConfigProgressFailed,
+			Reason:      &reason,
+			Message:     `failed under ` + filepath.Join(root, "staging"),
+			Remediation: &remediation,
+		})
+		backupPath := filepath.Join(root, "backups", "settings.json")
+		emitter.EmitRestoreItem(events.RestoreItemProgress{
+			ID:         "restore-settings",
+			Module:     "apps.notepad-plus-plus",
+			Restorer:   "copy",
+			Source:     filepath.Join(root, "exports", "settings.json"),
+			Target:     filepath.ToSlash(filepath.Join(root, "sandbox", "settings.json")),
+			Status:     events.RestoreItemRestored,
+			Reason:     &reason,
+			BackupPath: &backupPath,
+			Message:    `restored from ` + filepath.Join(root, "exports"),
+		})
+		return map[string]string{"artifact": filepath.Join(root, "result.json")}, nil
+	}
+
+	manifestPath := filepath.Join(root, "manifests", "active.jsonc")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--manifest", manifestPath, "--debug-cli", "--events", "jsonl", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `"event":"artifact"`) ||
+		!strings.Contains(stderr.String(), `"event":"config-migration"`) ||
+		!strings.Contains(stderr.String(), `"event":"restore-item"`) {
+		t.Fatalf("active default events were not routed to CLI stderr: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "$ENDSTATE_ROOT") || !strings.Contains(stdout.String(), "$ENDSTATE_ROOT") {
+		t.Fatalf("active output did not use the stable root placeholder: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+
+	for _, output := range []string{stdout.String(), stderr.String()} {
+		for _, rootValue := range []string{root, loadedContext.Root()} {
+			forms := []string{
+				rootValue,
+				filepath.ToSlash(rootValue),
+				strings.ReplaceAll(rootValue, `/`, `\`),
+				strings.ReplaceAll(rootValue, `\`, `\\`),
+			}
+			for _, form := range forms {
+				if form != "" && strings.Contains(strings.ToLower(output), strings.ToLower(form)) {
+					t.Fatalf("active output leaked disposable root form %q: %s", form, output)
+				}
+			}
+		}
+	}
+}
+
+func TestRunCLIActiveForbiddenCommandFailsBeforeDispatch(t *testing.T) {
+	root := cliValidationRoot(t)
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+		t.Fatal("forbidden command reached dispatch")
+		return nil, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"doctor", "--json"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	decoded := decodeCLIEnvelope(t, stdout.String())
+	errorObject := decoded["error"].(map[string]interface{})
+	if errorObject["code"] != string(envelope.ErrTestModeCommandForbidden) {
+		t.Fatalf("error code = %v", errorObject["code"])
+	}
+}
+
+func TestRunCLIHelpAndForbiddenCommandsDoNotActivateValidationMode(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		wantCode int
+	}{
+		{name: "help", args: []string{"--help"}, wantCode: 0},
+		{name: "forbidden", args: []string{"doctor", "--json"}, wantCode: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			originalActivate := activateCommandValidationModeFn
+			t.Cleanup(func() { activateCommandValidationModeFn = originalActivate })
+			activateCommandValidationModeFn = func(*validationmode.Context) (*commands.ValidationModeSession, error) {
+				t.Fatal("help/forbidden command activated command validation mode")
+				return nil, nil
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runCLI(tc.args, &stdout, &stderr); code != tc.wantCode {
+				t.Fatalf("exit = %d, want %d stdout=%s stderr=%s", code, tc.wantCode, stdout.String(), stderr.String())
+			}
+			for _, forbiddenPath := range []string{
+				filepath.Join(root, "sandbox"),
+				filepath.Join(root, ".endstate", "validation-package-state.json"),
+			} {
+				if _, err := os.Lstat(forbiddenPath); !os.IsNotExist(err) {
+					t.Fatalf("read-only pre-dispatch path created %s (err=%v)", forbiddenPath, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCLIRestoresValidationEnvironmentAfterSuccessAndFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "failure"}[fail], func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			t.Setenv("APPDATA", "original-appdata")
+			originalDispatch := dispatchFn
+			t.Cleanup(func() { dispatchFn = originalDispatch })
+			dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+				if os.Getenv("APPDATA") == "original-appdata" {
+					t.Fatal("validation environment was not active during dispatch")
+				}
+				if fail {
+					return nil, envelope.NewError(envelope.ErrInternalError, "boom")
+				}
+				return struct{}{}, nil
+			}
+			var stdout, stderr bytes.Buffer
+			_ = runCLI([]string{"verify", "--json"}, &stdout, &stderr)
+			if got := os.Getenv("APPDATA"); got != "original-appdata" {
+				t.Fatalf("APPDATA after run = %q", got)
+			}
+		})
+	}
+}
+
+func TestRunCLIChecksIsolationAfterSuccessfulAndFailedDispatch(t *testing.T) {
+	for _, dispatchFails := range []bool{false, true} {
+		t.Run(map[bool]string{false: "successful dispatch", true: "failed dispatch"}[dispatchFails], func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			authority := t.TempDir()
+			t.Setenv("GITHUB_WORKSPACE", authority)
+			marker := filepath.Join(authority, "guarded.txt")
+			if err := os.WriteFile(marker, []byte("before"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			originalDispatch := dispatchFn
+			t.Cleanup(func() { dispatchFn = originalDispatch })
+			dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+				if err := os.WriteFile(marker, []byte("after"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if dispatchFails {
+					return nil, envelope.NewError(envelope.ErrInternalError, "ordinary dispatch failure")
+				}
+				return struct{}{}, nil
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runCLI([]string{"verify", "--json"}, &stdout, &stderr); code != 1 {
+				t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			decoded := decodeCLIEnvelope(t, stdout.String())
+			errorObject := decoded["error"].(map[string]interface{})
+			if errorObject["code"] != string(envelope.ErrTestModeIsolationViolation) {
+				t.Fatalf("error code = %v envelope=%s", errorObject["code"], stdout.String())
+			}
+			for _, output := range []string{stdout.String(), stderr.String()} {
+				if strings.Contains(strings.ToLower(output), strings.ToLower(authority)) {
+					t.Fatalf("CLI output leaked authority path: %s", output)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCLIMapsPackageIdentityViolationsAndDoesNotMutateState(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		driver string
+		ref    string
+		source string
+	}{
+		{name: "wrong driver", driver: "chocolatey", ref: "Notepad++.Notepad++", source: ""},
+		{name: "wrong ref", driver: "winget", ref: "Other.Package", source: "winget"},
+		{name: "wrong source", driver: "winget", ref: "Notepad++.Notepad++", source: "msstore"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := cliValidationRootWithInventory(t, validationmode.Inventory{
+				AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+				DisplayName: "Notepad++", Source: "winget", InitialState: "absent",
+			})
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			manifestPath := filepath.Join(root, "identity-violation.jsonc")
+			manifest := `{"version":1,"name":"identity-violation","apps":[{"id":"candidate","displayName":"Candidate","driver":"` + tc.driver + `","source":"` + tc.source + `","refs":{"windows":"` + tc.ref + `"}}]}`
+			if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runCLI([]string{"plan", "--manifest", manifestPath, "--json"}, &stdout, &stderr); code != 1 {
+				t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			decoded := decodeCLIEnvelope(t, stdout.String())
+			errorObject := decoded["error"].(map[string]interface{})
+			if errorObject["code"] != string(envelope.ErrTestModeIsolationViolation) {
+				t.Fatalf("error code = %v, envelope=%s", errorObject["code"], stdout.String())
+			}
+			stateData, err := os.ReadFile(filepath.Join(root, ".endstate", "validation-package-state.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var state struct {
+				Present bool `json:"present"`
+			}
+			if err := json.Unmarshal(stateData, &state); err != nil {
+				t.Fatal(err)
+			}
+			if state.Present {
+				t.Fatalf("identity violation mutated package state: %s", stateData)
+			}
+		})
+	}
+}
+
+func TestRunCLIActiveEnvelopeDoesNotSerializeDisposableRoot(t *testing.T) {
+	root := cliValidationRoot(t)
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	manifestPath := filepath.Join(root, "valid-plan.jsonc")
+	manifest := `{"version":1,"name":"valid-plan","apps":[{"id":"notepad-plus-plus","displayName":"Notepad++","driver":"winget","source":"winget","refs":{"windows":"Notepad++.Notepad++"}}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loadedContext, err := validationmode.LoadFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--manifest", manifestPath, "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	rootForms := []string{root, loadedContext.Root(), strings.ReplaceAll(root, `\`, `\\`), strings.ReplaceAll(loadedContext.Root(), `\`, `\\`)}
+	for _, rootForm := range rootForms {
+		if !strings.Contains(strings.ToLower(stdout.String()), strings.ToLower(rootForm)) {
+			continue
+		}
+		t.Fatalf("active envelope serialized disposable root: %s", stdout.String())
+	}
+}
+
+func TestBuiltExecutableUsesDisposableEngineAcrossPlanApplyVerify(t *testing.T) {
+	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildRoot := t.TempDir()
+	binaryPath := filepath.Join(buildRoot, "endstate-validation-test.exe")
+	if !filepath.IsAbs(binaryPath) {
+		t.Fatalf("binary path is not absolute: %s", binaryPath)
+	}
+	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/endstate")
+	build.Dir = moduleRoot
+	build.Env = make([]string, 0, len(os.Environ())+1)
+	for _, item := range os.Environ() {
+		name := strings.SplitN(item, "=", 2)[0]
+		if !strings.EqualFold(name, "GOCACHE") {
+			build.Env = append(build.Env, item)
+		}
+	}
+	build.Env = append(build.Env, "GOCACHE="+filepath.Join(buildRoot, "gocache"))
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("fresh build failed: %v\n%s", err, output)
+	}
+
+	root := cliValidationRootWithInventory(t, validationmode.Inventory{
+		AppID: "vendor-notepadplusplus", Driver: "winget", Ref: "Vendor.NotepadPlusPlus",
+		DisplayName: "Notepad++", Version: "8.8.2", Source: "winget", InitialState: "absent",
+	})
+	moduleDir := filepath.Join(root, "modules", "apps", "notepad-plus-plus")
+	if err := os.MkdirAll(moduleDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	moduleJSON := `{"id":"apps.notepad-plus-plus","displayName":"Notepad++","sensitivity":"low","matches":{"winget":["Vendor.NotepadPlusPlus"]},"verify":[],"restore":[],"capture":{"files":[{"source":"%APPDATA%\\Notepad++\\config.xml","dest":"apps/notepad-plus-plus/config.xml","optional":true}],"excludeGlobs":[]}}`
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), []byte(moduleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, "manifests", "engine-flow.jsonc")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"version":1,"name":"engine-flow","apps":[{"id":"vendor-notepadplusplus","displayName":"Notepad++","driver":"winget","source":"winget","version":"8.8.2","refs":{"windows":"Vendor.NotepadPlusPlus"}}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	childEnvironment := make([]string, 0, len(os.Environ())+2)
+	for _, item := range os.Environ() {
+		name := strings.SplitN(item, "=", 2)[0]
+		if strings.EqualFold(name, validationmode.TestModeEnvironment) || strings.EqualFold(name, validationmode.RootEnvironment) {
+			continue
+		}
+		childEnvironment = append(childEnvironment, item)
+	}
+	childEnvironment = append(childEnvironment,
+		validationmode.TestModeEnvironment+"=1",
+		validationmode.RootEnvironment+"="+root,
+	)
+
+	run := func(command string) map[string]interface{} {
+		t.Helper()
+		cmd := exec.Command(binaryPath, command, "--manifest", manifestPath, "--json")
+		cmd.Dir = moduleRoot
+		cmd.Env = childEnvironment
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%s failed: %v\nstdout=%s\nstderr=%s", command, err, stdout.String(), stderr.String())
+		}
+		for _, output := range []string{stdout.String(), stderr.String()} {
+			for _, rootForm := range []string{root, filepath.ToSlash(root), strings.ReplaceAll(root, `\`, `\\`)} {
+				if rootForm != "" && strings.Contains(strings.ToLower(output), strings.ToLower(rootForm)) {
+					t.Fatalf("%s output leaked disposable root form %q: %s", command, rootForm, output)
+				}
+			}
+		}
+		decoded := decodeCLIEnvelope(t, stdout.String())
+		if decoded["success"] != true {
+			t.Fatalf("%s envelope = %s", command, stdout.String())
+		}
+		identity, ok := decoded["testMode"].(map[string]interface{})
+		if !ok || identity["scenarioId"] != "cli-validation" || identity["moduleId"] != "apps.notepad-plus-plus" {
+			t.Fatalf("%s testMode = %#v", command, decoded["testMode"])
+		}
+		return decoded
+	}
+
+	planEnvelope := run("plan")
+	planData := planEnvelope["data"].(map[string]interface{})
+	planSummary := planData["plan"].(map[string]interface{})
+	if planSummary["toInstall"] != float64(1) {
+		t.Fatalf("initial plan = %#v", planSummary)
+	}
+	applyEnvelope := run("apply")
+	applyData := applyEnvelope["data"].(map[string]interface{})
+	applySummary := applyData["summary"].(map[string]interface{})
+	if applySummary["success"] != float64(1) {
+		t.Fatalf("apply summary = %#v", applySummary)
+	}
+	verifyEnvelope := run("verify")
+	verifyData := verifyEnvelope["data"].(map[string]interface{})
+	verifySummary := verifyData["summary"].(map[string]interface{})
+	if verifySummary["pass"] != float64(1) || verifySummary["fail"] != float64(0) {
+		t.Fatalf("verify summary = %#v", verifySummary)
+	}
+
+	packageStatePath := filepath.Join(root, ".endstate", "validation-package-state.json")
+	packageStateBefore, err := os.ReadFile(packageStatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsafeModuleJSON := `{"id":"apps.notepad-plus-plus","displayName":"Notepad++","sensitivity":"low","matches":{"winget":["Vendor.NotepadPlusPlus"]},"verify":[],"restore":[],"capture":{"files":[{"source":"C:\\host\\escape\\config.xml","dest":"apps/notepad-plus-plus/config.xml","optional":true}],"excludeGlobs":[]}}`
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), []byte(unsafeModuleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binaryPath, "verify", "--manifest", manifestPath, "--json")
+	cmd.Dir = moduleRoot
+	cmd.Env = childEnvironment
+	var failureStdout, failureStderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &failureStdout, &failureStderr
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("unsafe production module unexpectedly succeeded: stdout=%s stderr=%s", failureStdout.String(), failureStderr.String())
+	}
+	failureEnvelope := decodeCLIEnvelope(t, failureStdout.String())
+	errorObject, ok := failureEnvelope["error"].(map[string]interface{})
+	if !ok || errorObject["code"] != string(envelope.ErrTestModeIsolationViolation) {
+		t.Fatalf("unsafe module error = %#v envelope=%s", failureEnvelope["error"], failureStdout.String())
+	}
+	for _, output := range []string{failureStdout.String(), failureStderr.String()} {
+		for _, rootForm := range []string{root, filepath.ToSlash(root), strings.ReplaceAll(root, `\`, `\\`)} {
+			if rootForm != "" && strings.Contains(strings.ToLower(output), strings.ToLower(rootForm)) {
+				t.Fatalf("unsafe module output leaked disposable root form %q: %s", rootForm, output)
+			}
+		}
+	}
+	packageStateAfter, err := os.ReadFile(packageStatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(packageStateAfter, packageStateBefore) {
+		t.Fatalf("unsafe production-module preflight mutated package state: before=%s after=%s", packageStateBefore, packageStateAfter)
+	}
+}
 
 func TestParseArgsPreservesRepeatableRestoreTargets(t *testing.T) {
 	parsed := parseArgs([]string{
@@ -52,6 +645,82 @@ func TestParseArgs_CaptureRepeatableDriver(t *testing.T) {
 	got := parseArgs([]string{"capture", "--driver", "winget", "--driver", "chocolatey", "--json"})
 	if want := []string{"winget", "chocolatey"}; !reflect.DeepEqual(got.drivers, want) {
 		t.Fatalf("drivers = %v, want %v", got.drivers, want)
+	}
+}
+
+func TestCatalogPlanCLIForwardsTrackedBundleAndEmitsEnvelopeEvents(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
+	t.Setenv("ENDSTATE_ROOT", root)
+
+	parsed := parseArgs([]string{"catalog-plan", "--bundle", "bundles/dev-tools.jsonc", "--json", "--events", "jsonl"})
+	if parsed.bundle != "bundles/dev-tools.jsonc" {
+		t.Fatalf("bundle = %q", parsed.bundle)
+	}
+	if !strings.Contains(commandUsage("catalog-plan"), "--bundle <tracked-bundle-path>") || !strings.Contains(usageText, "catalog-plan") {
+		t.Fatal("catalog-plan help is incomplete")
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"catalog-plan", "--bundle", "bundles/dev-tools.jsonc", "--json", "--events", "jsonl"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	env := decodeCLIEnvelope(t, stdout.String())
+	if env["command"] != "catalog-plan" || env["success"] != true {
+		t.Fatalf("envelope = %s", stdout.String())
+	}
+	data := env["data"].(map[string]interface{})
+	if data["proof"] != "catalog" || data["actionCount"] != data["membershipCount"] || data["actionCount"].(float64) == 0 {
+		t.Fatalf("data = %#v", data)
+	}
+}
+
+func TestCatalogPlanCLIRejectsMissingBundleArgument(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"catalog-plan", "--bundle", "--json"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	env := decodeCLIEnvelope(t, stdout.String())
+	if env["success"] != false {
+		t.Fatalf("envelope = %s", stdout.String())
+	}
+	err := env["error"].(map[string]interface{})
+	if err["code"] != string(envelope.ErrCatalogPlanInvalid) {
+		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestBuiltCatalogPlanEmitsContractValidJSONL(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
+	binaryPath := filepath.Join(t.TempDir(), "endstate-catalog-plan-test.exe")
+	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/endstate")
+	build.Dir = filepath.Join(root, "go-engine")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v\n%s", err, output)
+	}
+	command := exec.Command(binaryPath, "catalog-plan", "--bundle", "bundles/core-utilities.jsonc", "--json", "--events", "jsonl")
+	command.Dir = root
+	command.Env = append(os.Environ(), "ENDSTATE_ROOT="+root)
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("catalog-plan failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	for _, line := range strings.Split(strings.TrimSpace(stderr.String()), "\n") {
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("invalid event %q: %v", line, err)
+		}
+		if event["event"] == "item" && (event["status"] != "present" || event["reason"] != "detected") {
+			t.Fatalf("catalog item event = %#v", event)
+		}
 	}
 }
 

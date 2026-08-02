@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.rustdesk",
+  "moduleRevision": "cf7a2f6661ed760d6dc4d9730fc05d8755b9213cd77e1515750b3bcdaf8822ac",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

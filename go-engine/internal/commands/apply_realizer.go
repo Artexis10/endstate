@@ -229,7 +229,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	for _, e := range entries {
 		switch {
 		case e.isManual:
-			expanded, exists := checkVerifyPath(e.app.Manual.VerifyPath)
+			expanded, exists, verifyPathErr := checkVerifyPathWithValidation(e.app.Manual.VerifyPath, currentValidationMode)
+			if verifyPathErr != nil {
+				return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
 			a := ApplyAction{ID: e.app.ID, Driver: "manual", Name: e.name}
 			if exists {
 				a.Status, a.Reason, a.Message = "present", "already_installed", fmt.Sprintf("Verified at %s", expanded)
@@ -493,7 +496,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	for _, e := range entries {
 		switch {
 		case e.isManual:
-			expanded, exists := checkVerifyPath(e.app.Manual.VerifyPath)
+			expanded, exists, verifyPathErr := checkVerifyPathWithValidation(e.app.Manual.VerifyPath, currentValidationMode)
+			if verifyPathErr != nil {
+				return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
 			if exists {
 				emitter.EmitItem(e.app.ID, "manual", "present", "", fmt.Sprintf("Verified at %s", expanded), e.name)
 				verifyPass++

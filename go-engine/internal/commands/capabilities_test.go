@@ -129,6 +129,29 @@ func TestRunCapabilities_MultiDriverCLIFlags(t *testing.T) {
 	}
 }
 
+func TestRunCapabilities_AdvertisesCatalogPlan(t *testing.T) {
+	result, err := RunCapabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := result.(CapabilitiesData)
+	command, ok := data.Commands["catalog-plan"]
+	if !ok || !command.Supported {
+		t.Fatalf("catalog-plan capability = %+v", command)
+	}
+	for _, flag := range []string{"--bundle", "--json", "--events"} {
+		found := false
+		for _, actual := range command.Flags {
+			if actual == flag {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("catalog-plan flags = %v, missing %q", command.Flags, flag)
+		}
+	}
+}
+
 // TestRunCapabilities_HostedBackupShape verifies the full shape of the
 // hostedBackup features block so regressions in existing fields are caught.
 func TestRunCapabilities_HostedBackupShape(t *testing.T) {

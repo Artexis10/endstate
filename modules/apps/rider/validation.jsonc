@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.rider",
+  "moduleRevision": "ac33f6da73ddb3fdf41c7e7571a2c0c188e7819b1788a4fd298726d2ade6c15a",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

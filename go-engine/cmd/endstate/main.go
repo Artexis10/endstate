@@ -9,6 +9,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // usageText is the top-level help text printed for --help or when no command is
@@ -31,6 +34,7 @@ Commands:
   verify          Verify machine state against manifest
   capture         Capture current machine state
   plan            Generate execution plan
+  catalog-plan    Resolve one tracked catalog bundle
   restore         Restore configuration files
   revert          Revert last restore operation
   export-config   Export configuration files from system
@@ -53,6 +57,7 @@ Global flags:
 Per-command flags:
   --manifest <path>    Path to manifest file (apply, verify, plan, capture, restore)
                        Alias: --profile <path> (apply, verify, plan)
+  --bundle <path>      Tracked bundle path (catalog-plan)
   --dry-run            Preview changes without applying them (apply, restore)
   --enable-restore     Enable restore operations during apply, and home-manager config rollback (opt-in)
   --out <path>         Output file path (capture)
@@ -114,18 +119,21 @@ Run 'endstate <command> --help' for command-specific help.
 // parsedArgs holds the result of parsing os.Args.
 type parsedArgs struct {
 	command       string
+	envelopeRunID string
 	jsonMode      bool
 	debugCLI      bool
 	helpRequested bool
 	events        string // "jsonl" or ""
 
 	// Per-command flags
-	manifest       string
-	dryRun         bool
-	enableRestore  bool
-	export         string   // --export <path>
-	restoreFilter  string   // --restore-filter <expr>
-	restoreTargets []string // repeatable --restore-target <captureId>=<targetInstanceId>
+	manifest           string
+	bundle             string
+	bundleMissingValue bool
+	dryRun             bool
+	enableRestore      bool
+	export             string   // --export <path>
+	restoreFilter      string   // --restore-filter <expr>
+	restoreTargets     []string // repeatable --restore-target <captureId>=<targetInstanceId>
 
 	// Rebuild flags
 	from      string // rebuild --from <bundle.endstate|bundle.zip|manifest.jsonc>; import --from <source>
@@ -294,6 +302,13 @@ func parseArgs(args []string) parsedArgs {
 				p.manifest = args[i+1]
 				i++
 			}
+		case "--bundle":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				p.bundle = args[i+1]
+				i++
+			} else {
+				p.bundleMissingValue = true
+			}
 		case "--out", "-Out":
 			if i+1 < len(args) {
 				p.out = args[i+1]
@@ -422,6 +437,8 @@ func commandUsage(cmd string) string {
 		return "Usage: endstate capture [--only <id[,id...]>] [--share] [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--exclude-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Microsoft Store apps are included by default; --include-store-apps is a deprecated compatibility no-op and --exclude-store-apps wins when both are supplied. Repeat --driver to select more than one package driver. With --only, capture just the listed items: a bare id selects a detected app, an 'apps.'-prefixed id selects a config module (e.g. --only git-git,apps.vscode). Under --only, a config module attaches only when a selected app matches it by package reference or the module is named outright, so unselected apps' settings are never bundled. Combining --only with --update adds the selection to an existing manifest rather than truncating it. With --share, the bundle is produced for someone else: config restore prefers merging onto the recipient's existing settings rather than replacing them, and the capturing machine name is omitted. --share requires --only and cannot be combined with --sanitize.\n"
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
+	case "catalog-plan":
+		return "Usage: endstate catalog-plan --bundle <tracked-bundle-path> [--json] [--events jsonl]\n\nResolve one tracked catalog bundle into ordered module actions without package installation or mutation.\n"
 	case "restore":
 		return "Usage: endstate restore [--manifest <path>] [--enable-restore] [--dry-run] [--export <path>] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--json] [--events jsonl]\n\nRestore configuration files. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence.\n"
 	case "revert":
@@ -452,31 +469,137 @@ func commandUsage(cmd string) string {
 }
 
 func main() {
-	// Skip the program name (args[0]).
-	p := parseArgs(os.Args[1:])
+	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	// --debug-cli: print resolved command and flags to stderr.
+var dispatchFn = dispatch
+var activateCommandValidationModeFn = commands.ActivateValidationMode
+
+var validationModeCommands = map[string]struct{}{
+	"capture": {}, "plan": {}, "apply": {}, "rebuild": {},
+	"restore": {}, "verify": {}, "revert": {},
+}
+
+var knownCommands = map[string]struct{}{
+	"capabilities": {}, "apply": {}, "rebuild": {}, "import": {}, "verify": {},
+	"capture": {}, "plan": {}, "report": {}, "generations": {}, "rollback": {},
+	"catalog-plan": {},
+	"doctor":       {}, "profile": {}, "restore": {}, "revert": {}, "export-config": {},
+	"validate-export": {}, "bootstrap": {}, "backup": {}, "account": {}, "schedule": {},
+}
+
+// runCLI is the process entrypoint without os.Exit. Keeping cleanup visible
+// makes validation-mode environment and command-seam restoration testable.
+func runCLI(args []string, stdout, stderr io.Writer) int {
+	p := parseArgs(args)
+	validationContext, activationErr := validationmode.LoadFromEnvironment()
+	var validationSession *commands.ValidationModeSession
+	if activationErr != nil {
+		return renderCLIResult(p, nil, envelope.NewError(
+			envelope.ErrTestModeInvalid,
+			"Validation mode activation is invalid.",
+		), nil, stdout, stderr)
+	}
+
+	runStderr := stderr
+	if validationContext != nil {
+		runStderr = validationRedactingWriter{
+			target: stderr,
+			roots:  validationOutputRoots(validationContext),
+		}
+	}
+
+	// Debug output is emitted only after validation-mode activation has been
+	// parsed and, when active, through the same root-redacting boundary as
+	// command events.
 	if p.debugCLI {
-		fmt.Fprintf(os.Stderr, "[debug-cli] command=%q json=%v dryRun=%v enableRestore=%v manifest=%q events=%q\n",
+		fmt.Fprintf(runStderr, "[debug-cli] command=%q json=%v dryRun=%v enableRestore=%v manifest=%q events=%q\n",
 			p.command, p.jsonMode, p.dryRun, p.enableRestore, p.manifest, p.events)
 	}
 
 	// Handle --help / no command before doing any further work.
 	if p.helpRequested || p.command == "" {
-		fmt.Print(commandUsage(p.command))
-		os.Exit(0)
+		fmt.Fprint(stdout, commandUsage(p.command))
+		return 0
+	}
+
+	if validationContext != nil {
+		if _, allowed := validationModeCommands[p.command]; !allowed {
+			return renderCLIResult(p, nil, envelope.NewError(
+				envelope.ErrTestModeCommandForbidden,
+				fmt.Sprintf("Command %q is forbidden in validation mode.", p.command),
+			), validationContext, stdout, runStderr)
+		}
+		if p.command == "capture" && len(p.drivers) == 0 {
+			p.drivers = []string{validationContext.Descriptor().Inventory.Driver}
+		}
+		// Validation mode never authorizes backend installation. The command-layer
+		// package seams still report the disposable backend as available.
+		p.bootstrapBackends = false
+		p.noBootstrap = true
+	}
+
+	if _, known := knownCommands[p.command]; !known {
+		fmt.Fprintf(runStderr, "Unknown command: %q\n\n", p.command)
+		fmt.Fprint(stdout, usageText)
+		return 1
+	}
+
+	var restoreEnvironment func() error
+	if validationContext != nil {
+		restoreEnvironment, activationErr = validationContext.Activate()
+		if activationErr == nil {
+			validationSession, activationErr = activateCommandValidationModeFn(validationContext)
+		}
+		if activationErr != nil {
+			if restoreEnvironment != nil {
+				_ = restoreEnvironment()
+			}
+			return renderCLIResult(p, nil, envelope.NewError(
+				envelope.ErrTestModeInvalid,
+				"Validation mode activation is invalid.",
+			), nil, stdout, runStderr)
+		}
+		defer func() {
+			_ = validationSession.Restore()
+			_ = restoreEnvironment()
+		}()
+		restoreDefaultEvents := events.ActivateDefaultWriter(runStderr)
+		defer restoreDefaultEvents()
+	}
+
+	p.envelopeRunID = envelope.BuildRunID(p.command, time.Now().UTC())
+	data, cmdErr := dispatchFn(p)
+	if validationSession != nil && validationSession.IsolationError() != nil {
+		data = nil
+		cmdErr = envelope.NewError(
+			envelope.ErrTestModeIsolationViolation,
+			"Validation mode rejected an operation outside its disposable authority.",
+		)
+	}
+	return renderCLIResult(p, data, cmdErr, validationContext, stdout, runStderr)
+}
+
+func renderCLIResult(p parsedArgs, data interface{}, cmdErr *envelope.Error, validationContext *validationmode.Context, stdout, stderr io.Writer) int {
+	if validationContext != nil {
+		roots := []string{validationContext.Root(), os.Getenv(validationmode.RootEnvironment)}
+		data = redactCLIValue(data, roots)
+		cmdErr = redactCLIError(cmdErr, roots)
+	}
+	repoRoot := ""
+	if validationContext != nil || os.Getenv(validationmode.TestModeEnvironment) == "" {
+		repoRoot = config.ResolveRepoRoot()
 	}
 
 	// Resolve versions from repo root (best-effort; falls back gracefully).
-	repoRoot := config.ResolveRepoRoot()
 	schemaVersion := config.ReadSchemaVersion(repoRoot)
 	cliVersion := config.ReadVersion(repoRoot)
 
 	now := time.Now().UTC()
-	runID := envelope.BuildRunID(p.command, now)
-
-	// Dispatch to command handler.
-	data, cmdErr := dispatch(p)
+	runID := p.envelopeRunID
+	if runID == "" {
+		runID = envelope.BuildRunID(p.command, now)
+	}
 
 	if p.jsonMode {
 		var env *envelope.Envelope
@@ -485,38 +608,143 @@ func main() {
 		} else {
 			env = envelope.NewSuccess(p.command, runID, schemaVersion, cliVersion, data)
 		}
+		if validationContext != nil {
+			descriptor := validationContext.Descriptor()
+			env.TestMode = &envelope.TestModeIdentity{
+				Active: true, ScenarioID: descriptor.ScenarioID, ModuleID: descriptor.ModuleID,
+			}
+		}
 
 		b, marshalErr := envelope.Marshal(env)
 		if marshalErr != nil {
 			// Last-resort: write a minimal error envelope manually.
-			fmt.Fprintf(os.Stdout, `{"schemaVersion":%q,"cliVersion":%q,"command":%q,"runId":%q,"timestampUtc":%q,"success":false,"data":{},"error":{"code":"INTERNAL_ERROR","message":"failed to marshal response"}}`,
+			fmt.Fprintf(stdout, `{"schemaVersion":%q,"cliVersion":%q,"command":%q,"runId":%q,"timestampUtc":%q,"success":false,"data":{},"error":{"code":"INTERNAL_ERROR","message":"failed to marshal response"}}`,
 				schemaVersion, cliVersion, p.command, runID, now.Format(time.RFC3339))
-			fmt.Fprintln(os.Stdout)
-			os.Exit(1)
+			fmt.Fprintln(stdout)
+			return 1
 		}
 		// The JSON envelope is the LAST line of stdout.
-		fmt.Println(string(b))
+		fmt.Fprintln(stdout, string(b))
 	} else {
 		// Human-readable output.
 		if cmdErr != nil {
-			fmt.Fprintf(os.Stderr, "Error [%s]: %s\n", cmdErr.Code, cmdErr.Message)
+			fmt.Fprintf(stderr, "Error [%s]: %s\n", cmdErr.Code, cmdErr.Message)
 			if cmdErr.Remediation != "" {
-				fmt.Fprintf(os.Stderr, "Remediation: %s\n", cmdErr.Remediation)
+				fmt.Fprintf(stderr, "Remediation: %s\n", cmdErr.Remediation)
 			}
-			os.Exit(1)
+			return 1
 		}
 		// For commands with non-JSON output, pretty-print data as indented JSON as a
 		// readable fallback until each command has a bespoke human formatter.
 		if data != nil {
 			b, _ := json.MarshalIndent(data, "", "  ")
-			fmt.Println(string(b))
+			fmt.Fprintln(stdout, string(b))
 		}
 	}
 
 	if cmdErr != nil {
-		os.Exit(1)
+		return 1
 	}
-	os.Exit(0)
+	return 0
+}
+
+func redactCLIError(value *envelope.Error, roots []string) *envelope.Error {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	result.Message = redactCLIString(result.Message, roots)
+	result.Remediation = redactCLIString(result.Remediation, roots)
+	result.Detail = redactCLIValue(result.Detail, roots)
+	return &result
+}
+
+func redactCLIValue(value interface{}, roots []string) interface{} {
+	if value == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var decoded interface{}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return value
+	}
+	return redactDecodedCLIValue(decoded, roots)
+}
+
+func redactDecodedCLIValue(value interface{}, roots []string) interface{} {
+	switch typed := value.(type) {
+	case string:
+		return redactCLIString(typed, roots)
+	case []interface{}:
+		for index := range typed {
+			typed[index] = redactDecodedCLIValue(typed[index], roots)
+		}
+	case map[string]interface{}:
+		for key, item := range typed {
+			typed[key] = redactDecodedCLIValue(item, roots)
+		}
+	}
+	return value
+}
+
+func redactCLIString(value string, roots []string) string {
+	for _, root := range roots {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		plainForms := []string{root, strings.ReplaceAll(root, `\`, "/"), strings.ReplaceAll(root, "/", `\`)}
+		forms := make([]string, 0, len(plainForms)*2)
+		for _, form := range plainForms {
+			forms = append(forms, strings.ReplaceAll(form, `\`, `\\`))
+		}
+		forms = append(forms, plainForms...)
+		for _, form := range forms {
+			value = replaceFold(value, form, "$ENDSTATE_ROOT")
+		}
+	}
+	return value
+}
+
+func validationOutputRoots(context *validationmode.Context) []string {
+	if context == nil {
+		return nil
+	}
+	return []string{context.Root(), os.Getenv(validationmode.RootEnvironment)}
+}
+
+type validationRedactingWriter struct {
+	target io.Writer
+	roots  []string
+}
+
+func (w validationRedactingWriter) Write(p []byte) (int, error) {
+	redacted := redactCLIString(string(p), w.roots)
+	written, err := io.WriteString(w.target, redacted)
+	if err != nil {
+		return 0, err
+	}
+	if written != len(redacted) {
+		return 0, io.ErrShortWrite
+	}
+	return len(p), nil
+}
+
+func replaceFold(value, old, replacement string) string {
+	if old == "" {
+		return value
+	}
+	for {
+		index := strings.Index(strings.ToLower(value), strings.ToLower(old))
+		if index < 0 {
+			return value
+		}
+		value = value[:index] + replacement + value[index+len(old):]
+	}
 }
 
 // dispatch routes the parsed command to its handler and returns the data payload
@@ -625,6 +853,19 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 		return commands.RunPlan(commands.PlanFlags{
 			Manifest: p.manifest,
 			Events:   p.events,
+		})
+
+	case "catalog-plan":
+		if p.bundleMissingValue || p.bundle == "" {
+			return nil, envelope.NewError(
+				envelope.ErrCatalogPlanInvalid,
+				"--bundle requires a tracked bundle path.").
+				WithRemediation("Provide a path such as bundles/dev-tools.jsonc.")
+		}
+		return commands.RunCatalogPlan(commands.CatalogPlanFlags{
+			Bundle: p.bundle,
+			Events: p.events,
+			RunID:  p.envelopeRunID,
 		})
 
 	case "report":

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.dxo-photolab",
+  "moduleRevision": "d1e2ce8a0e50d06dc0c31d58f78b52d8dfe76364e53ff957c174914bb91663e7",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

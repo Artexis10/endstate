@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.crystaldiskinfo",
+  "moduleRevision": "cdc129eff7437d5c058af11895cfe734be7abf5d09fa80cb9d1502367c9b57ac",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

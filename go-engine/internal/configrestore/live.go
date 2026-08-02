@@ -35,17 +35,33 @@ type Guard struct {
 	runStartedAt     time.Time
 	nextOrdinal      uint64
 	registry         RegistryMutator
+	boundary         HostBoundary
 	closed           bool
 }
 
 // BeginLive acquires the global config-mutation lock for stateDir, recovers
 // every pending generation transaction, and returns while retaining the lock.
 func BeginLive(ctx context.Context, stateDir, runID string, registry RegistryMutator) (*Guard, error) {
+	return BeginLiveWithBoundary(ctx, stateDir, runID, registry, nil)
+}
+
+// BeginLiveWithBoundary retains an optional host authority across pending
+// recovery, live transaction creation, and later generation revert.
+func BeginLiveWithBoundary(
+	ctx context.Context,
+	stateDir, runID string,
+	registry RegistryMutator,
+	boundary HostBoundary,
+) (*Guard, error) {
+	ctx = withHostBoundary(ctx, boundary)
 	if ctx == nil {
 		return nil, fmt.Errorf("live config restore context is nil")
 	}
 	if stateDir == "" || !filepath.IsAbs(stateDir) || filepath.Clean(stateDir) != stateDir {
 		return nil, fmt.Errorf("state directory must be a clean absolute path")
+	}
+	if err := validateHostIO(ctx, stateDir); err != nil {
+		return nil, fmt.Errorf("validate state directory boundary: %w", err)
 	}
 	if runID == "" || runID != strings.TrimSpace(runID) || containsControl(runID) {
 		return nil, fmt.Errorf("run ID is invalid")
@@ -56,11 +72,14 @@ func BeginLive(ctx context.Context, stateDir, runID string, registry RegistryMut
 	legacyMembers := filepath.Join(storeRoot, "legacy-members")
 	legacyReverts := filepath.Join(storeRoot, "legacy-reverts")
 	legacyRevertWork := filepath.Join(storeRoot, "legacy-revert-work")
-	if err := ensureStoreDirectories(stateDir, configRoot, storeRoot, transactions, legacyMembers, legacyReverts, legacyRevertWork); err != nil {
+	if err := ensureStoreDirectories(boundary, stateDir, configRoot, storeRoot, transactions, legacyMembers, legacyReverts, legacyRevertWork); err != nil {
 		return nil, fmt.Errorf("initialize config restore store: %w", err)
 	}
 
 	lockPath := filepath.Join(configRoot, "mutation.lock")
+	if err := validateBoundaryHostIO(boundary, lockPath); err != nil {
+		return nil, fmt.Errorf("validate config mutation lock boundary: %w", err)
+	}
 	if err := validateMutationLockPath(lockPath, true); err != nil {
 		return nil, fmt.Errorf("validate config mutation lock: %w", err)
 	}
@@ -93,7 +112,7 @@ func BeginLive(ctx context.Context, stateDir, runID string, registry RegistryMut
 	guard := &Guard{
 		lock: processLock, storeRoot: storeRoot, transactions: transactions,
 		legacyMembers: legacyMembers, legacyReverts: legacyReverts, legacyRevertWork: legacyRevertWork,
-		runID: runID, restoreRunID: restoreRunID, runStartedAt: time.Now().UTC(), registry: registry,
+		runID: runID, restoreRunID: restoreRunID, runStartedAt: time.Now().UTC(), registry: registry, boundary: boundary,
 	}
 	if err := guard.recoverPending(ctx); err != nil {
 		return nil, err
@@ -122,6 +141,11 @@ func (g *Guard) CreateTransactionRoot(captureID string) (string, error) {
 			return "", err
 		}
 		root := filepath.Join(g.transactions, transactionID)
+		if g.boundary != nil {
+			if err := g.boundary.ValidateFilesystemTarget(root); err != nil {
+				return "", err
+			}
+		}
 		if err := os.Mkdir(root, 0o700); os.IsExist(err) {
 			continue
 		} else if err != nil {
@@ -139,7 +163,7 @@ func (g *Guard) CreateTransactionRoot(captureID string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if err := publishStoreRecord(root, "transaction.json", encoded); err != nil {
+		if err := publishStoreRecordWithBoundary(root, "transaction.json", encoded, g.boundary); err != nil {
 			return "", fmt.Errorf("publish transaction descriptor: %w", err)
 		}
 		g.nextOrdinal++
@@ -163,18 +187,27 @@ func (g *Guard) DiscardTransactionRoot(root string) error {
 		!isOpaqueStoreID(filepath.Base(root)) {
 		return fmt.Errorf("valid transaction root is required")
 	}
+	if g.boundary != nil {
+		if err := g.boundary.ValidateFilesystemTarget(root); err != nil {
+			return err
+		}
+	}
 	if err := rejectExistingTargetLinks(root); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(filepath.Join(root, "journal", "intent.json")); err == nil {
+	intentPath := filepath.Join(root, "journal", "intent.json")
+	if err := validateBoundaryHostIO(g.boundary, intentPath); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(intentPath); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if _, _, err := readStoredTransactionDescriptor(root); err != nil {
+	if _, _, err := readStoredTransactionDescriptorWithBoundary(root, g.boundary); err != nil {
 		return err
 	}
-	return removeSafeTransactionPath(context.Background(), root)
+	return removeSafeTransactionPath(withHostBoundary(context.Background(), g.boundary), root)
 }
 
 // Close releases the process-wide mutation lock. It is idempotent.
@@ -215,8 +248,13 @@ func validateMutationLockPath(path string, allowMissing bool) error {
 	return nil
 }
 
-func ensureStoreDirectories(paths ...string) error {
+func ensureStoreDirectories(boundary HostBoundary, paths ...string) error {
 	for _, path := range paths {
+		if boundary != nil {
+			if err := boundary.ValidateFilesystemTarget(path); err != nil {
+				return err
+			}
+		}
 		if err := rejectExistingTargetLinks(path); err != nil {
 			return err
 		}
@@ -254,17 +292,35 @@ func newOpaqueStoreID() (string, error) {
 }
 
 func publishStoreRecord(directory, name string, data []byte) (resultErr error) {
+	return publishStoreRecordWithBoundary(directory, name, data, nil)
+}
+
+func publishStoreRecordWithBoundary(directory, name string, data []byte, boundary HostBoundary) (resultErr error) {
+	if err := validateBoundaryHostIO(boundary, directory); err != nil {
+		return err
+	}
+	destination := filepath.Join(directory, name)
+	if err := validateBoundaryHostIO(boundary, destination); err != nil {
+		return err
+	}
 	if err := rejectExistingTargetLinks(directory); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, ".store-record-*.tmp")
+	temporary, err := createBoundaryTempFile(directory, ".store-record-*.tmp", boundary)
 	if err != nil {
 		return err
 	}
 	temporaryPath := temporary.Name()
+	if err := validateBoundaryHostIO(boundary, temporaryPath); err != nil {
+		return err
+	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(withHostBoundary(context.Background(), boundary), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		return err
@@ -278,7 +334,7 @@ func publishStoreRecord(directory, name string, data []byte) (resultErr error) {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	publication, err := publishFileNoReplace(temporaryPath, filepath.Join(directory, name))
+	publication, err := publishFileNoReplace(temporaryPath, destination)
 	if err != nil {
 		return err
 	}

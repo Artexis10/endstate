@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.screenpresso",
+  "moduleRevision": "f18eb39904492d9658ea212b1398a20df0b909c10e747a894540ec3889b1bc1d",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Screenpresso XML preferences from %APPDATA%\\Learnpulse\\Screenpresso. License file excluded from auto-restore. Capture-only; no shipped payload. Authored excluded secret or machine-bound paths: %APPDATA%\\Learnpulse\\Screenpresso\\license.xml"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

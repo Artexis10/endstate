@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.cinema-4d",
+  "moduleRevision": "d043c7816c58b3b14bfbd06e3a61655c9b0933fb8fb6221f3851176bb50e5675",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

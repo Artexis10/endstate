@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.winrar",
+  "moduleRevision": "d334fd4cea05945b8e5f4f7b7465080b3e0e97d34fbc16302c64ee08d67c8f08",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

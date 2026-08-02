@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.directory-opus",
+  "moduleRevision": "4df272bce4c6fb74718b7b4af2b9fe4740c5b5428e0b1818ae14a8e73170c622",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

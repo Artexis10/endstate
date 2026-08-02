@@ -30,7 +30,7 @@ func verifyTransactionActionState(
 	desired bool,
 ) error {
 	if action.Kind != ActionRegistrySet {
-		if err := verifyTransactionParentState(action.MissingParents, desired); err != nil {
+		if err := verifyTransactionParentState(ctx, action.MissingParents, desired); err != nil {
 			return err
 		}
 	}
@@ -69,11 +69,14 @@ func verifyTransactionActionState(
 	return nil
 }
 
-func verifyTransactionParentState(parents []string, desired bool) error {
+func verifyTransactionParentState(ctx context.Context, parents []string, desired bool) error {
 	if !desired {
-		return verifyMissingTransactionParents(parents)
+		return verifyMissingTransactionParents(ctx, parents)
 	}
 	for _, parent := range parents {
+		if err := validateHostIO(ctx, parent); err != nil {
+			return err
+		}
 		if err := rejectExistingTargetLinks(parent); err != nil {
 			return err
 		}

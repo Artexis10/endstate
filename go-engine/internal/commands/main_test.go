@@ -27,6 +27,14 @@ func presentBootstrapFn(needed []bootstrap.Backend, _ bool, _ Consent, _ *events
 	return avail, nil
 }
 
+func TestHostedAuthorityEnvironmentIsClearedForTests(t *testing.T) {
+	for _, name := range []string{"GITHUB_WORKSPACE", "RUNNER_WORKSPACE"} {
+		if value, set := os.LookupEnv(name); set {
+			t.Fatalf("%s remained in the test process: %q", name, value)
+		}
+	}
+}
+
 // TestMain keeps the commands package tests hermetic. Several tests drive a
 // successful apply, which records a Provisioning Generation under the resolved
 // state directory. Without an explicit ENDSTATE_ROOT those writes would land in
@@ -34,6 +42,12 @@ func presentBootstrapFn(needed []bootstrap.Backend, _ bool, _ Consent, _ *events
 // keeps the working tree clean. Tests that set their own ENDSTATE_ROOT via
 // t.Setenv still override this per-test.
 func TestMain(m *testing.M) {
+	// Validation mode deliberately guards ambient hosted workspaces. Unit tests
+	// create their own disposable authority, so inherited runner workspaces are
+	// foreign host state rather than part of the fixture contract.
+	_ = os.Unsetenv("GITHUB_WORKSPACE")
+	_ = os.Unsetenv("RUNNER_WORKSPACE")
+
 	cleanup := func() {}
 	if os.Getenv("ENDSTATE_ROOT") == "" {
 		if dir, err := os.MkdirTemp("", "endstate-commands-test-*"); err == nil {

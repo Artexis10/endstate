@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.premiere-pro",
+  "moduleRevision": "846e5702227ec225b0a423a3b7187bffc0bb8e4b16eb520488efcc7bacd4d262",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

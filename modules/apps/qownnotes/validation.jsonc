@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.qownnotes",
+  "moduleRevision": "6bcd6376bde0876856070ec4796edd40006bdaf811f762805942c7e4c9657747",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures QOwnNotes user preferences from %APPDATA%\\PBE\\QOwnNotes\\QOwnNotes.ini (Qt INI). The same file may contain Nextcloud credentials; marked warn-only in secrets to prevent silent restore. Confidence: high — path confirmed from QOwnNotes Qt platform docs and community reports. Authored excluded secret or machine-bound paths: %APPDATA%\\PBE\\QOwnNotes\\QOwnNotes.ini"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

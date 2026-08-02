@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.claude-code",
+  "moduleRevision": "27c8c44d949a32ace35ef5c5c372a8e210b99890f057cbb70909661349f12dc6",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "mixed-oauth-state",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "The authored module captures .claude.json for inventory while marking its OAuth material as never restorable; the mixed OAuth state keeps the entire module outside config-roundtrip proof."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.3ds-max",
+  "moduleRevision": "a9db9f7bfa7f6926132a05b7b0c6e4caca5d2ac8ee63082881fb1d6ea27e8b81",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

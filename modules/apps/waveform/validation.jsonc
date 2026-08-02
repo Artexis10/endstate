@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.waveform",
+  "moduleRevision": "cb3fcd893d885084675b046dce2cc8470b8e6297c5d8902da44bea37655e7acb",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Waveform DAW preferences and project templates from %APPDATA%\\Tracktion\\Waveform. License files excluded from auto-restore. Confidence: medium (path inferred from vendor convention; no first-party confirmation). Authored excluded secret or machine-bound paths: %APPDATA%\\Tracktion\\Waveform\\licence.dat, %APPDATA%\\Tracktion\\Waveform\\*.lic"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

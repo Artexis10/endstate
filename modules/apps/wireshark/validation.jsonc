@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.wireshark",
+  "moduleRevision": "b43f17606ceba79a052e88e19ea4928e31f7d3bb91644a5edeaa58b9ab3b735d",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

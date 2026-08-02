@@ -142,6 +142,57 @@ func TestDriverConfigRestoreEvidenceReadsFreshInstalledVersionEveryPass(t *testi
 	}
 }
 
+type sourceOnlyConfigRestoreDriver struct {
+	coreCalls   int
+	sourceCalls int
+}
+
+func (driverValue *sourceOnlyConfigRestoreDriver) Name() string { return "winget" }
+func (driverValue *sourceOnlyConfigRestoreDriver) Detect(string) (bool, string, error) {
+	driverValue.coreCalls++
+	return false, "", errors.New("source-less detection is forbidden")
+}
+func (driverValue *sourceOnlyConfigRestoreDriver) DetectBatch([]string) (map[string]driver.DetectResult, error) {
+	driverValue.coreCalls++
+	return nil, errors.New("source-less batch detection is forbidden")
+}
+func (driverValue *sourceOnlyConfigRestoreDriver) DetectSource(ref, source string) (bool, string, error) {
+	driverValue.sourceCalls++
+	return ref == "Vendor.App" && source == "winget", "Vendor App", nil
+}
+func (driverValue *sourceOnlyConfigRestoreDriver) DetectBatchSource(refs []string, source string) (map[string]driver.DetectResult, error) {
+	driverValue.sourceCalls++
+	if len(refs) != 1 || refs[0] != "Vendor.App" || source != "winget" {
+		return nil, errors.New("source-aware identity mismatch")
+	}
+	return map[string]driver.DetectResult{"Vendor.App": {Installed: true, DisplayName: "Vendor App", Version: "1.0"}}, nil
+}
+func (*sourceOnlyConfigRestoreDriver) Install(string) (*driver.InstallResult, error) {
+	return nil, errors.New("not used")
+}
+
+func TestDriverLaneConfigRestoreEvidencePreservesPackageSource(t *testing.T) {
+	backend := &sourceOnlyConfigRestoreDriver{}
+	app := manifest.App{ID: "vendor-app", Driver: "winget", Source: "winget", Refs: map[string]string{"windows": "Vendor.App"}}
+	module := &modules.Module{ID: "apps.vendor", Matches: modules.MatchCriteria{Winget: []string{"Vendor.App"}}}
+	source := newDriverLaneConfigRestoreEvidenceSource([]packageDriverLane{{
+		name: "winget", source: "winget", key: "winget\x00winget", drv: backend,
+		apps: []*routedDriverApp{{app: app, ref: "Vendor.App", driverName: "winget", source: "winget", drv: backend}},
+	}})
+
+	evidence, err := source.Snapshot(context.Background(), configRestoreDetectionRequest{Modules: map[string]*modules.Module{module.ID: module}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backend.coreCalls != 0 || backend.sourceCalls != 1 {
+		t.Fatalf("detection calls: core=%d source=%d", backend.coreCalls, backend.sourceCalls)
+	}
+	packages := evidence.PackagesByModule[module.ID]
+	if len(packages) != 1 || packages[0].RawVersion != "1.0" || len(evidence.FailedModules) != 0 {
+		t.Fatalf("source-aware evidence = %+v failures=%+v", packages, evidence.FailedModules)
+	}
+}
+
 type selectiveFailureDriver struct{}
 
 func (selectiveFailureDriver) Name() string { return "selective" }

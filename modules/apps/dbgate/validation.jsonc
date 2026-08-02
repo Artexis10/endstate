@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.dbgate",
+  "moduleRevision": "34caf1c082bd866e0234378d38e2e4e45f4960435656438e098c2fdd384f21c8",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures DbGate connection profiles from %APPDATA%\\DbGate\\connections.json. connections.json is flagged as a secret (warn-only) because it may carry inline credential fields; users must re-enter passwords after restore. Electron caches, logs, and session storage are excluded. Confidence: medium — config path inferred from DbGate's Electron/app data conventions; no official documentation explicitly names the Windows config root. Authored secret warning: connections.json stores saved database connection profiles and may include plaintext or lightly-obfuscated passwords and SSH key paths depending on the driver and authentication mode configured by the user. This file MUST NOT be auto-restored; users should re-enter connection credentials on the new machine. Authored excluded secret or machine-bound paths: %APPDATA%\\DbGate\\connections.json"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

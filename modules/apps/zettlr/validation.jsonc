@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.zettlr",
+  "moduleRevision": "4ef3b8f2a8c06d934831cac4e4017103e3d242fbb324ff5dd3f027480281c986",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Zettlr app-level preferences (config.json), user CSS (custom.css), and dictionary files from %APPDATA%\\Zettlr\\. Workspaces/vaults (user document trees) are user content and are NOT captured. stats.json (writing statistics) excluded as volatile runtime data. Confidence: high — Electron app; config dir is the standard Electron userData path resolved via app.getPath('userData') which maps to %APPDATA%\\Zettlr on Windows."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

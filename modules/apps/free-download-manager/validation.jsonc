@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.free-download-manager",
+  "moduleRevision": "fdf46ef494858d84e083e033b2e1893c2f15a718a37f0ec81da8854eebf4fa14",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

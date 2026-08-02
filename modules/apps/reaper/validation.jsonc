@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.reaper",
+  "moduleRevision": "65fb3c6c1acf69d4ca3c282a598657d4ff1cebd9dc12a3be81f19fe2b72c5956",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

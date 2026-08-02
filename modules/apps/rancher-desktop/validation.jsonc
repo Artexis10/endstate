@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.rancher-desktop",
+  "moduleRevision": "f14d92b7366a7d1a2a1c1d4021f2cfc01f6d96b0680925cb4da816e81d98257f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

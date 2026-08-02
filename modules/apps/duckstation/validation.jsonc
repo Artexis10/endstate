@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.duckstation",
+  "moduleRevision": "e0f0942535fdf155f7b604b5a6c09b433d10c6ed1167e223ea95d55f1bd8f109",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.wave-link",
+  "moduleRevision": "090599de2c3936ecb70b4fd10394bfa86e2d754cf9e3f6b44e733b107b04e2d6",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/wave-link/validation-fixtures/default-v1.jsonc",
+          "sha256": "cf9bb50c289e40321835f2fdbb638491284c79a7e3135531fb1ae2381c1ce8d4"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.stream-deck",
+  "moduleRevision": "66ba3f876459cbda599fa91f972299cf43a539747b91a8bb1c4a15560e81456b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/stream-deck/validation-fixtures/default-v1.jsonc",
+          "sha256": "8eeeca9ba5ef8857b244fdd4ff9486470879b4190f7c73f5e3760d8c9d5aaed9"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

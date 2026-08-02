@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.gpu-z",
+  "moduleRevision": "6d6afb5c95d7ab6d720e1ecc401e694447271c13ed36eaaa20d2d41675ffdb13",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

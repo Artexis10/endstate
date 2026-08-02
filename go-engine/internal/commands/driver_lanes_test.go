@@ -718,3 +718,35 @@ func TestRunApply_PackageModuleMapIsDriverQualifiedAndLegacyMapStaysWingetOnly(t
 		})
 	})
 }
+
+func TestMatchApplyModuleOwnershipKeepsInstallOnlyModuleOutOfLegacyConfigMap(t *testing.T) {
+	configOwner := &modules.Module{
+		ID:      "apps.kubeconfig",
+		Matches: modules.MatchCriteria{Winget: []string{"Kubernetes.kubectl"}},
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{Source: `%USERPROFILE%\.kube\config`, Dest: "config"}}},
+	}
+	installOnly := &modules.Module{
+		ID:      "apps.kubectl",
+		Matches: modules.MatchCriteria{Winget: []string{"Kubernetes.kubectl"}},
+		Verify:  []modules.VerifyDef{{Type: "command-exists", Command: "kubectl"}},
+	}
+	apps := []manifest.App{{
+		ID: "kubernetes-kubectl", Driver: "winget",
+		Refs: map[string]string{"windows": "Kubernetes.kubectl"},
+	}}
+
+	matched, configMap, packageMap := matchApplyModuleOwnership(map[string]*modules.Module{
+		configOwner.ID: configOwner, installOnly.ID: installOnly,
+	}, apps)
+	if got := []string{matched[0].ID, matched[1].ID}; !reflect.DeepEqual(got, []string{"apps.kubeconfig", "apps.kubectl"}) {
+		t.Fatalf("matched modules = %v", got)
+	}
+	if !reflect.DeepEqual(configMap, map[string]string{"Kubernetes.kubectl": "apps.kubeconfig"}) {
+		t.Fatalf("legacy configModuleMap = %v", configMap)
+	}
+	if !reflect.DeepEqual(packageMap, map[string][]string{
+		"winget:Kubernetes.kubectl": {"apps.kubeconfig", "apps.kubectl"},
+	}) {
+		t.Fatalf("packageModuleMap = %v", packageMap)
+	}
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.biglybt",
+  "moduleRevision": "6bff46a6f58afb0d132e5d158eeaa90f2de57b61d4e60af01bfc35ec687a1c9f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

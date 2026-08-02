@@ -105,6 +105,9 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 // collection results used to build it. onStage is optional.
 func CreateBundleWithReport(manifestPath string, matchedModules []*modules.Module, outputPath string, version string, onStage func(Stage)) (report BundleReport, retErr error) {
 	report.Modules = []ModuleCollectionResult{}
+	if err := preflightRegistryCaptureBoundaries(matchedModules, nil); err != nil {
+		return report, err
+	}
 	stagingDir, err := os.MkdirTemp("", "endstate-bundle-")
 	if err != nil {
 		return report, fmt.Errorf("failed to create staging directory: %w", err)
@@ -153,6 +156,9 @@ func CreateBundleWithReport(manifestPath string, matchedModules []*modules.Modul
 		moduleResult.Paths = nonNilStrings(fileCollected)
 		moduleResult.FilesCaptured = len(fileCollected)
 		if err != nil {
+			if isRegistryCaptureBoundaryFailure(err) {
+				return report, err
+			}
 			message := fmt.Sprintf("module %s: %v", mod.ID, err)
 			captureWarnings = append(captureWarnings, message)
 			moduleResult.Errors = append(moduleResult.Errors, message)
@@ -164,6 +170,9 @@ func CreateBundleWithReport(manifestPath string, matchedModules []*modules.Modul
 
 		regCollected, regErr := CollectRegistryKeys(mod, stagingDir)
 		if regErr != nil {
+			if isRegistryCaptureBoundaryFailure(regErr) {
+				return report, regErr
+			}
 			message := fmt.Sprintf("module %s registry: %v", mod.ID, regErr)
 			captureWarnings = append(captureWarnings, message)
 			moduleResult.Errors = append(moduleResult.Errors, message)
@@ -172,6 +181,9 @@ func CreateBundleWithReport(manifestPath string, matchedModules []*modules.Modul
 
 		regValuesCollected, regValErr := CollectRegistryValues(mod, stagingDir)
 		if regValErr != nil {
+			if isRegistryCaptureBoundaryFailure(regValErr) {
+				return report, regValErr
+			}
 			message := fmt.Sprintf("module %s registry values: %v", mod.ID, regValErr)
 			captureWarnings = append(captureWarnings, message)
 			moduleResult.Errors = append(moduleResult.Errors, message)
@@ -297,6 +309,11 @@ func CreateBundleWithReport(manifestPath string, matchedModules []*modules.Modul
 	}
 
 	return report, nil
+}
+
+func isRegistryCaptureBoundaryFailure(err error) bool {
+	var boundary *registrySecretBoundaryError
+	return errors.As(err, &boundary)
 }
 
 // rewriteSourcePath converts ./payload/apps/<id>/<file> to

@@ -5,4 +5,10 @@
 
 package restore
 
+import "github.com/Artexis10/endstate/go-engine/internal/validationmode"
+
 func describeRegistryTargetExists(RestoreAction) bool { return false }
+
+func describeValidationRegistryImportTargetExists(*validationmode.Context, RestoreAction) bool {
+	return false
+}

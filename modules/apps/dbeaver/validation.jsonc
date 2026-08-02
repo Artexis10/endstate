@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.dbeaver",
+  "moduleRevision": "6d3c45f6dd0dc897fad07633e609f21cc61b908d7f14e27a07b72a5502fe5f7b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

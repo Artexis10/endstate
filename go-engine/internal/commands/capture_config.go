@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 const (
@@ -116,6 +117,13 @@ type captureConfigFinalizeRequest struct {
 	// OnStage, when set, receives truthful bundle work boundaries (settings,
 	// packaging) so capture can translate them into schema-v1 progress events.
 	OnStage func(bundle.Stage)
+	// Prepared is populated only by active validation mode so command preflight
+	// can run before the intermediate manifest write. Ordinary capture keeps the
+	// established single finalize call and byte-identical ordering.
+	Prepared *captureConfigPreparation
+	// ValidationContext virtualizes only capture-side OS I/O. Nil preserves the
+	// established production collector and bundle bytes.
+	ValidationContext *validationmode.Context
 }
 
 // scopeCatalogToSelection narrows a catalog to the modules an explicit --only
@@ -220,11 +228,58 @@ type captureConfigCandidate struct {
 	DisplayName string
 }
 
+type captureConfigPreparation struct {
+	RepoRoot           string
+	Catalog            map[string]*modules.Module
+	Planning           captureConfigPlanning
+	OutputPath         string
+	CatalogUnavailable bool
+	ValidationContext  *validationmode.Context
+	// ValidationPreflightComplete is set only by the command gate after it has
+	// checked this exact pinned preparation. It prevents a second declaration
+	// walk after guard registration is sealed while leaving other finalizer
+	// callers fail-closed.
+	ValidationPreflightComplete bool
+}
+
+func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigPreparation, error) {
+	repoRoot := resolveRepoRootFn()
+	catalog := map[string]*modules.Module{}
+	diagnostics := []modules.CatalogDiagnostic{}
+	if repoRoot != "" {
+		loaded, loadedDiagnostics, err := loadCaptureModuleCatalogFn(repoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("load capture module catalog: %w", err)
+		}
+		catalog = loaded
+		diagnostics = loadedDiagnostics
+	}
+	if request.Selection.active() {
+		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		catalog = scoped
+	}
+	outputPath, err := captureBundleOutputPath(request.Flags, request.ManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	return &captureConfigPreparation{
+		RepoRoot: repoRoot, Catalog: catalog, Planning: planCaptureConfigWithValidation(catalog, request.Apps, diagnostics, request.ValidationContext, request.Selection),
+		OutputPath: outputPath, CatalogUnavailable: repoRoot == "", ValidationContext: request.ValidationContext,
+	}, nil
+}
+
 // planCaptureConfig strictly partitions schema-v1 and schema-v2 behavior.
 // Legacy modules use only the established matcher. Generation-aware modules
 // are considered by detector eligibility, even without an application match,
 // so path-only instances remain discoverable.
 func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, catalogDiagnostics []modules.CatalogDiagnostic) captureConfigPlanning {
+	return planCaptureConfigWithValidation(catalog, apps, catalogDiagnostics, nil, captureSelection{})
+}
+
+func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []manifest.App, catalogDiagnostics []modules.CatalogDiagnostic, context *validationmode.Context, selection captureSelection) captureConfigPlanning {
 	planning := captureConfigPlanning{
 		Modules:                []*modules.Module{},
 		LegacyModules:          []*modules.Module{},
@@ -248,7 +303,21 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 			}
 		}
 	}
-	planning.LegacyModules = nonNilModules(matchModulesForAppsFn(legacyCatalog, apps))
+	legacyModules := make(map[string]*modules.Module)
+	for _, mod := range nonNilModules(matchModulesForAppsFn(legacyCatalog, apps)) {
+		legacyModules[mod.ID] = mod
+	}
+	explicitModuleIDs := make(map[string]struct{}, len(selection.moduleIDs))
+	for _, id := range selection.moduleIDs {
+		explicitModuleIDs[id] = struct{}{}
+		if mod := legacyCatalog[id]; mod != nil {
+			legacyModules[id] = mod
+		}
+	}
+	planning.LegacyModules = make([]*modules.Module, 0, len(legacyModules))
+	for _, mod := range legacyModules {
+		planning.LegacyModules = append(planning.LegacyModules, mod)
+	}
 	sort.Slice(planning.LegacyModules, func(left, right int) bool { return planning.LegacyModules[left].ID < planning.LegacyModules[right].ID })
 	sort.Slice(generationModules, func(left, right int) bool { return generationModules[left].ID < generationModules[right].ID })
 	planning.Modules = append(planning.Modules, planning.LegacyModules...)
@@ -260,7 +329,11 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 	for _, mod := range generationModules {
 		candidateStart := len(planning.Candidates)
 		diagnosticStart := len(planning.PreplanningDiagnostics)
-		instances, err := modules.DiscoverInstances(mod, capturePackageEvidence(mod, apps), modules.DiscoveryOptions{})
+		discovery := modules.DiscoveryOptions{}
+		if context != nil {
+			discovery.Glob = context.GlobSandboxPattern
+		}
+		instances, err := modules.DiscoverInstances(mod, capturePackageEvidence(mod, apps), discovery)
 		if err != nil {
 			planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, bundle.CaptureBundleDiagnostic{
 				ModuleID: mod.ID,
@@ -314,7 +387,8 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 				}
 			}
 		}
-		if len(planning.Candidates) > candidateStart || len(planning.PreplanningDiagnostics) > diagnosticStart {
+		_, explicitlySelected := explicitModuleIDs[mod.ID]
+		if explicitlySelected || len(planning.Candidates) > candidateStart || len(planning.PreplanningDiagnostics) > diagnosticStart {
 			planning.Modules = append(planning.Modules, mod)
 			relevantModuleIDs[mod.ID] = struct{}{}
 		}
@@ -401,42 +475,62 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 	if request.Flags.Sanitize {
 		return empty, nil
 	}
-
-	repoRoot := resolveRepoRootFn()
-	catalog := map[string]*modules.Module{}
-	diagnostics := []modules.CatalogDiagnostic{}
-	if repoRoot != "" {
-		loaded, loadedDiagnostics, err := loadCaptureModuleCatalogFn(repoRoot)
+	prepared := request.Prepared
+	if prepared == nil {
+		var err error
+		prepared, err = prepareCaptureConfig(request)
 		if err != nil {
-			return nil, fmt.Errorf("load capture module catalog: %w", err)
+			return nil, err
 		}
-		catalog = loaded
-		diagnostics = loadedDiagnostics
 	}
-	if request.Selection.active() {
-		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
-		if scopeErr != nil {
-			return nil, scopeErr
+	planning := prepared.Planning
+	outputPath := prepared.OutputPath
+	validationContext := request.ValidationContext
+	if validationContext == nil {
+		validationContext = prepared.ValidationContext
+	}
+	if validationContext != nil && !prepared.ValidationPreflightComplete {
+		planningManifest, projectionErr := validationManifestFromCapturePreparation(prepared, request.Apps)
+		if projectionErr != nil {
+			return nil, validationPreflightFailure(currentValidationSession, "planning.materialized", "capture-projection", isolationReasonUnsafePath)
 		}
-		catalog = scoped
-	}
-	planning := planCaptureConfig(catalog, request.Apps, diagnostics)
-	outputPath, err := captureBundleOutputPath(request.Flags, request.ManifestPath)
-	if err != nil {
-		return nil, err
+		configPlans, instances := validationCapturePlanningFacts(prepared)
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: prepared.Catalog, Modules: planning.Modules, Manifest: planningManifest,
+			PortableRoot: validationManifestPortableRoot(request.ManifestPath), ConfigPlans: configPlans, Instances: instances,
+			SandboxTargets: []validationProductionSandboxTarget{
+				validationSandboxTarget("capture.output", request.ManifestPath),
+				validationSandboxTarget("capture.bundle", outputPath),
+			},
+		}); validationErr != nil {
+			return nil, fmt.Errorf("validation capture preflight failed")
+		}
 	}
 	bundleResult, err := createCaptureBundleFn(bundle.CaptureBundleRequest{
 		ManifestPath:           request.ManifestPath,
 		OutputPath:             outputPath,
-		EndstateVersion:        config.ReadVersion(repoRoot),
+		EndstateVersion:        config.ReadVersion(prepared.RepoRoot),
 		Modules:                planning.Modules,
 		GenerationPlans:        planning.GenerationPlans,
 		PreplanningDiagnostics: planning.PreplanningDiagnostics,
 		Share:                  request.Flags.Share,
 		Name:                   request.Flags.Name,
 		OnStage:                request.OnStage,
+		ValidationContext:      validationContext,
 	})
 	if err != nil {
+		if validationContext != nil {
+			var isolation *bundle.CaptureIsolationError
+			if errors.As(err, &isolation) {
+				reason := isolationReasonUnsafePath
+				if errors.Is(err, validationmode.ErrUnsafeRegistry) {
+					reason = isolationReasonUnsafeRegistry
+				}
+				coordinate := isolation.ModuleID + "." + isolation.Coordinate
+				target := tokenizedValidationTarget(isolation.TargetKind, isolation.Authored)
+				return nil, currentValidationSession.recordIsolationFinding(coordinate, target, reason)
+			}
+		}
 		return nil, err
 	}
 	if !sameHostPath(request.ManifestPath, outputPath) {
@@ -461,7 +555,7 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		CaptureWarnings:      nonNilCommandStrings(bundleResult.CaptureWarnings),
 		ConfigCapture:        configSummary,
 		SensitiveExcluded:    sensitiveExcluded,
-		CatalogUnavailable:   repoRoot == "",
+		CatalogUnavailable:   prepared.CatalogUnavailable,
 	}, nil
 }
 

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mpc-hc",
+  "moduleRevision": "0c1751ab6965c2e1eaf93c5e334f06ec4bb7a0d0db7ee39083e04ff6773c4492",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

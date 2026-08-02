@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.internet-download-manager",
+  "moduleRevision": "cccd725423b349023cad4e4bcc1f8da765ccbe0cf4c772add3578c52eb03dc8b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.ksnip",
+  "moduleRevision": "0f5ad9f2cb0655eba8fc83c4d6a942bf4883fbad5a2de75f86a230ee4e347313",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

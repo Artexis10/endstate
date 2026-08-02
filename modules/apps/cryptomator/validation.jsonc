@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.cryptomator",
+  "moduleRevision": "f565ec7ea7e96d47dea3ab350ada5fee242c84b9c371fe3ae9bfa54e65f90d36",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

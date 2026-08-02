@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.wps-office",
+  "moduleRevision": "581745c2224267d314d5d1bc6f1ee1ec9e6837a2aaf57a43dc2b3e4bdc9d65e0",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

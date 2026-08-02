@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.portmaster",
+  "moduleRevision": "f510d756095dc111246bde27de3527d792646ee086e0a073c24013259f3dee93",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Capture-only. Captures global Portmaster config and per-app firewall profiles from %PROGRAMDATA%\\Safing\\Portmaster\\. Runtime databases, intel feeds, logs, and update artifacts excluded. Account/cloud-token file (account.json) flagged as secret and never auto-restored. Confidence: medium — profile directory layout verified against Portmaster v1 on-disk structure. Authored secret warning: Any SPN/account tokens stored by the Safing cloud integration (account.json) must not be auto-restored. Authored excluded secret or machine-bound paths: %PROGRAMDATA%\\Safing\\Portmaster\\account.json"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

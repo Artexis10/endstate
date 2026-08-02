@@ -22,8 +22,9 @@ func RestoreDeleteGlob(entry RestoreAction, target string, opts RestoreOptions) 
 	if err := ValidateFilesystemTarget(target); err != nil {
 		return nil, err
 	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 	pattern := strings.ReplaceAll(entry.Pattern, `\`, "/")
-	matches, err := expandSafeDeleteGlob(target, strings.Split(pattern, "/"))
+	matches, err := expandSafeDeleteGlobWithBoundary(target, strings.Split(pattern, "/"), boundary)
 	if err != nil {
 		return nil, fmt.Errorf("invalid glob pattern %q: %w", entry.Pattern, err)
 	}
@@ -34,7 +35,7 @@ func RestoreDeleteGlob(entry RestoreAction, target string, opts RestoreOptions) 
 	// Filter to files only (skip directories).
 	var files []string
 	for _, m := range matches {
-		info, statErr := os.Stat(m)
+		info, statErr := boundary.stat("delete-glob-member-stat", m)
 		if statErr != nil || info.IsDir() {
 			continue
 		}
@@ -64,7 +65,7 @@ func RestoreDeleteGlob(entry RestoreAction, target string, opts RestoreOptions) 
 
 		// Back up before deleting so revert can restore the file.
 		if opts.BackupDir != "" {
-			backupPath, backupErr := CreateBackup(f, opts.BackupDir)
+			backupPath, backupErr := CreateBackupWithValidation(f, opts.BackupDir, opts.ValidationContext)
 			if backupErr != nil {
 				r.Status = "failed"
 				r.Error = fmt.Sprintf("backup before delete failed: %v", backupErr)
@@ -75,7 +76,7 @@ func RestoreDeleteGlob(entry RestoreAction, target string, opts RestoreOptions) 
 			r.BackupPath = backupPath
 		}
 
-		if err := os.Remove(f); err != nil {
+		if err := boundary.remove("delete-glob-member-remove", f); err != nil {
 			r.Status = "failed"
 			r.Error = fmt.Sprintf("delete failed: %v", err)
 			results = append(results, r)
@@ -137,6 +138,56 @@ func expandSafeDeleteGlob(root string, components []string) ([]string, error) {
 			}
 			if isLinkOrReparse(info) {
 				return fmt.Errorf("delete-glob path component %q is a link or reparse point", candidate)
+			}
+			if componentIndex == len(components)-1 {
+				if info.Mode().IsRegular() {
+					matches = append(matches, candidate)
+				}
+				continue
+			}
+			if info.IsDir() {
+				if err := visit(candidate, componentIndex+1); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := visit(filepath.Clean(root), 0); err != nil {
+		return nil, err
+	}
+	return matches, nil
+}
+
+func expandSafeDeleteGlobWithBoundary(root string, components []string, boundary legacyValidationBoundary) ([]string, error) {
+	if boundary.context == nil {
+		return expandSafeDeleteGlob(root, components)
+	}
+	var matches []string
+	var visit func(string, int) error
+	visit = func(current string, componentIndex int) error {
+		entries, err := boundary.readDir("delete-glob-directory-read", current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			matched, err := filepath.Match(components[componentIndex], entry.Name())
+			if err != nil {
+				return err
+			}
+			if !matched {
+				continue
+			}
+			candidate := filepath.Join(current, entry.Name())
+			info, err := boundary.lstat("delete-glob-member-lstat", candidate)
+			if err != nil {
+				return err
+			}
+			if isLinkOrReparse(info) {
+				return fmt.Errorf("delete-glob path component is a link or reparse point")
 			}
 			if componentIndex == len(components)-1 {
 				if info.Mode().IsRegular() {

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.beekeeper-studio",
+  "moduleRevision": "5970129d5335c2a4f81ccf9c4ecd636d8e4f3e7eaf8209202fc921996492550f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.lazygit",
+  "moduleRevision": "b19c5fe73b664e14fcd487e1ce86bc8d7c5681f10f896cc3e9be7b47f96e07f4",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

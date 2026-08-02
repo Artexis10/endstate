@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.bitwig-studio",
+  "moduleRevision": "0472f34bb781e2a9af55681be7e6c4415833482e3b4c9ef1d5430c6efe575621",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

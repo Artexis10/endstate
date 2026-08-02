@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.signal",
+  "moduleRevision": "eea8e1bcd6b1cf228fc82a5ab4ac4be61f689eaad25c2dcbc317ba0811a4c022",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

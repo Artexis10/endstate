@@ -6,72 +6,341 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  # Windows is the primary shipping target; this job keeps the stable "Go Tests"
-  # check name (don't rename it — branch protection may require it).
   test:
+    # Keep this exact stable check name: branch protection may require it.
     name: Go Tests
     runs-on: windows-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
-
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@v6
+        # v6.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
           cache-dependency-path: go-engine/go.sum
-
       - name: Vet
         run: cd go-engine && go vet ./...
-
       - name: Test
         run: cd go-engine && go test ./...
 
-  # Real-execution smoke: builds the CLI and drives it end-to-end
-  # (apply / restore / verify / export-config / bootstrap / events) against
-  # throwaway fixtures under $env:TEMP. Complements the hermetic "Go Tests"
-  # unit suite by exercising the actually-shipped binary. Blocking on PRs.
-  #
-  # Runs under PowerShell 7 (pwsh): the script's `Set-Content -Encoding UTF8`
-  # emits a UTF-8 BOM under Windows PowerShell 5.1 that the jsonc manifest
-  # parser rejects; pwsh writes no BOM.
-  integration-windows:
-    name: Integration Test (windows)
+  build-windows:
+    name: Build Validation Binaries
     runs-on: windows-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
-
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@v6
+        # v6.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
           cache-dependency-path: go-engine/go.sum
+      - name: Build engine and validation binaries once
+        run: |
+          cd go-engine
+          go build -o endstate.exe ./cmd/endstate
+          go build -o endstate-validation.exe ./cmd/endstate-validation
+      - name: Upload built binaries
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: endstate-windows-binaries
+          path: |
+            go-engine/endstate.exe
+            go-engine/endstate-validation.exe
+          retention-days: 1
 
-      - name: Build engine binary
-        run: cd go-engine && go build -o endstate.exe ./cmd/endstate
-
-      # Best-effort: satisfies the "Notepad++ already installed" precondition of
-      # the apply test so it exercises the present/skip path deterministically
-      # instead of a real network install. continue-on-error keeps a winget
-      # hiccup from failing the lane — the engine still attempts the install
-      # itself during the test if the package is absent.
-      - name: Pre-install Notepad++ (apply fixture)
-        continue-on-error: true
-        shell: pwsh
-        run: winget install --id Notepad++.Notepad++ -e --source winget --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
-
+  integration-windows:
+    name: Integration Test (windows)
+    needs: build-windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Download built engine
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: endstate-windows-binaries
+          path: go-engine
       - name: Run integration test
         shell: pwsh
         run: cd go-engine && ./integration-test.ps1
 
-  # macOS + Linux exercise the Nix realizer / home-manager code paths
-  # (GOOS=darwin/linux) that the Windows job cross-compiles but never runs.
-  # Hermetic suite only — no real Nix. fail-fast:false so one OS failing still
-  # reports the others.
+  synthetic-shards:
+    name: Synthetic Shard ${{ matrix.shard }}
+    needs: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Download built binaries
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: endstate-windows-binaries
+          path: ${{ runner.temp }}/endstate-bin
+      - name: Run synthetic shard
+        shell: pwsh
+        run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
+          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
+          New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
+          & $validator shard --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --shards 8 --shard ${{ matrix.shard }} --result (Join-Path $resultRoot 'shard-${{ matrix.shard }}.json')
+          exit $LASTEXITCODE
+      - name: Upload shard evidence
+        if: always()
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/endstate-validation-results/shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  catalog-matrix:
+    name: Catalog Matrix
+    needs: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Download built binaries
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: endstate-windows-binaries
+          path: ${{ runner.temp }}/endstate-bin
+      - name: Run all-bundle-twice catalog matrix
+        shell: pwsh
+        run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
+          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
+          New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
+          & $validator catalog --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --result (Join-Path $resultRoot 'catalog.json')
+          exit $LASTEXITCODE
+      - name: Upload catalog evidence
+        if: always()
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: catalog-matrix
+          path: ${{ runner.temp }}/endstate-validation-results/catalog.json
+          if-no-files-found: error
+          retention-days: 7
+
+  notepad-engine-contract:
+    name: Notepad++ Synthetic Engine Contract
+    needs: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Download built binaries
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: endstate-windows-binaries
+          path: ${{ runner.temp }}/endstate-bin
+      - name: Run synthetic Notepad++ engine-contract canary
+        shell: pwsh
+        run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
+          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
+          New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
+          & $validator canary --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --result (Join-Path $resultRoot 'canary.json')
+          exit $LASTEXITCODE
+      - name: Upload synthetic canary evidence
+        if: always()
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: notepad-engine-contract
+          path: ${{ runner.temp }}/endstate-validation-results/canary.json
+          if-no-files-found: error
+          retention-days: 7
+
+  verified-module-matrix:
+    name: Verified Module Matrix
+    if: always()
+    needs: [build-windows, synthetic-shards, catalog-matrix, notepad-engine-contract]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Download built binaries
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: endstate-windows-binaries
+          path: ${{ runner.temp }}/endstate-bin
+      - name: Download shard evidence
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: synthetic-shard-*
+          path: ${{ runner.temp }}/validation-input
+          merge-multiple: true
+      - name: Download catalog evidence
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: catalog-matrix
+          path: ${{ runner.temp }}/validation-input
+      - name: Download synthetic canary evidence
+        # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: notepad-engine-contract
+          path: ${{ runner.temp }}/validation-input
+      - name: Extract known-failure authority
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($head -ne $env:GITHUB_SHA.ToLowerInvariant()) {
+            throw 'checkout commit does not match GITHUB_SHA'
+          }
+          $baseAuthority = Join-Path $env:RUNNER_TEMP 'base-known-failures.json'
+          $ledgerPath = '.github/validation/synthetic-known-failures.json'
+          function Copy-GitBlob([string]$reference, [string]$destination) {
+            $stream = [System.IO.File]::Open($destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo.FileName = $env:ComSpec
+            $process.StartInfo.UseShellExecute = $false
+            $process.StartInfo.RedirectStandardOutput = $true
+            $process.StartInfo.RedirectStandardError = $true
+            $process.StartInfo.ArgumentList.Add('/d')
+            $process.StartInfo.ArgumentList.Add('/s')
+            $process.StartInfo.ArgumentList.Add('/c')
+            $process.StartInfo.ArgumentList.Add("git show $reference")
+            try {
+              if (-not $process.Start()) {
+                throw 'git show did not start'
+              }
+              $process.StandardOutput.BaseStream.CopyTo($stream)
+              $stderr = $process.StandardError.ReadToEnd()
+              $process.WaitForExit()
+              if ($process.ExitCode -ne 0) {
+                throw "git show failed with exit code $($process.ExitCode): $stderr"
+              }
+            } catch {
+              Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+              throw
+            } finally {
+              $stream.Dispose()
+            }
+          }
+          function Extract-BaseAuthority([string]$commit) {
+            $reference = "$commit`:$ledgerPath"
+            git cat-file -e $reference 2>$null
+            $probeExit = $LASTEXITCODE
+            if ($probeExit -eq 0) {
+              Copy-GitBlob $reference $baseAuthority
+              return
+            }
+            if ($probeExit -ne 1 -and $probeExit -ne 128) {
+              throw "git cat-file probe failed with exit code $probeExit"
+            }
+            $treeEntry = @(git ls-tree $commit -- $ledgerPath)
+            if ($LASTEXITCODE -ne 0) {
+              throw "git ls-tree probe failed with exit code $LASTEXITCODE"
+            }
+            if ($treeEntry.Count -ne 0) {
+              throw 'git cat-file reported an existing base ledger as absent'
+            }
+            $global:LASTEXITCODE = 0
+          }
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            $event = Get-Content -Raw $env:GITHUB_EVENT_PATH | ConvertFrom-Json
+            $parents = ((git rev-list --parents -n 1 HEAD).Trim() -split '\s+')
+            if ($parents.Count -ne 3) {
+              throw 'pull request checkout must be a two-parent merge commit'
+            }
+            if ($parents[1].ToLowerInvariant() -ne $event.pull_request.base.sha.ToLowerInvariant() -or $parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()) {
+              throw 'pull request merge parents do not match event authority'
+            }
+            Extract-BaseAuthority $parents[1]
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main') {
+            Extract-BaseAuthority $env:GITHUB_SHA
+          } else {
+            throw 'unsupported validation authority event or ref'
+          }
+      - name: Aggregate compact evidence
+        shell: pwsh
+        run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
+          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
+          $baseAuthority = Join-Path $env:RUNNER_TEMP 'base-known-failures.json'
+          $headCandidate = Join-Path $env:GITHUB_WORKSPACE '.github\validation\synthetic-known-failures.json'
+          New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
+          & $validator aggregate --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --input (Join-Path $env:RUNNER_TEMP 'validation-input') --base-authority $baseAuthority --head-candidate $headCandidate --result (Join-Path $resultRoot 'aggregate.json') | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'aggregate-output.json')
+          exit $LASTEXITCODE
+      - name: Write summary
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path (Join-Path $env:RUNNER_TEMP 'aggregate-output.json')) {
+            "## Verified Module Matrix (synthetic evidence)" | Add-Content $env:GITHUB_STEP_SUMMARY
+            Get-Content -Raw (Join-Path $env:RUNNER_TEMP 'aggregate-output.json') | Add-Content $env:GITHUB_STEP_SUMMARY
+          } else {
+            "## Verified Module Matrix`nEvidence aggregation did not produce JSON." | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+      - name: Upload compact aggregate evidence
+        if: always()
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-module-matrix-aggregate
+          path: ${{ runner.temp }}/endstate-validation-results/aggregate.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   test-unix:
     name: Go Tests (${{ matrix.os }})
     strategy:
@@ -79,19 +348,19 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
-
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@v6
+        # v6.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
           cache-dependency-path: go-engine/go.sum
-
       - name: Vet
         run: cd go-engine && go vet ./...
-
       - name: Test
         run: cd go-engine && go test ./...

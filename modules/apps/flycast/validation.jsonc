@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.flycast",
+  "moduleRevision": "173e67c930c7fa7408f5ce4c6d95400a5d96ba94c9c6bef04e9fb0bea1e9ef6b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

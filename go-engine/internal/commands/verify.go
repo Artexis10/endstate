@@ -107,6 +107,8 @@ type VerifyItem struct {
 	Expected string `json:"expected,omitempty"`
 }
 
+var runVerifierFn = verifier.RunVerifyWithValidation
+
 // RunVerify executes the verify command with the provided flags.
 //
 // Algorithm (three steps matching engine/verify.ps1 and Invoke-VerifyCore in
@@ -129,19 +131,45 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	// was passed. The emitter is a no-op when disabled, so no guard is needed.
 	runID := buildRunID("verify")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
+	if validationErr := preflightActiveValidationSandboxPaths(validationSandboxTarget("manifest.input", flags.Manifest)); validationErr != nil {
+		return nil, validationErr
+	}
 
 	// --- 1. Load manifest ---
-	mf, envelopeErr := loadManifest(flags.Manifest)
+	mf, envelopeErr := loadValidationCommandManifest(flags.Manifest)
 	if envelopeErr != nil {
 		return nil, envelopeErr
+	}
+	if validationErr := preflightValidationManifest(mf); validationErr != nil {
+		return nil, validationErr
 	}
 
 	// --- 1b. Synthesize manual apps from configModules (non-fatal) ---
 	repoRoot := config.ResolveRepoRoot()
+	var catalog map[string]*modules.Module
 	if repoRoot != "" {
-		catalog, catalogErr := loadModuleCatalogFn(repoRoot)
-		if catalogErr == nil && len(catalog) > 0 {
+		loadedCatalog, catalogErr := loadModuleCatalogFn(repoRoot)
+		if catalogErr == nil && len(loadedCatalog) > 0 {
+			catalog = loadedCatalog
 			modules.SynthesizeAppsFromModules(mf, catalog)
+		}
+	}
+	if currentValidationMode != nil {
+		matchedModules, _, _, validationDriver := validationDriverModuleOwnership(catalog, mf)
+		if !validationDriver {
+			matchedModules = modules.MatchModulesForAppsIncludingInstall(catalog, mf.Apps)
+		}
+		instances, instanceErr := validationDiscoverCommandInstances(matchedModules, mf.Apps)
+		if instanceErr != nil {
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "instances", "instance-discovery")
+		}
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: catalog, Modules: matchedModules, Manifest: mf,
+			PortableRoot: validationManifestPortableRoot(flags.Manifest),
+			ConfigPlans:  validationConfigPlansFromManifest(mf), Instances: instances,
+			SandboxTargets: []validationProductionSandboxTarget{validationSandboxTarget("manifest.input", flags.Manifest)},
+		}); validationErr != nil {
+			return nil, validationErr
 		}
 	}
 
@@ -186,7 +214,10 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		}
 
 		if route.isManual {
-			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
+			expanded, exists, verifyPathErr := checkVerifyPathWithValidation(app.Manual.VerifyPath, currentValidationMode)
+			if verifyPathErr != nil {
+				return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
 			item := VerifyItem{
 				Type:   "app",
 				ID:     app.ID,
@@ -290,7 +321,10 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 
 	// --- 4. Run manifest verify entries through verifier dispatcher ---
 	if len(mf.Verify) > 0 {
-		verifyResults := verifier.RunVerify(mf.Verify)
+		verifyResults, verifyErr := runVerifierFn(mf.Verify, currentValidationMode)
+		if verifyErr != nil {
+			return nil, validationRuntimeIsolationFailure("verify.execution", "verifier", verifyErr)
+		}
 		for _, vr := range verifyResults {
 			item := VerifyItem{
 				Type:    vr.Type,
@@ -374,11 +408,38 @@ func loadManifest(path string) (*manifest.Manifest, *envelope.Error) {
 			WithRemediation("Check the file path and ensure the manifest exists.")
 	}
 
-	// Accepts a capture bundle as well as a manifest file: verify only reads the
-	// manifest, and a bundle carries one at its archive root. This is what lets a
-	// saved bundle be a schedule baseline directly, instead of the GUI
-	// side-writing a `<bundle>.zip.manifest.jsonc` beside it for the scheduler.
+	// Capture bundles are valid baselines anywhere the shared command loader is
+	// used, while authored manifest files retain their ordinary validation.
 	mf, err := manifest.LoadManifestOrBundle(path)
+	return finishManifestLoad(path, mf, err)
+}
+
+// loadValidationCommandManifest is reserved for the rebuild/verify validation
+// entrypoints. Shared commands such as export-config must always retain normal
+// authored-manifest validation, even while validation mode is active.
+func loadValidationCommandManifest(path string) (*manifest.Manifest, *envelope.Error) {
+	if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
+		return nil, envelope.NewError(
+			envelope.ErrManifestNotFound,
+			"The specified manifest file does not exist.",
+		).WithDetail(map[string]string{"path": path}).
+			WithRemediation("Check the file path and ensure the manifest exists.")
+	}
+	var mf *manifest.Manifest
+	var err error
+	if currentValidationMode != nil && strings.EqualFold(currentValidationMode.Descriptor().Inventory.Driver, "validation") {
+		inventory := currentValidationMode.Descriptor().Inventory
+		mf, err = manifest.LoadProjectedManifestForValidationCapture(path, manifest.App{
+			ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref},
+			Driver: inventory.Driver, Source: inventory.Source, DisplayName: inventory.DisplayName,
+		})
+	} else {
+		mf, err = manifest.LoadManifestOrBundle(path)
+	}
+	return finishManifestLoad(path, mf, err)
+}
+
+func finishManifestLoad(path string, mf *manifest.Manifest, err error) (*manifest.Manifest, *envelope.Error) {
 	if err != nil {
 		if errors.Is(err, manifest.ErrValidation) {
 			return nil, envelope.NewError(

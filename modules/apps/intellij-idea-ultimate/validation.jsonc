@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.intellij-idea-ultimate",
+  "moduleRevision": "348c92971d34088cf16a335b188fa5c2fcb96e5c3acb4030b38d2c65181be879",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

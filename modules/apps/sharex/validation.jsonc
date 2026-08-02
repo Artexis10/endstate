@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.sharex",
+  "moduleRevision": "9ec24d3438d59e592754b4bbb372013f8b6b62dd4674dd628d93d8c6cbf8cdad",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

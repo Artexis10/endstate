@@ -58,10 +58,6 @@
   "notes": "Captures ASUS GPU Tweak III OC profiles, fan-curve presets, and UI settings from %PROGRAMDATA%\\ASUS\\GPUTweakIII. No winget ID — distributed via ASUS Armoury Crate or standalone installer. Restore omitted: ProgramData requires elevation. Confidence: medium — path confirmed by community reports; exact filenames vary by version.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%PROGRAMDATA%"
     ],

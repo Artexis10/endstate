@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.starship",
+  "moduleRevision": "6f3e3ce3f7b9fd25f60f0af247af994088eb9d6a5d4bb4bee613cdd76a29aed3",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

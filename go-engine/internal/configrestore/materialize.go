@@ -25,14 +25,17 @@ import (
 var errTargetNotRegular = errors.New("target is not a regular file")
 
 type resolvedRestore struct {
-	definition    modules.RestoreDef
-	source        string
-	target        string
-	sourceInfo    os.FileInfo
-	sourceMissing bool
-	registry      *RegistryValue
-	canonical     string
-	registryClaim bool
+	definition     modules.RestoreDef
+	source         string
+	sourceIdentity string
+	target         string
+	targetIdentity string
+	sourceInfo     os.FileInfo
+	sourceMissing  bool
+	registry       *RegistryValue
+	canonical      string
+	registryClaim  bool
+	boundary       HostBoundary
 }
 
 // Materialize performs read-only preflight and resolves every selected restore
@@ -55,7 +58,7 @@ func Materialize(ctx context.Context, request Request) (*MaterializedSet, error)
 	instance := targetConfigInstance(target)
 	resolved := make([]resolvedRestore, 0, len(generation.Restore))
 	for index, definition := range generation.Restore {
-		entry, err := resolveDefinition(request.Stage.Root, definition, instance, index)
+		entry, err := resolveDefinition(request.Stage.Root, definition, instance, request.Boundary, index)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +80,23 @@ func Materialize(ctx context.Context, request Request) (*MaterializedSet, error)
 	if err != nil {
 		return nil, err
 	}
-	return &MaterializedSet{Actions: actions, Validations: validations}, nil
+	validationTargets := make([]string, len(validations))
+	if request.Boundary != nil {
+		for index := range validations {
+			validationTargets[index] = validations[index].HostPath
+			if err := request.Boundary.ValidateFilesystemTarget(validationTargets[index]); err != nil {
+				return nil, newError(CodeUnsafePath, -1, validations[index].Definition.Path, err)
+			}
+			validations[index].HostPath, err = request.Boundary.ProjectFilesystemIdentity(validationTargets[index])
+			if err != nil {
+				return nil, newError(CodeUnsafePath, -1, validations[index].Definition.Path, err)
+			}
+		}
+	}
+	return &MaterializedSet{
+		Actions: actions, Validations: validations, validationTargets: validationTargets,
+		boundary: request.Boundary, instance: instance,
+	}, nil
 }
 
 func validateRequest(ctx context.Context, request Request) (planner.TargetInstance, *modules.GenerationDef, error) {
@@ -146,12 +165,19 @@ func resolveDefinition(
 	stageRoot string,
 	definition modules.RestoreDef,
 	instance modules.ConfigInstance,
+	boundary HostBoundary,
 	index int,
 ) (resolvedRestore, error) {
-	entry := resolvedRestore{definition: definition}
+	entry := resolvedRestore{definition: definition, boundary: boundary}
 	switch definition.Type {
 	case "copy", "merge-json", "merge-ini", "append", "delete-glob":
-		target, err := modules.ExpandInstancePath(definition.Target, instance, modules.HostPath)
+		var target string
+		var err error
+		if boundary != nil {
+			target, err = boundary.ResolveHostPath(definition.Target, instance)
+		} else {
+			target, err = modules.ExpandInstancePath(definition.Target, instance, modules.HostPath)
+		}
 		if err != nil {
 			return entry, newError(CodeUnsafePath, index, definition.Target, err)
 		}
@@ -161,7 +187,19 @@ func resolveDefinition(
 		if err := rejectExistingTargetLinks(target); err != nil {
 			return entry, newError(CodeUnsafePath, index, target, err)
 		}
+		if boundary != nil {
+			if err := boundary.ValidateFilesystemTarget(target); err != nil {
+				return entry, newError(CodeUnsafePath, index, definition.Target, err)
+			}
+		}
 		entry.target = target
+		entry.targetIdentity = target
+		if boundary != nil {
+			entry.targetIdentity, err = boundary.ProjectFilesystemIdentity(target)
+			if err != nil {
+				return entry, newError(CodeUnsafePath, index, definition.Target, err)
+			}
+		}
 		entry.canonical = canonicalFilesystemTarget(target)
 	case "registry-set":
 		registryValue, err := resolveRegistryValue(definition, instance)
@@ -187,6 +225,9 @@ func resolveDefinition(
 		if err := validateRelativeGlob(definition.Pattern); err != nil {
 			return entry, newError(CodeUnsafePath, index, entry.target, err)
 		}
+		if err := validateMaterializePath(boundary, entry.target); err != nil {
+			return entry, newError(CodeUnsafePath, index, entry.targetIdentity, err)
+		}
 		info, err := os.Lstat(entry.target)
 		if err == nil && !info.IsDir() {
 			return entry, newError(CodeUnsupportedFileType, index, entry.target, fmt.Errorf("delete-glob target must be a directory"))
@@ -204,6 +245,13 @@ func resolveDefinition(
 		return entry, newError(CodeUnsafePath, index, entry.target, err)
 	}
 	entry.source = source
+	entry.sourceIdentity = source
+	if boundary != nil {
+		entry.sourceIdentity = definition.Source
+		if err := boundary.ValidateFilesystemTarget(source); err != nil {
+			return entry, newError(CodeUnsafePath, index, definition.Source, err)
+		}
+	}
 	info, err := os.Lstat(source)
 	if os.IsNotExist(err) && definition.Optional {
 		entry.sourceMissing = true
@@ -274,24 +322,25 @@ func materializeOne(entry resolvedRestore, index int) ([]Action, error) {
 	switch entry.definition.Type {
 	case "copy":
 		return []Action{{
-			Kind: ActionCopy, Strategy: "copy", Source: entry.source, Target: entry.target,
+			Kind: ActionCopy, Strategy: "copy", Source: entry.sourceIdentity, Target: entry.targetIdentity,
 			SourceMode: entry.sourceInfo.Mode(), SourceIsDirectory: entry.sourceInfo.IsDir(),
 			Exclude: append([]string(nil), entry.definition.Exclude...), SnapshotRequired: true,
+			resolvedSource: entry.source, resolvedTarget: entry.target,
 		}}, nil
 	case "merge-json":
-		content, err := materializeJSONMerge(entry.source, entry.target)
+		content, err := materializeJSONMerge(entry.source, entry.target, entry.boundary)
 		if err != nil {
 			return nil, newError(materializationCode(err, CodeMalformedJSON), index, entry.target, err)
 		}
 		return []Action{writeAction(entry, content)}, nil
 	case "merge-ini":
-		content, err := materializeINIMerge(entry.source, entry.target)
+		content, err := materializeINIMerge(entry.source, entry.target, entry.boundary)
 		if err != nil {
 			return nil, newError(materializationCode(err, CodeMaterialization), index, entry.target, err)
 		}
 		return []Action{writeAction(entry, content)}, nil
 	case "append":
-		content, err := materializeAppend(entry.source, entry.target)
+		content, err := materializeAppend(entry.source, entry.target, entry.boundary)
 		if err != nil {
 			return nil, newError(materializationCode(err, CodeMaterialization), index, entry.target, err)
 		}
@@ -311,12 +360,16 @@ func materializeOne(entry resolvedRestore, index int) ([]Action, error) {
 
 func writeAction(entry resolvedRestore, content []byte) Action {
 	return Action{
-		Kind: ActionWriteFile, Strategy: entry.definition.Type, Source: entry.source, Target: entry.target,
+		Kind: ActionWriteFile, Strategy: entry.definition.Type, Source: entry.sourceIdentity, Target: entry.targetIdentity,
 		DesiredContent: append([]byte(nil), content...), SnapshotRequired: true,
+		resolvedSource: entry.source, resolvedTarget: entry.target,
 	}
 }
 
-func materializeJSONMerge(source, target string) ([]byte, error) {
+func materializeJSONMerge(source, target string, boundary HostBoundary) ([]byte, error) {
+	if err := validateMaterializePath(boundary, source); err != nil {
+		return nil, err
+	}
 	sourceData, _, err := safepath.ReadRegularFile(source)
 	if err != nil {
 		return nil, err
@@ -325,7 +378,7 @@ func materializeJSONMerge(source, target string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	targetData, exists, err := readOptionalRegularFile(target)
+	targetData, exists, err := readOptionalRegularFile(target, boundary)
 	if err != nil {
 		return nil, err
 	}
@@ -339,12 +392,15 @@ func materializeJSONMerge(source, target string) ([]byte, error) {
 	return configdoc.EncodeJSON(restore.DeepMerge(targetDocument, sourceDocument))
 }
 
-func materializeINIMerge(source, target string) ([]byte, error) {
+func materializeINIMerge(source, target string, boundary HostBoundary) ([]byte, error) {
+	if err := validateMaterializePath(boundary, source); err != nil {
+		return nil, err
+	}
 	sourceData, _, err := safepath.ReadRegularFile(source)
 	if err != nil {
 		return nil, err
 	}
-	targetData, _, err := readOptionalRegularFile(target)
+	targetData, _, err := readOptionalRegularFile(target, boundary)
 	if err != nil {
 		return nil, err
 	}
@@ -354,12 +410,15 @@ func materializeINIMerge(source, target string) ([]byte, error) {
 	))), nil
 }
 
-func materializeAppend(source, target string) ([]byte, error) {
+func materializeAppend(source, target string, boundary HostBoundary) ([]byte, error) {
+	if err := validateMaterializePath(boundary, source); err != nil {
+		return nil, err
+	}
 	sourceData, _, err := safepath.ReadRegularFile(source)
 	if err != nil {
 		return nil, err
 	}
-	targetData, targetExists, err := readOptionalRegularFile(target)
+	targetData, targetExists, err := readOptionalRegularFile(target, boundary)
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +465,10 @@ func splitNonEmpty(content string) []string {
 	return result
 }
 
-func readOptionalRegularFile(target string) ([]byte, bool, error) {
+func readOptionalRegularFile(target string, boundary HostBoundary) ([]byte, bool, error) {
+	if err := validateMaterializePath(boundary, target); err != nil {
+		return nil, false, err
+	}
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
 		return nil, false, nil
@@ -419,6 +481,13 @@ func readOptionalRegularFile(target string) ([]byte, bool, error) {
 	}
 	data, _, err := safepath.ReadRegularFile(target)
 	return data, true, err
+}
+
+func validateMaterializePath(boundary HostBoundary, target string) error {
+	if boundary == nil {
+		return nil
+	}
+	return boundary.ValidateFilesystemTarget(target)
 }
 
 func materializationCode(err error, fallback Code) Code {
@@ -437,7 +506,7 @@ func materializationCode(err error, fallback Code) Code {
 
 func materializeDeleteGlob(entry resolvedRestore, index int) ([]Action, error) {
 	pattern := strings.ReplaceAll(entry.definition.Pattern, `\`, "/")
-	matches, err := expandDeleteGlob(entry.target, strings.Split(pattern, "/"))
+	matches, err := expandDeleteGlob(entry.target, strings.Split(pattern, "/"), entry.boundary)
 	if err != nil {
 		return nil, newError(CodeUnsafePath, index, entry.target, err)
 	}
@@ -450,6 +519,9 @@ func materializeDeleteGlob(entry resolvedRestore, index int) ([]Action, error) {
 		if err := rejectExistingTargetLinks(match); err != nil {
 			return nil, newError(CodeUnsafePath, index, match, err)
 		}
+		if err := validateMaterializePath(entry.boundary, match); err != nil {
+			return nil, newError(CodeUnsafePath, index, entry.targetIdentity, err)
+		}
 		info, err := os.Lstat(match)
 		if err != nil {
 			return nil, newError(CodeMaterialization, index, match, err)
@@ -457,8 +529,16 @@ func materializeDeleteGlob(entry resolvedRestore, index int) ([]Action, error) {
 		if !info.Mode().IsRegular() {
 			continue
 		}
+		identity := filepath.Clean(match)
+		if entry.boundary != nil {
+			identity, err = entry.boundary.ProjectFilesystemIdentity(identity)
+			if err != nil {
+				return nil, newError(CodeUnsafePath, index, entry.targetIdentity, err)
+			}
+		}
 		actions = append(actions, Action{
-			Kind: ActionDeleteFile, Strategy: "delete-glob", Target: filepath.Clean(match), SnapshotRequired: true,
+			Kind: ActionDeleteFile, Strategy: "delete-glob", Target: identity,
+			resolvedTarget: filepath.Clean(match), SnapshotRequired: true,
 		})
 	}
 	return actions, nil
@@ -468,7 +548,10 @@ func materializeDeleteGlob(entry resolvedRestore, index int) ([]Action, error) {
 // directory entry before descending. filepath.Glob cannot be used here because
 // it may enumerate through a directory symlink before the resulting path can
 // be rejected.
-func expandDeleteGlob(root string, components []string) ([]string, error) {
+func expandDeleteGlob(root string, components []string, boundary HostBoundary) ([]string, error) {
+	if err := validateMaterializePath(boundary, root); err != nil {
+		return nil, err
+	}
 	if err := rejectExistingTargetLinks(root); err != nil {
 		return nil, err
 	}
@@ -478,6 +561,9 @@ func expandDeleteGlob(root string, components []string) ([]string, error) {
 	var matches []string
 	var visit func(string, int) error
 	visit = func(current string, componentIndex int) error {
+		if err := validateMaterializePath(boundary, current); err != nil {
+			return err
+		}
 		entries, err := os.ReadDir(current)
 		if os.IsNotExist(err) {
 			return nil
@@ -494,6 +580,9 @@ func expandDeleteGlob(root string, components []string) ([]string, error) {
 				continue
 			}
 			candidate := filepath.Join(current, directoryEntry.Name())
+			if err := validateMaterializePath(boundary, candidate); err != nil {
+				return err
+			}
 			info, err := directoryEntry.Info()
 			if err != nil {
 				return err

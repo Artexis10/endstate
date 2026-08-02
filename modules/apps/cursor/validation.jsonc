@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.cursor",
+  "moduleRevision": "6c569dedc81246484adc4f258527fdc24295e3b17f12683d621f29fb536d31dd",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "non-restorable-inventory",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "The authored module captures the Cursor extension inventory, which has no executable extension-install restore contract and is intentionally inventory-only."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

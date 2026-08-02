@@ -8,9 +8,11 @@
 package verifier
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // VerifyResult holds the outcome of a single verify check.
@@ -27,18 +29,41 @@ type VerifyResult struct {
 // field and returns a result slice. Unknown types produce a fail result with
 // a descriptive message.
 func RunVerify(entries []manifest.VerifyEntry) []VerifyResult {
+	results, _ := RunVerifyWithValidation(entries, nil)
+	return results
+}
+
+// RunVerifyWithValidation dispatches verification through an optional
+// disposable-host authority. Assertion failures remain ordinary results;
+// isolation failures are returned separately so the command session can record
+// them and the CLI entrypoint remains the sole public error-code mapper.
+func RunVerifyWithValidation(entries []manifest.VerifyEntry, context *validationmode.Context) ([]VerifyResult, error) {
 	results := make([]VerifyResult, 0, len(entries))
+	var isolationErrors []error
 	for _, entry := range entries {
 		var r VerifyResult
+		var err error
 		switch entry.Type {
 		case "file-exists":
-			r = CheckFileExists(entry)
+			if context == nil {
+				r = CheckFileExists(entry)
+			} else {
+				r, err = checkFileExistsWithValidation(entry, context)
+			}
 		case "command-exists":
 			r = CheckCommandExists(entry)
 		case "registry-key-exists":
-			r = CheckRegistryKeyExists(entry)
+			if context == nil {
+				r = CheckRegistryKeyExists(entry)
+			} else {
+				r, err = checkRegistryKeyExistsWithValidation(entry, context)
+			}
 		case "registry-value-equals":
-			r = CheckRegistryValueEquals(entry)
+			if context == nil {
+				r = CheckRegistryValueEquals(entry)
+			} else {
+				r, err = checkRegistryValueEqualsWithValidation(entry, context)
+			}
 		default:
 			r = VerifyResult{
 				Type:    entry.Type,
@@ -47,6 +72,9 @@ func RunVerify(entries []manifest.VerifyEntry) []VerifyResult {
 			}
 		}
 		results = append(results, r)
+		if err != nil {
+			isolationErrors = append(isolationErrors, err)
+		}
 	}
-	return results
+	return results, errors.Join(isolationErrors...)
 }

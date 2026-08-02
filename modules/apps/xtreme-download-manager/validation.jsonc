@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.xtreme-download-manager",
+  "moduleRevision": "02321ca5fb0f8b184547c879da241ab05ad06a47567304bb6537607654b21bd4",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/xtreme-download-manager/validation-fixtures/capture-contract-v1.jsonc",
+          "sha256": "958d5c518758fee236e94e138ab66ecfaa2e848b7b15910e4d5b1daee0dc7736"
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures XDM settings (config.txt) and site blocklist (blocklist.ini) from %LOCALAPPDATA%\\XDM\\. Excludes download queue, temp files, logs, and any credential/cookie stores. Capture-only; no payload shipped. Confidence: medium - paths inferred from XDM 8.x default install layout on Windows. Authored secret warning: XDM may persist browser-injected cookies and saved credentials for authenticated downloads. These files MUST NOT be auto-restored as they contain session tokens or passwords. Authored excluded secret or machine-bound paths: %LOCALAPPDATA%\\XDM\\cookies.db, %LOCALAPPDATA%\\XDM\\credentials.dat"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mirc",
+  "moduleRevision": "530bb5928bb4858d04b2dd7b0f0f1f9f1e70fddef6d3f033fcb9d6cfce48ebc6",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

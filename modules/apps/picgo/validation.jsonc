@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.picgo",
+  "moduleRevision": "cdcd9aa60762bce1ae250cb30dfd40fc3e84f3424210d346e8e7582a780c1688",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

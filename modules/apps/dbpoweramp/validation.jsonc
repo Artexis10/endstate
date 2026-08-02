@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.dbpoweramp",
+  "moduleRevision": "c0309b3739c3e31fc475af57b7e76b07db0d88f1fa1eb48eb7b2bc1b533c8440",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures dBpoweramp encoder/decoder profiles, codec settings, CD ripping options, and UI preferences from HKCU\\Software\\Illustrate\\dBpoweramp (the sole canonical settings location; no %APPDATA% config folder). No winget package ID known — installed manually via the Illustrate website. The registry export may include activation or per-machine license values; restore is warn-only. Confidence: medium. Authored secret warning: The dBpoweramp registry export (HKCU\\Software\\Illustrate\\dBpoweramp) may contain AccurateRip/PerfectTUNES account tokens, CD-lookup credentials, or per-machine activation/license data. Captured for reference but MUST NOT be auto-restored."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

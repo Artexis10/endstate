@@ -106,6 +106,9 @@ func TestErrorCodeSerialization(t *testing.T) {
 		{envelope.ErrManifestParseError, "MANIFEST_PARSE_ERROR"},
 		{envelope.ErrManifestValidationError, "MANIFEST_VALIDATION_ERROR"},
 		{envelope.ErrManifestWriteFailed, "MANIFEST_WRITE_FAILED"},
+		{envelope.ErrTestModeInvalid, "TESTMODE_INVALID"},
+		{envelope.ErrTestModeIsolationViolation, "TESTMODE_ISOLATION_VIOLATION"},
+		{envelope.ErrTestModeCommandForbidden, "TESTMODE_COMMAND_FORBIDDEN"},
 		{envelope.ErrPlanNotFound, "PLAN_NOT_FOUND"},
 		{envelope.ErrPlanParseError, "PLAN_PARSE_ERROR"},
 		{envelope.ErrWingetNotAvailable, "WINGET_NOT_AVAILABLE"},
@@ -395,6 +398,33 @@ func TestEnvelopeFieldOrder(t *testing.T) {
 			t.Errorf("field %q appears before expected position in JSON output", field)
 		}
 		lastIdx = idx
+	}
+}
+
+func TestEnvelopeTestModeIdentityIsOptionalAndOrderedBeforeData(t *testing.T) {
+	runID := envelope.BuildRunID("test", time.Now())
+	inactive := envelope.NewSuccess("test", runID, testSchema, testVersion, map[string]interface{}{})
+	inactiveJSON, err := envelope.Marshal(inactive)
+	if err != nil {
+		t.Fatalf("Marshal inactive: %v", err)
+	}
+	if strings.Contains(string(inactiveJSON), `"testMode"`) {
+		t.Fatalf("inactive envelope leaked testMode: %s", inactiveJSON)
+	}
+
+	active := envelope.NewFailure("test", runID, testSchema, testVersion, envelope.NewError(envelope.ErrTestModeCommandForbidden, "forbidden"))
+	active.TestMode = &envelope.TestModeIdentity{Active: true, ScenarioID: "scenario-1", ModuleID: "apps.notepad-plus-plus"}
+	activeJSON, err := envelope.Marshal(active)
+	if err != nil {
+		t.Fatalf("Marshal active: %v", err)
+	}
+	jsonText := string(activeJSON)
+	wantIdentity := `"testMode":{"active":true,"scenarioId":"scenario-1","moduleId":"apps.notepad-plus-plus"}`
+	if !strings.Contains(jsonText, wantIdentity) {
+		t.Fatalf("active envelope identity = %s, want %s", jsonText, wantIdentity)
+	}
+	if identityAt, dataAt := strings.Index(jsonText, `"testMode"`), strings.Index(jsonText, `"data"`); identityAt < 0 || dataAt < 0 || identityAt > dataAt {
+		t.Fatalf("testMode must appear immediately before data: %s", jsonText)
 	}
 }
 

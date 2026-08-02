@@ -135,6 +135,9 @@ func (g *Guard) RegisterLegacyJournal(path string) (*StoreMember, error) {
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return nil, fmt.Errorf("legacy journal path must be a clean absolute path")
 	}
+	if err := validateBoundaryHostIO(g.boundary, path); err != nil {
+		return nil, err
+	}
 	if err := rejectExistingTargetLinks(path); err != nil {
 		return nil, fmt.Errorf("validate legacy journal path: %w", err)
 	}
@@ -153,13 +156,17 @@ func (g *Guard) RegisterLegacyJournal(path string) (*StoreMember, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create legacy member identity: %w", err)
 	}
+	journalIdentity, err := projectFilesystemIdentity(g.boundary, path)
+	if err != nil {
+		return nil, fmt.Errorf("project legacy journal identity: %w", err)
+	}
 	disk, encoded, err := newLegacyMember(
-		memberID, g.restoreRunID, g.runID, g.runStartedAt, g.nextOrdinal, path, journalDigest,
+		memberID, g.restoreRunID, g.runID, g.runStartedAt, g.nextOrdinal, journalIdentity, journalDigest,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if err := publishImmutableStoreRecord(g.legacyMembers, memberID+".json", encoded); err != nil {
+	if err := publishImmutableStoreRecord(g.legacyMembers, memberID+".json", encoded, g.boundary); err != nil {
 		return nil, fmt.Errorf("publish legacy member: %w", err)
 	}
 	g.nextOrdinal++
@@ -195,12 +202,16 @@ func (g *Guard) PrepareLegacyMemberRevert(ctx context.Context, member *StoreMemb
 		return "", nil, err
 	}
 	revertPath := filepath.Join(g.legacyReverts, disk.MemberID+".json")
-	if reverted, err := memberReverted(revertPath, StoreMemberLegacy, disk.MemberID, disk.MemberDigest); err != nil {
+	if reverted, err := memberReverted(revertPath, StoreMemberLegacy, disk.MemberID, disk.MemberDigest, g.boundary); err != nil {
 		return "", nil, err
 	} else if reverted {
 		return "", nil, ErrStoreMemberReverted
 	}
-	journalData, _, err := safepath.ReadRegularFile(disk.JournalPath)
+	journalPath, err := resolveLegacyJournalIdentity(disk.JournalPath, g.boundary)
+	if err != nil {
+		return "", nil, err
+	}
+	journalData, _, err := safepath.ReadRegularFile(journalPath)
 	if err != nil {
 		return "", nil, fmt.Errorf("read registered legacy journal: %w", err)
 	}
@@ -209,6 +220,9 @@ func (g *Guard) PrepareLegacyMemberRevert(ctx context.Context, member *StoreMemb
 		return "", nil, fmt.Errorf("registered legacy journal changed")
 	}
 	root := filepath.Join(g.legacyRevertWork, disk.MemberID)
+	if err := validateBoundaryHostIO(g.boundary, root); err != nil {
+		return "", nil, err
+	}
 	if err := rejectExistingTargetLinks(root); err != nil {
 		return "", nil, err
 	}
@@ -251,6 +265,9 @@ func (g *Guard) LegacyJournalConsumed(ctx context.Context, path string) (bool, e
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return false, fmt.Errorf("legacy journal path must be a clean absolute path")
 	}
+	if err := validateBoundaryHostIO(g.boundary, path); err != nil {
+		return false, err
+	}
 	if err := rejectExistingTargetLinks(path); err != nil {
 		return false, fmt.Errorf("validate legacy journal path: %w", err)
 	}
@@ -265,12 +282,19 @@ func (g *Guard) LegacyJournalConsumed(ctx context.Context, path string) (bool, e
 	}
 	return memberReverted(
 		filepath.Join(g.legacyReverts, member.memberID+".json"), StoreMemberLegacy,
-		member.memberID, member.sourceDigest,
+		member.memberID, member.sourceDigest, g.boundary,
 	)
 }
 
 func (g *Guard) findLegacyJournalLocked(journalPath, journalDigest string) (*StoreMember, error) {
-	if err := reconcileStorePublicationTemps(g.legacyMembers); err != nil {
+	journalIdentity, err := projectFilesystemIdentity(g.boundary, journalPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateBoundaryHostIO(g.boundary, g.legacyMembers); err != nil {
+		return nil, err
+	}
+	if err := reconcileStorePublicationTemps(g.legacyMembers, g.boundary); err != nil {
 		return nil, fmt.Errorf("reconcile registered legacy publication temps: %w", err)
 	}
 	entries, err := os.ReadDir(g.legacyMembers)
@@ -281,7 +305,11 @@ func (g *Guard) findLegacyJournalLocked(journalPath, journalDigest string) (*Sto
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		data, _, err := safepath.ReadRegularFile(filepath.Join(g.legacyMembers, entry.Name()))
+		path := filepath.Join(g.legacyMembers, entry.Name())
+		if err := validateBoundaryHostIO(g.boundary, path); err != nil {
+			return nil, err
+		}
+		data, _, err := safepath.ReadRegularFile(path)
 		if err != nil {
 			return nil, err
 		}
@@ -289,7 +317,7 @@ func (g *Guard) findLegacyJournalLocked(journalPath, journalDigest string) (*Sto
 		if err != nil {
 			return nil, err
 		}
-		if disk.JournalPath == journalPath && disk.JournalDigest == journalDigest {
+		if disk.JournalPath == journalIdentity && disk.JournalDigest == journalDigest {
 			return legacyHandle(g.storeRoot, disk), nil
 		}
 	}
@@ -305,6 +333,7 @@ func (g *Guard) ActiveStoreRuns(ctx context.Context) ([]*StoreRun, error) {
 	if err := checkSnapshotContext(ctx); err != nil {
 		return nil, err
 	}
+	ctx = withHostBoundary(ctx, g.boundary)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if err := g.requireLeaseLocked(); err != nil {
@@ -322,6 +351,7 @@ func (g *Guard) RevertGenerationMember(ctx context.Context, member *StoreMember)
 	if err := checkSnapshotContext(ctx); err != nil {
 		return nil, err
 	}
+	ctx = withHostBoundary(ctx, g.boundary)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if err := g.requireLeaseLocked(); err != nil {
@@ -331,7 +361,11 @@ func (g *Guard) RevertGenerationMember(ctx context.Context, member *StoreMember)
 	if err != nil {
 		return nil, err
 	}
-	actions := intent.Actions()
+	semanticActions := intent.Actions()
+	actions, err := resolveJournalActionsForHostIO(semanticActions, g.boundary)
+	if err != nil {
+		return nil, err
+	}
 	if err := preflightGenerationRevert(ctx, actions, g.registry); err != nil {
 		return nil, err
 	}
@@ -345,7 +379,7 @@ func (g *Guard) RevertGenerationMember(ctx context.Context, member *StoreMember)
 			continue
 		}
 		result.Actions = append(result.Actions, GenerationRevertAction{
-			Index: action.Index, Kind: action.Kind, Target: generationActionTarget(action),
+			Index: action.Index, Kind: action.Kind, Target: generationActionTarget(semanticActions[index]),
 			BackupUsed: action.Prior.Kind != StateAbsent,
 		})
 	}
@@ -360,7 +394,7 @@ func (g *Guard) RevertGenerationMember(ctx context.Context, member *StoreMember)
 		return result, err
 	}
 	root := filepath.Join(g.transactions, member.memberID)
-	if err := publishImmutableStoreRecord(root, "reverted.json", encoded); err != nil {
+	if err := publishImmutableStoreRecord(root, "reverted.json", encoded, g.boundary); err != nil {
 		return result, fmt.Errorf("publish generation revert record: %w", err)
 	}
 	result.ActionCount = len(result.Actions)
@@ -386,12 +420,16 @@ func (g *Guard) MarkLegacyMemberReverted(ctx context.Context, member *StoreMembe
 		return err
 	}
 	revertPath := filepath.Join(g.legacyReverts, disk.MemberID+".json")
-	if reverted, err := memberReverted(revertPath, StoreMemberLegacy, disk.MemberID, disk.MemberDigest); err != nil {
+	if reverted, err := memberReverted(revertPath, StoreMemberLegacy, disk.MemberID, disk.MemberDigest, g.boundary); err != nil {
 		return err
 	} else if reverted {
-		return nil
+		return g.retireLegacyMemberRevertWork(ctx, disk.MemberID)
 	}
-	journalData, _, err := safepath.ReadRegularFile(disk.JournalPath)
+	journalPath, err := resolveLegacyJournalIdentity(disk.JournalPath, g.boundary)
+	if err != nil {
+		return err
+	}
+	journalData, _, err := safepath.ReadRegularFile(journalPath)
 	if err != nil {
 		return fmt.Errorf("read registered legacy journal: %w", err)
 	}
@@ -403,8 +441,23 @@ func (g *Guard) MarkLegacyMemberReverted(ctx context.Context, member *StoreMembe
 	if err != nil {
 		return err
 	}
-	if err := publishImmutableStoreRecord(g.legacyReverts, disk.MemberID+".json", encoded); err != nil {
+	if err := publishImmutableStoreRecord(g.legacyReverts, disk.MemberID+".json", encoded, g.boundary); err != nil {
 		return fmt.Errorf("publish legacy revert record: %w", err)
+	}
+	return g.retireLegacyMemberRevertWork(ctx, disk.MemberID)
+}
+
+func (g *Guard) retireLegacyMemberRevertWork(ctx context.Context, memberID string) error {
+	if !isOpaqueStoreID(memberID) {
+		return fmt.Errorf("legacy member ID is invalid")
+	}
+	ctx = withHostBoundary(ctx, g.boundary)
+	root := filepath.Join(g.legacyRevertWork, memberID)
+	if err := validateHostIO(ctx, root); err != nil {
+		return err
+	}
+	if err := removeSafeTransactionPath(context.WithoutCancel(ctx), root); err != nil {
+		return fmt.Errorf("retire legacy revert work: %w", err)
 	}
 	return nil
 }
@@ -423,12 +476,15 @@ func legacyHandle(storeRoot string, disk legacyMemberDisk) *StoreMember {
 	}
 }
 
-func publishImmutableStoreRecord(directory, name string, data []byte) error {
-	publishErr := publishStoreRecord(directory, name, data)
+func publishImmutableStoreRecord(directory, name string, data []byte, boundary HostBoundary) error {
+	publishErr := publishStoreRecordWithBoundary(directory, name, data, boundary)
 	if publishErr == nil {
 		return nil
 	}
 	path := filepath.Join(directory, name)
+	if err := validateBoundaryHostIO(boundary, path); err != nil {
+		return errors.Join(publishErr, err)
+	}
 	existing, _, readErr := safepath.ReadRegularFile(path)
 	if readErr != nil || !bytes.Equal(existing, data) {
 		return errors.Join(publishErr, readErr)
@@ -439,6 +495,9 @@ func publishImmutableStoreRecord(directory, name string, data []byte) error {
 	if syncErr := syncDurableDirectory(directory); syncErr != nil {
 		return errors.Join(publishErr, syncErr)
 	}
+	if err := validateBoundaryHostIO(boundary, path); err != nil {
+		return errors.Join(publishErr, err)
+	}
 	existing, _, readErr = safepath.ReadRegularFile(path)
 	if readErr != nil || !bytes.Equal(existing, data) {
 		return errors.Join(publishErr, readErr, fmt.Errorf("published store record changed during reconciliation"))
@@ -447,6 +506,7 @@ func publishImmutableStoreRecord(directory, name string, data []byte) error {
 }
 
 func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) {
+	ctx = withHostBoundary(ctx, g.boundary)
 	runs := make(map[string]*StoreRun)
 	ordinals := make(map[string]string)
 	add := func(restoreRunID, runID string, started time.Time, member *StoreMember) error {
@@ -466,6 +526,9 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 		return nil
 	}
 
+	if err := validateHostIO(ctx, g.transactions); err != nil {
+		return nil, err
+	}
 	transactionEntries, err := os.ReadDir(g.transactions)
 	if err != nil {
 		return nil, fmt.Errorf("read generation transaction store: %w", err)
@@ -478,17 +541,23 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 			return nil, fmt.Errorf("unexpected generation transaction entry %q", entry.Name())
 		}
 		root := filepath.Join(g.transactions, entry.Name())
+		if err := validateHostIO(ctx, root); err != nil {
+			return nil, err
+		}
 		intentPath := filepath.Join(root, "journal", "intent.json")
+		if err := validateHostIO(ctx, intentPath); err != nil {
+			return nil, err
+		}
 		if _, err := os.Lstat(intentPath); os.IsNotExist(err) {
 			continue
 		} else if err != nil {
 			return nil, err
 		}
-		descriptor, started, err := readStoredTransactionDescriptor(root)
+		descriptor, started, err := readStoredTransactionDescriptorWithBoundary(root, g.boundary)
 		if err != nil {
 			return nil, fmt.Errorf("read transaction %q descriptor: %w", entry.Name(), err)
 		}
-		intent, err := readJournalIntentMetadataFile(ctx, root, intentPath)
+		intent, err := readJournalIntentMetadataFileWithBoundary(ctx, root, intentPath, g.boundary)
 		if err != nil {
 			return nil, fmt.Errorf("read transaction %q intent: %w", entry.Name(), err)
 		}
@@ -509,6 +578,7 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 		}
 		reverted, err := memberReverted(
 			filepath.Join(root, "reverted.json"), StoreMemberGeneration, descriptor.TransactionID, terminal.Digest(),
+			g.boundary,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("read transaction %q revert record: %w", entry.Name(), err)
@@ -526,7 +596,10 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 		}
 	}
 
-	if err := reconcileStorePublicationTemps(g.legacyMembers); err != nil {
+	if err := validateHostIO(ctx, g.legacyMembers); err != nil {
+		return nil, err
+	}
+	if err := reconcileStorePublicationTemps(g.legacyMembers, g.boundary); err != nil {
 		return nil, fmt.Errorf("reconcile registered legacy publication temps: %w", err)
 	}
 	legacyEntries, err := os.ReadDir(g.legacyMembers)
@@ -545,7 +618,11 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 		if entry.IsDir() || !isOpaqueStoreID(memberID) || name != memberID+".json" {
 			return nil, fmt.Errorf("unexpected registered legacy entry %q", name)
 		}
-		data, _, err := safepath.ReadRegularFile(filepath.Join(g.legacyMembers, name))
+		path := filepath.Join(g.legacyMembers, name)
+		if err := validateHostIO(ctx, path); err != nil {
+			return nil, err
+		}
+		data, _, err := safepath.ReadRegularFile(path)
 		if err != nil {
 			return nil, err
 		}
@@ -558,6 +635,7 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 		}
 		reverted, err := memberReverted(
 			filepath.Join(g.legacyReverts, memberID+".json"), StoreMemberLegacy, memberID, disk.MemberDigest,
+			g.boundary,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("read registered legacy revert %q: %w", memberID, err)
@@ -565,7 +643,11 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 		if reverted {
 			continue
 		}
-		journalData, _, err := safepath.ReadRegularFile(disk.JournalPath)
+		journalPath, err := resolveLegacyJournalIdentity(disk.JournalPath, g.boundary)
+		if err != nil {
+			return nil, err
+		}
+		journalData, _, err := safepath.ReadRegularFile(journalPath)
 		if err != nil {
 			return nil, fmt.Errorf("read registered legacy journal %q: %w", disk.JournalPath, err)
 		}
@@ -594,7 +676,10 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 	return result, nil
 }
 
-func memberReverted(path string, kind StoreMemberKind, memberID, sourceDigest string) (bool, error) {
+func memberReverted(path string, kind StoreMemberKind, memberID, sourceDigest string, boundary HostBoundary) (bool, error) {
+	if err := validateBoundaryHostIO(boundary, path); err != nil {
+		return false, err
+	}
 	data, _, err := safepath.ReadRegularFile(path)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -612,7 +697,10 @@ func memberReverted(path string, kind StoreMemberKind, memberID, sourceDigest st
 	return true, nil
 }
 
-func reconcileStorePublicationTemps(directory string) error {
+func reconcileStorePublicationTemps(directory string, boundary HostBoundary) error {
+	if err := validateBoundaryHostIO(boundary, directory); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return err
@@ -623,6 +711,9 @@ func reconcileStorePublicationTemps(directory string) error {
 			continue
 		}
 		path := filepath.Join(directory, entry.Name())
+		if err := validateBoundaryHostIO(boundary, path); err != nil {
+			return err
+		}
 		if err := rejectExistingTargetLinks(path); err != nil {
 			return err
 		}
@@ -660,17 +751,21 @@ func isStorePublicationTemp(name string) bool {
 }
 
 func (g *Guard) loadActiveGenerationMember(ctx context.Context, member *StoreMember) (*JournalIntent, error) {
+	ctx = withHostBoundary(ctx, g.boundary)
 	if member == nil || member.kind != StoreMemberGeneration || member.storeRoot != g.storeRoot ||
 		!isOpaqueStoreID(member.memberID) || !isOpaqueStoreID(member.restoreRun) || !isLowerHexDigest(member.sourceDigest) {
 		return nil, fmt.Errorf("valid generation store member is required")
 	}
 	root := filepath.Join(g.transactions, member.memberID)
-	descriptor, _, err := readStoredTransactionDescriptor(root)
+	if err := validateHostIO(ctx, root); err != nil {
+		return nil, err
+	}
+	descriptor, _, err := readStoredTransactionDescriptorWithBoundary(root, g.boundary)
 	if err != nil {
 		return nil, err
 	}
 	intentPath := filepath.Join(root, "journal", "intent.json")
-	metadata, err := readJournalIntentMetadataFile(ctx, root, intentPath)
+	metadata, err := readJournalIntentMetadataFileWithBoundary(ctx, root, intentPath, g.boundary)
 	if err != nil {
 		return nil, err
 	}
@@ -690,12 +785,13 @@ func (g *Guard) loadActiveGenerationMember(ctx context.Context, member *StoreMem
 	}
 	if reverted, err := memberReverted(
 		filepath.Join(root, "reverted.json"), StoreMemberGeneration, member.memberID, member.sourceDigest,
+		g.boundary,
 	); err != nil {
 		return nil, err
 	} else if reverted {
 		return nil, ErrStoreMemberReverted
 	}
-	return ReadJournalIntent(ctx, root)
+	return ReadJournalIntentWithBoundary(ctx, root, g.boundary)
 }
 
 func (g *Guard) loadLegacyMember(member *StoreMember) (legacyMemberDisk, error) {
@@ -704,6 +800,9 @@ func (g *Guard) loadLegacyMember(member *StoreMember) (legacyMemberDisk, error) 
 		return legacyMemberDisk{}, fmt.Errorf("valid legacy store member is required")
 	}
 	path := filepath.Join(g.legacyMembers, member.memberID+".json")
+	if err := validateBoundaryHostIO(g.boundary, path); err != nil {
+		return legacyMemberDisk{}, err
+	}
 	data, _, err := safepath.ReadRegularFile(path)
 	if err != nil {
 		return legacyMemberDisk{}, err
@@ -718,6 +817,42 @@ func (g *Guard) loadLegacyMember(member *StoreMember) (legacyMemberDisk, error) 
 		return legacyMemberDisk{}, fmt.Errorf("legacy member differs from its immutable record")
 	}
 	return disk, nil
+}
+
+func (g *Guard) loadLegacyMemberByID(memberID string) (legacyMemberDisk, error) {
+	if !isOpaqueStoreID(memberID) {
+		return legacyMemberDisk{}, fmt.Errorf("legacy member ID is invalid")
+	}
+	path := filepath.Join(g.legacyMembers, memberID+".json")
+	if err := validateBoundaryHostIO(g.boundary, path); err != nil {
+		return legacyMemberDisk{}, err
+	}
+	data, _, err := safepath.ReadRegularFile(path)
+	if err != nil {
+		return legacyMemberDisk{}, err
+	}
+	disk, _, err := decodeLegacyMember(data)
+	if err != nil {
+		return legacyMemberDisk{}, err
+	}
+	if disk.MemberID != memberID {
+		return legacyMemberDisk{}, fmt.Errorf("legacy member path identity differs")
+	}
+	return disk, nil
+}
+
+func resolveLegacyJournalIdentity(identity string, boundary HostBoundary) (string, error) {
+	if boundary == nil {
+		return identity, nil
+	}
+	resolved, err := boundary.ResolveFilesystemIdentity(identity)
+	if err != nil {
+		return "", fmt.Errorf("resolve legacy journal identity: %w", err)
+	}
+	if err := boundary.ValidateFilesystemTarget(resolved); err != nil {
+		return "", fmt.Errorf("validate legacy journal identity: %w", err)
+	}
+	return resolved, nil
 }
 
 func generationActionTarget(action JournalAction) string {
