@@ -98,15 +98,15 @@
 
 ## 11. Merge Gate and Maintenance Closure
 
-- [ ] 11.1 Remove the tracked `.superpowers/sdd/task-8b-report.md`, add the anchored `/.superpowers/` repository ignore, and verify no tracked `.superpowers` path remains without using broad clean or broad staging.
-- [ ] 11.2 Add presence-aware validation-sidecar defaults for automatic fixture type, 120-second timeout, module-aware minimum assertions, and live reason/explanation; reject explicit empty/zero and partial assertion overrides.
-- [ ] 11.3 Mechanically remove only fields covered by those defaults and prove all 359 expanded records, 362 logical rows, scenario/live digests, shard assignments, and row identities match the pre-rewrite golden inventory.
-- [ ] 11.4 Add check-only `sync-revisions --repo <path>` plus explicit `--write`; preflight all records, replace exactly one revision token atomically, preserve unrelated bytes/EOLs, reload the catalog, and never edit debt authority.
-- [ ] 11.5 Add the strict known-failure ledger keyed by logical row identity, binding the complete inventory and exact structured debt, with no proof inflation and no generic bootstrap behavior.
-- [ ] 11.6 Make shards succeed only on complete canonical evidence and make `Verified Module Matrix` the sole regression gate; prove missing/malformed evidence, catalog/canary failure, new failure, stale debt, unauthorized row removal, and unreviewed fingerprint transition remain red.
-- [ ] 11.7 Extract pull-request base authority from the validated two-parent merge commit with non-persistent checkout credentials; keep the cross-job evidence parser independent from harness parsing.
-- [ ] 11.8 Apply only characterization-backed internal reductions, retaining independent oracles and all hosted-live foundations when equivalence is not proven.
-- [ ] 11.9 Run deliberate regression pilots for a new failed row, changed known failure, missing row/shard, passing row with stale debt, and deleted passing scenario; require exact aggregate classifications.
+- [x] 11.1 Remove the tracked `.superpowers/sdd/task-8b-report.md`, add the anchored `/.superpowers/` repository ignore, and verify no tracked `.superpowers` path remains without using broad clean or broad staging.
+- [x] 11.2 Add presence-aware validation-sidecar defaults for automatic fixture type, 120-second timeout, module-aware minimum assertions, and live reason/explanation; reject explicit empty/zero and partial assertion overrides.
+- [x] 11.3 Mechanically remove only fields covered by those defaults and prove all 359 expanded records, 362 logical rows, scenario/live digests, shard assignments, and row identities match the pre-rewrite golden inventory.
+- [x] 11.4 Add check-only `sync-revisions --repo <path>` plus explicit `--write`; preflight all records, replace exactly one revision token atomically, preserve unrelated bytes/EOLs, reload the catalog, and never edit debt authority.
+- [x] 11.5 Add the strict known-failure ledger keyed by logical row identity, binding the complete inventory and exact structured debt, with no proof inflation and no generic bootstrap behavior.
+- [x] 11.6 Make shards succeed only on complete canonical evidence and make `Verified Module Matrix` the sole regression gate; prove missing/malformed evidence, catalog/canary failure, new failure, stale debt, unauthorized row removal, and unreviewed fingerprint transition remain red.
+- [x] 11.7 Extract pull-request base authority from the validated two-parent merge commit with non-persistent checkout credentials; keep the cross-job evidence parser independent from harness parsing.
+- [x] 11.8 Apply only characterization-backed internal reductions, retaining independent oracles and all hosted-live foundations when equivalence is not proven.
+- [x] 11.9 Run deliberate regression pilots for a new failed row, changed known failure, missing row/shard, passing row with stale debt, and deleted passing scenario; require exact aggregate classifications.
 - [ ] 11.10 Independently review and verify targeted packages, full Go tests/vet, OpenSpec validation, all eight fresh local shards, exact hosted artifacts, and the stable summary before merge.
 - [ ] 11.11 Squash-merge PR #205 while the aggregate is non-required, inspect the exact protected-main evidence run, seed its reviewed ledger in a baseline-only change, then require one fresh green protected-main aggregate before enabling branch protection.
 - [ ] 11.12 Retire the residual debt by root-cause cluster; every repair must produce real passing evidence and delete the matching ledger entry until the known-failure count reaches zero.
