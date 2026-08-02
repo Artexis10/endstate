@@ -108,8 +108,12 @@ func TestPrepareScenarioRuntimeClassifiesRegistryFixtureFactoryAndCleanupFailure
 }
 
 type runtimeRegistryFixture struct {
-	calls      []string
-	cleanupErr error
+	calls          []string
+	cleanupErr     error
+	cleanupErrors  map[int]error
+	materializeErr error
+	snapshotErr    error
+	proveAbsentErr error
 }
 
 func (fixture *runtimeRegistryFixture) Replace(string, validationmode.RegistryState) error {
@@ -119,7 +123,7 @@ func (fixture *runtimeRegistryFixture) Replace(string, validationmode.RegistrySt
 
 func (fixture *runtimeRegistryFixture) Snapshot(string) (validationmode.RegistryState, error) {
 	fixture.calls = append(fixture.calls, "snapshot")
-	return validationmode.RegistryState{}, nil
+	return validationmode.RegistryState{}, fixture.snapshotErr
 }
 
 func (fixture *runtimeRegistryFixture) Remove(string) error {
@@ -129,16 +133,19 @@ func (fixture *runtimeRegistryFixture) Remove(string) error {
 
 func (fixture *runtimeRegistryFixture) ProveAbsent(string) error {
 	fixture.calls = append(fixture.calls, "prove-absent")
-	return nil
+	return fixture.proveAbsentErr
 }
 
 func (fixture *runtimeRegistryFixture) Materialize(string) error {
 	fixture.calls = append(fixture.calls, "materialize")
-	return nil
+	return fixture.materializeErr
 }
 
 func (fixture *runtimeRegistryFixture) Cleanup() error {
 	fixture.calls = append(fixture.calls, "cleanup")
+	if err := fixture.cleanupErrors[registryFixtureCallCount(fixture, "cleanup")]; err != nil {
+		return err
+	}
 	return fixture.cleanupErr
 }
 

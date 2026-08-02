@@ -350,6 +350,33 @@ func TestInstallRegistryVerifierUsesPreownedFixtureForNegativeAndPositiveChecks(
 	}
 }
 
+func TestPreparedInstallRegistryVerifierReusesOwnedFixtureThroughFinalCleanup(t *testing.T) {
+	selected := registryInstallSelection(t)
+	fixture := &runtimeRegistryFixture{}
+	factoryCalls := 0
+	result, err := runSelectedScenarioWithRegistryFixtureFactory(context.Background(), selected, func(*validationmode.Context) (scenarioRegistryFixture, error) {
+		factoryCalls++
+		return fixture, nil
+	}, func(ctx context.Context, _ *selection, runtime *scenarioRuntime) Result {
+		return executeInstallJourney(ctx, runtime, registryInstallExecutor{})
+	})
+	if err != nil || result.Status != ResultStatusPassed || result.Failure != nil {
+		t.Fatalf("prepared install journey = %+v, %v", result, err)
+	}
+	if factoryCalls != 1 || registryFixtureCallCount(fixture, "cleanup") != 2 {
+		t.Fatalf("registry ownership = factory:%d cleanup:%d calls:%v", factoryCalls, registryFixtureCallCount(fixture, "cleanup"), fixture.calls)
+	}
+	if !reflect.DeepEqual(fixture.calls, []string{"cleanup", "prove-absent", "prove-absent", "prove-absent", "materialize", "snapshot", "snapshot", "cleanup"}) {
+		t.Fatalf("registry verifier calls = %v", fixture.calls)
+	}
+}
+
+type registryInstallExecutor struct{}
+
+func (registryInstallExecutor) ApplyDryRun(context.Context, *scenarioRuntime) *Failure   { return nil }
+func (registryInstallExecutor) VerifyAbsent(context.Context, *scenarioRuntime) *Failure  { return nil }
+func (registryInstallExecutor) VerifyPresent(context.Context, *scenarioRuntime) *Failure { return nil }
+
 func TestInstallManifestProjectsVerifierWithoutClaimingConfigPayloadOwnership(t *testing.T) {
 	plan := productionKubectlInstallPlan(t)
 	value := installManifestProjection(plan)
@@ -369,6 +396,23 @@ func productionKubectlInstallPlan(t *testing.T) *InstallContractPlan {
 		t.Fatal(failure)
 	}
 	return plan
+}
+
+func registryInstallSelection(t *testing.T) *selection {
+	t.Helper()
+	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(t.TempDir(), "endstate.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	selected, failure := compileSelection(Request{EnginePath: engine, RepoRoot: repo, ModuleID: "apps.clementine", ScenarioID: "install-v1", ResultPath: filepath.Join(t.TempDir(), "result.json")}, time.Now().UTC())
+	if failure != nil {
+		t.Fatalf("compile registry install selection: %+v", failure)
+	}
+	return selected
 }
 
 func productionKubectlAuthority(t *testing.T) (*validationmatrix.Catalog, *modules.Module, validationmatrix.Scenario) {

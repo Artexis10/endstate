@@ -56,10 +56,18 @@ func Run(ctx context.Context, request Request) (Result, error) {
 		return result, nil
 	}
 
-	runtime, cleanup, runtimeFailure, err := prepareScenarioRuntime(selected)
+	return runSelectedScenarioWithRegistryFixtureFactory(ctx, selected, func(context *validationmode.Context) (scenarioRegistryFixture, error) {
+		return validationmode.NewRegistryFixture(context)
+	}, executeSelectedScenario)
+}
+
+type scenarioExecution func(context.Context, *selection, *scenarioRuntime) Result
+
+func runSelectedScenarioWithRegistryFixtureFactory(ctx context.Context, selected *selection, factory registryFixtureFactory, execute scenarioExecution) (Result, error) {
+	runtime, cleanup, runtimeFailure, err := prepareScenarioRuntimeWithRegistryFixtureFactory(selected, factory)
 	if runtimeFailure != nil {
 		result := failedSelectionResult(selected, runtimeFailure)
-		if persistErr := persistResult(request.ResultPath, result); persistErr != nil {
+		if persistErr := persistResult(selected.request.ResultPath, result); persistErr != nil {
 			return result, persistErr
 		}
 		return result, nil
@@ -67,6 +75,15 @@ func Run(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return failedSelectionResult(selected, fail(CodeIsolationFailure, "setup", "runtime", "prepare disposable runtime")), err
 	}
+	result := execute(ctx, selected, runtime)
+	result = applyCleanupFailure(result, cleanup())
+	if err := persistResult(selected.request.ResultPath, result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func executeSelectedScenario(ctx context.Context, selected *selection, runtime *scenarioRuntime) Result {
 	var result Result
 	switch selected.scenario.Mode {
 	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
@@ -82,11 +99,7 @@ func Run(ctx context.Context, request Request) (Result, error) {
 	default:
 		result = failedSelectionResult(selected, fail(CodeUnsupportedFixture, "execution", "scenario.mode", "scenario mode is not implemented by this validation runtime"))
 	}
-	result = applyCleanupFailure(result, cleanup())
-	if err := persistResult(request.ResultPath, result); err != nil {
-		return result, err
-	}
-	return result, nil
+	return result
 }
 
 type registryFixtureFactory func(*validationmode.Context) (scenarioRegistryFixture, error)
