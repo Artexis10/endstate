@@ -5,12 +5,14 @@ package validationharness
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -22,8 +24,17 @@ import (
 const fixturePayloadName = "endstate-validation-fixture.txt"
 
 type FixturePlan struct {
-	context *validationmode.Context
-	Targets []FixtureTarget
+	context         *validationmode.Context
+	registryFixture registryFixture
+	Targets         []FixtureTarget
+	RegistryTargets []RegistryFixtureTarget
+}
+
+type registryFixture interface {
+	Replace(string, validationmode.RegistryState) error
+	Snapshot(string) (validationmode.RegistryState, error)
+	Remove(string) error
+	ProveAbsent(string) error
 }
 
 type FixtureTarget struct {
@@ -41,6 +52,19 @@ type FixtureTarget struct {
 	CaptureExcluded     []FixtureExcluded
 	RestoreExcluded     []FixtureExcluded
 	OverlappingExcluded []FixtureExcluded
+}
+
+type RegistryFixtureTarget struct {
+	Coordinate  string
+	Authored    string
+	Destination string
+	Source      string
+	Target      string
+	Strategy    string
+	Optional    bool
+	Captured    validationmode.RegistryState
+	Mutated     validationmode.RegistryState
+	Restored    validationmode.RegistryState
 }
 
 type FixtureExcluded struct {
@@ -177,13 +201,95 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 		}
 		plan.Targets = append(plan.Targets, target)
 	}
-	if len(plan.Targets) == 0 {
-		return nil, fail(CodeUnsupportedFixture, "fixture", "operations", "fixture plan is empty")
-	}
 	if failure := plan.bindNestedFileVerifierPayloads(mod, definitions); failure != nil {
 		return nil, failure
 	}
 	return plan, nil
+}
+
+func compileCompositeFixturePlan(context *validationmode.Context, mod *modules.Module, scenario validationmatrix.Scenario, fixture registryFixture) (*FixturePlan, *Failure) {
+	definitions, failure := compileFilesystemFixtureDefinitions(mod, scenario, true)
+	if failure != nil {
+		return nil, failure
+	}
+	registries := registryDefinitions{}
+	if mod != nil && mod.Capture != nil && (len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0) {
+		registries, failure = compileRegistryDefinitions(mod, scenario)
+		if failure != nil {
+			return nil, failure
+		}
+	}
+	plan, failure := compileFixturePlan(context, mod, scenario, definitions)
+	if failure != nil {
+		return nil, failure
+	}
+	if len(registries.Entries) != 0 && fixture == nil {
+		return nil, fail(CodeIsolationFailure, "fixture", registries.Entries[0].Coordinate, "registry fixture authority is absent")
+	}
+	plan.registryFixture = fixture
+	for _, definition := range registries.Entries {
+		captured, mutated, restored, err := registryFixtureStates(mod.ID, scenario.ID, definition.Coordinate, definition.Key)
+		if err != nil {
+			return nil, fail(CodeUnsupportedFixture, "fixture", definition.Coordinate, "registry fixture state is invalid")
+		}
+		plan.RegistryTargets = append(plan.RegistryTargets, RegistryFixtureTarget{
+			Coordinate: definition.Coordinate, Authored: definition.Authored, Destination: definition.Destination,
+			Source: definition.Source, Target: definition.Target, Strategy: "registry-import", Optional: true,
+			Captured: captured, Mutated: mutated, Restored: restored,
+		})
+	}
+	if plan.OperationCount() == 0 {
+		return nil, fail(CodeUnsupportedFixture, "fixture", "operations", "fixture plan is empty")
+	}
+	return plan, nil
+}
+
+func registryFixtureStates(moduleID, scenarioID, coordinate, key string) (validationmode.RegistryState, validationmode.RegistryState, validationmode.RegistryState, error) {
+	value := func(state, identity string) string {
+		return fixtureSentinel(moduleID, scenarioID, coordinate+"/"+key+"/"+identity, state)
+	}
+	captured, err := validationmode.NewRegistryState([]validationmode.RegistryKey{
+		{Values: []validationmode.RegistryValue{
+			{Name: "", Type: validationmode.RegistryTypeString, Data: registryStringBytes(value("captured", "default"))},
+			{Name: "mode", Type: validationmode.RegistryTypeDWORD, Data: registryDWORDBytes(value("captured", "mode"))},
+		}},
+		{Path: "Child", Values: []validationmode.RegistryValue{{Name: "binary", Type: validationmode.RegistryTypeBinary, Data: registryBinaryBytes(value("captured", "binary"))}}},
+	})
+	if err != nil {
+		return validationmode.RegistryState{}, validationmode.RegistryState{}, validationmode.RegistryState{}, err
+	}
+	mutated, err := validationmode.NewRegistryState([]validationmode.RegistryKey{
+		{Values: []validationmode.RegistryValue{
+			{Name: "", Type: validationmode.RegistryTypeDWORD, Data: registryDWORDBytes(value("mutated", "default"))},
+			{Name: "mode", Type: validationmode.RegistryTypeString, Data: registryStringBytes(value("mutated", "mode"))},
+		}},
+		{Path: "Child", Values: []validationmode.RegistryValue{{Name: "binary", Type: validationmode.RegistryTypeBinary, Data: registryBinaryBytes(value("mutated", "binary"))}}},
+	})
+	if err != nil {
+		return validationmode.RegistryState{}, validationmode.RegistryState{}, validationmode.RegistryState{}, err
+	}
+	return captured, mutated, captured, nil
+}
+
+func registryStringBytes(value string) []byte {
+	units := append(utf16.Encode([]rune(value)), 0)
+	data := make([]byte, len(units)*2)
+	for index, unit := range units {
+		binary.LittleEndian.PutUint16(data[index*2:], unit)
+	}
+	return data
+}
+
+func registryDWORDBytes(value string) []byte {
+	digest := sha256.Sum256([]byte(value))
+	data := make([]byte, 4)
+	binary.LittleEndian.PutUint32(data, binary.LittleEndian.Uint32(digest[:4]))
+	return data
+}
+
+func registryBinaryBytes(value string) []byte {
+	digest := sha256.Sum256([]byte(value))
+	return append([]byte(nil), digest[:8]...)
 }
 
 func fixtureStates(moduleID, scenarioID, coordinate, strategy string) (captured, mutated, restored string) {
@@ -368,6 +474,11 @@ func (plan *FixturePlan) MaterializeCaptured() *Failure {
 			return failure
 		}
 	}
+	for index := range plan.RegistryTargets {
+		if failure := plan.replaceRegistry(&plan.RegistryTargets[index], plan.RegistryTargets[index].Captured); failure != nil {
+			return failure
+		}
+	}
 	return nil
 }
 
@@ -377,11 +488,21 @@ func (plan *FixturePlan) MaterializeRestored() *Failure {
 			return failure
 		}
 	}
+	for index := range plan.RegistryTargets {
+		if failure := plan.replaceRegistry(&plan.RegistryTargets[index], plan.RegistryTargets[index].Restored); failure != nil {
+			return failure
+		}
+	}
 	return nil
 }
 
 func (plan *FixturePlan) HasOptionalTargets() bool {
 	for _, target := range plan.Targets {
+		if target.Optional {
+			return true
+		}
+	}
+	for _, target := range plan.RegistryTargets {
 		if target.Optional {
 			return true
 		}
@@ -397,6 +518,15 @@ func (plan *FixturePlan) MaterializeOptionalAbsent() *Failure {
 			}
 		}
 	}
+	for index := range plan.RegistryTargets {
+		target := &plan.RegistryTargets[index]
+		if !target.Optional {
+			continue
+		}
+		if plan.registryFixture == nil || plan.registryFixture.Remove(target.Authored) != nil || plan.registryFixture.ProveAbsent(target.Authored) != nil {
+			return fail(CodeIsolationFailure, "fixture", target.Coordinate, "registry fixture operation failed")
+		}
+	}
 	return nil
 }
 
@@ -405,6 +535,25 @@ func (plan *FixturePlan) Mutate() *Failure {
 		if failure := plan.materialize(&plan.Targets[index], plan.Targets[index].Mutated, false); failure != nil {
 			return failure
 		}
+	}
+	for index := range plan.RegistryTargets {
+		if failure := plan.replaceRegistry(&plan.RegistryTargets[index], plan.RegistryTargets[index].Mutated); failure != nil {
+			return failure
+		}
+	}
+	return nil
+}
+
+func (plan *FixturePlan) OperationCount() int {
+	if plan == nil {
+		return 0
+	}
+	return len(plan.Targets) + len(plan.RegistryTargets)
+}
+
+func (plan *FixturePlan) replaceRegistry(target *RegistryFixtureTarget, state validationmode.RegistryState) *Failure {
+	if plan.registryFixture == nil || plan.registryFixture.Replace(target.Authored, state) != nil {
+		return fail(CodeIsolationFailure, "fixture", target.Coordinate, "registry fixture operation failed")
 	}
 	return nil
 }
@@ -457,13 +606,56 @@ func (plan *FixturePlan) materialize(target *FixtureTarget, content string, incl
 	return nil
 }
 
-func (plan *FixturePlan) CompareCaptureSeed() *Failure { return plan.compare("captured", true) }
+func (plan *FixturePlan) CompareCaptureSeed() *Failure {
+	if failure := plan.compare("captured", true); failure != nil {
+		return failure
+	}
+	return plan.compareRegistry("captured")
+}
 
-func (plan *FixturePlan) CompareCaptured() *Failure { return plan.compare("captured", false) }
+func (plan *FixturePlan) CompareCaptured() *Failure {
+	if failure := plan.compare("captured", false); failure != nil {
+		return failure
+	}
+	return plan.compareRegistry("captured")
+}
 
-func (plan *FixturePlan) CompareRestored() *Failure { return plan.compare("restored", false) }
+func (plan *FixturePlan) CompareRestored() *Failure {
+	if failure := plan.compare("restored", false); failure != nil {
+		return failure
+	}
+	return plan.compareRegistry("restored")
+}
 
-func (plan *FixturePlan) CompareMutated() *Failure { return plan.compare("mutated", false) }
+func (plan *FixturePlan) CompareMutated() *Failure {
+	if failure := plan.compare("mutated", false); failure != nil {
+		return failure
+	}
+	return plan.compareRegistry("mutated")
+}
+
+func (plan *FixturePlan) compareRegistry(state string) *Failure {
+	for index := range plan.RegistryTargets {
+		target := &plan.RegistryTargets[index]
+		if plan.registryFixture == nil {
+			return fail(CodeIsolationFailure, "fixture", target.Coordinate, "registry fixture authority is absent")
+		}
+		actual, err := plan.registryFixture.Snapshot(target.Authored)
+		if err != nil {
+			return fail(CodeIsolationFailure, "fixture", target.Coordinate, "registry fixture operation failed")
+		}
+		expected := target.Mutated
+		if state == "captured" {
+			expected = target.Captured
+		} else if state == "restored" {
+			expected = target.Restored
+		}
+		if !actual.Equal(expected) {
+			return fail(CodeContentMismatch, "fixture", target.Coordinate, "registry fixture state differs from the exact deterministic state")
+		}
+	}
+	return nil
+}
 
 type expectedFixtureEntry struct {
 	Directory bool

@@ -45,6 +45,7 @@ type fixtureDefinitions struct {
 
 type registryDefinition struct {
 	Coordinate  string
+	Authored    string
 	Key         string
 	Destination string
 	Source      string
@@ -164,7 +165,8 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 		consumed[matches[0]] = struct{}{}
 		restore := mod.Restore[matches[0]]
 		result.Entries = append(result.Entries, registryDefinition{
-			Coordinate: coordinate, Key: canonicalKeys[captureIndex], Destination: destinations[captureIndex], Source: restore.Source, Target: canonicalKeys[captureIndex],
+			Coordinate: coordinate, Authored: mod.Capture.RegistryKeys[captureIndex].Key, Key: canonicalKeys[captureIndex],
+			Destination: destinations[captureIndex], Source: restore.Source, Target: restore.Target,
 		})
 	}
 	for restoreIndex := range mod.Restore {
@@ -199,16 +201,24 @@ func registryKeyContains(root, key string) bool {
 }
 
 func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Scenario) (fixtureDefinitions, *Failure) {
+	return compileFilesystemFixtureDefinitions(mod, scenario, false)
+}
+
+func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Scenario, allowRegistry bool) (fixtureDefinitions, *Failure) {
 	if mod == nil || mod.EffectiveSchemaVersion() != 1 || scenario.Mode != validationmatrix.ScenarioConfigRoundtripV1 {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "schema", "fixture requires a schema-v1 roundtrip module")
 	}
 	if scenario.Fixture.Type != validationmatrix.FixtureAuto && scenario.Fixture.Type != validationmatrix.FixtureDeclarative {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "fixture.type", "fixture type is unsupported")
 	}
-	if mod.Capture == nil || len(mod.Capture.RegistryKeys) > 0 || len(mod.Capture.RegistryValues) > 0 {
+	if mod.Capture == nil || !allowRegistry && (len(mod.Capture.RegistryKeys) > 0 || len(mod.Capture.RegistryValues) > 0) {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registry", "schema-v1 merge fixtures do not support registry capture")
 	}
+	fileRestores := 0
 	for index, restore := range mod.Restore {
+		if allowRegistry && restore.Type == "registry-import" {
+			continue
+		}
 		if restore.Type != "copy" && restore.Type != "merge-json" && restore.Type != "merge-ini" ||
 			restore.Key != "" || restore.ValueName != "" || restore.ValueType != "" || restore.Data != "" || restore.Pattern != "" || restore.Reason != "" {
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "only file copy, merge-json, and merge-ini restores are supported")
@@ -219,8 +229,9 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 		if !restore.Backup {
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "roundtrip restore must produce revertable backup evidence")
 		}
+		fileRestores++
 	}
-	if len(mod.Capture.Files) == 0 || len(mod.Restore) == 0 {
+	if !allowRegistry && (len(mod.Capture.Files) == 0 || fileRestores == 0) {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "operations", "roundtrip fixture has no executable file operations")
 	}
 	result := fixtureDefinitions{}
@@ -231,6 +242,9 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 		}
 		var matches []int
 		for restoreIndex, restore := range mod.Restore {
+			if allowRegistry && restore.Type == "registry-import" {
+				continue
+			}
 			if capture.Source == restore.Target && payloadDestination(restore.Source) == catalogPath(capture.Dest) {
 				matches = append(matches, restoreIndex)
 			}
@@ -262,7 +276,7 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 			Strategy:      restore.Type,
 		})
 	}
-	if len(consumedRestore) != len(mod.Restore) {
+	if len(consumedRestore) != fileRestores {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "restore", "every copy restore must be consumed exactly once")
 	}
 	for index, verifier := range mod.Verify {
