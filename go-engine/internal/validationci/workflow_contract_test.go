@@ -42,4 +42,27 @@ func TestGoCIWorkflowKeepsVerifiedModuleMatrixContract(t *testing.T) {
 			t.Errorf("workflow does not use isolated validation binary invocation %q", invocation)
 		}
 	}
+	if got := strings.Count(text, "fetch-depth: 2"); got != 1 {
+		t.Errorf("aggregate checkout depth-2 count = %d, want 1", got)
+	}
+	for _, wanted := range []string{
+		"$head = (git rev-parse HEAD).Trim().ToLowerInvariant()",
+		"$env:GITHUB_SHA.ToLowerInvariant()",
+		"git rev-list --parents -n 1 HEAD",
+		"$event.pull_request.base.sha.ToLowerInvariant()",
+		"$event.pull_request.head.sha.ToLowerInvariant()",
+		".github/validation/synthetic-known-failures.json",
+		"--base-authority $baseAuthority --head-candidate $headCandidate",
+		"$env:GITHUB_EVENT_NAME -eq 'pull_request'",
+		"$env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main'",
+	} {
+		if !strings.Contains(text, wanted) {
+			t.Errorf("workflow missing authority contract %q", wanted)
+		}
+	}
+	for _, forbidden := range []string{"GITHUB_TOKEN", "github.token", "gh api", "git checkout", "synthetic-known-failures.json' | Set-Content"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("workflow contains forbidden authority behavior %q", forbidden)
+		}
+	}
 }

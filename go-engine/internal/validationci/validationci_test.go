@@ -6,10 +6,12 @@ package validationci
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +92,26 @@ func TestRunCanaryUsesPrivateSystemTempScratch(t *testing.T) {
 	}
 }
 
+func TestRunCanaryRejectsRunnerIOWithoutPersistingFailedEvidence(t *testing.T) {
+	runnerTemp := filepath.Join(t.TempDir(), "runner-temp")
+	resultRoot := filepath.Join(runnerTemp, "endstate-validation-results")
+	if err := os.MkdirAll(resultRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RUNNER_TEMP", runnerTemp)
+	shard := testShardRequest(t, filepath.Join(resultRoot, "canary.json"))
+	request := CanaryRequest{EnginePath: shard.EnginePath, RepoRoot: shard.RepoRoot, Commit: shard.Commit, ResultPath: shard.ResultPath}
+	request.Run = func(context.Context, validationharness.Request) (validationharness.Result, error) {
+		return validationharness.Result{}, errors.New("runner I/O")
+	}
+	if _, err := RunCanary(request); err == nil || err.Error() != "canary harness I/O failure" {
+		t.Fatalf("RunCanary() error = %v, want canary harness I/O failure", err)
+	}
+	if _, err := os.Lstat(request.ResultPath); !os.IsNotExist(err) {
+		t.Fatalf("runner I/O persisted canary failure evidence: %v", err)
+	}
+}
+
 func TestRunSyntheticShardPersistsPartialFailedResultAndContinues(t *testing.T) {
 	runnerTemp := filepath.Join(t.TempDir(), "runner-temp")
 	resultRoot := filepath.Join(runnerTemp, "endstate-validation-results")
@@ -158,6 +180,25 @@ func TestRunSyntheticShardPersistsPartialFailedResultAndContinues(t *testing.T) 
 	}
 	if _, err := Aggregate(AggregateRequest{EnginePath: engine, RepoRoot: repo, Commit: request.Commit, InputDir: input, ResultPath: filepath.Join(resultRoot, "aggregate.json")}); err == nil {
 		t.Fatal("Aggregate accepted persisted failed shard evidence")
+	}
+}
+
+func TestRunSyntheticShardRejectsRunnerIOWithoutPersistingDebt(t *testing.T) {
+	runnerTemp := filepath.Join(t.TempDir(), "runner-temp")
+	resultRoot := filepath.Join(runnerTemp, "endstate-validation-results")
+	if err := os.MkdirAll(resultRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RUNNER_TEMP", runnerTemp)
+	request := testShardRequest(t, filepath.Join(resultRoot, "shard-0.json"))
+	request.Run = func(context.Context, validationharness.Request) (validationharness.Result, error) {
+		return validationharness.Result{}, errors.New("runner I/O")
+	}
+	if _, err := RunSyntheticShard(request); err == nil || err.Error() != "harness I/O failure" {
+		t.Fatalf("RunSyntheticShard() error = %v, want harness I/O failure", err)
+	}
+	if _, err := os.Lstat(request.ResultPath); !os.IsNotExist(err) {
+		t.Fatalf("runner I/O persisted synthetic debt: %v", err)
 	}
 }
 
@@ -418,6 +459,9 @@ func TestAggregateAcceptsCompleteCanonicalEvidence(t *testing.T) {
 
 func TestAggregateClassifiesCanonicalFailedShardEvidence(t *testing.T) {
 	fixture := newAggregateFixture(t)
+	if err := os.Remove(fixture.Request.BaseAuthorityPath); err != nil {
+		t.Fatal(err)
+	}
 	var shard ShardResult
 	readJSON(t, filepath.Join(fixture.Input, "shard-0.json"), &shard)
 	shard.Status = validationharness.ResultStatusFailed
@@ -426,15 +470,36 @@ func TestAggregateClassifiesCanonicalFailedShardEvidence(t *testing.T) {
 	writeJSON(t, filepath.Join(fixture.Input, "shard-0.json"), shard)
 
 	result, err := Aggregate(fixture.Request)
-	if err == nil || err.Error() != "failed shard evidence" {
-		t.Fatalf("Aggregate error = %v, want failed shard evidence", err)
+	if err == nil || err.Error() != "missing known-failure authority" {
+		t.Fatalf("Aggregate error = %v, want missing known-failure authority", err)
 	}
-	assertFailedAggregateDenominators(t, fixture, result, "failed shard evidence")
+	if result.Modules != (PassedEligible{Eligible: 1}) || result.Scenarios != (PassedEligible{Eligible: 1}) || result.Bundles != (PassedEligible{Passed: 1, Eligible: 1}) {
+		t.Fatalf("aggregate debt-gate counts = %+v", result)
+	}
 
 	var persisted AggregateResult
 	readJSON(t, fixture.Request.ResultPath, &persisted)
 	if !reflect.DeepEqual(persisted, result) {
 		t.Fatalf("persisted aggregate = %+v, want %+v", persisted, result)
+	}
+}
+
+func TestAggregateAcceptsKnownFailedEvidenceWithoutProofInflation(t *testing.T) {
+	fixture := newAggregateFixture(t)
+	var shard ShardResult
+	readJSON(t, filepath.Join(fixture.Input, "shard-0.json"), &shard)
+	shard.Status = validationharness.ResultStatusFailed
+	shard.Failure = "scenario failed"
+	setCanonicalFailedShardRow(&shard.Rows[0].Result)
+	writeJSON(t, filepath.Join(fixture.Input, "shard-0.json"), shard)
+	writeKnownFailureDebt(t, fixture, shard, shard.Rows[0])
+
+	result, err := Aggregate(fixture.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != validationharness.ResultStatusPassed || result.Scenarios != (PassedEligible{Eligible: 1}) || result.Modules != (PassedEligible{Eligible: 1}) || result.KnownDebt != 1 || result.ResolvedDebt != 0 {
+		t.Fatalf("aggregate debt counts = %+v", result)
 	}
 }
 
@@ -627,7 +692,7 @@ func setCanonicalFailedShardRow(result *validationharness.Result) {
 	result.Status = validationharness.ResultStatusFailed
 	result.ProofLevels = []validationmatrix.ProofLevel{}
 	result.AssertionCounts = map[string]int{}
-	result.Failure = &validationharness.Failure{Code: validationharness.CodeExecutionFailure, Phase: "harness", Detail: "expected"}
+	result.Failure = &validationharness.Failure{Code: validationharness.CodeExecutionFailure, Phase: "harness", Coordinate: "scenario", Detail: "expected"}
 	result.PhaseTimings = map[string]time.Duration{}
 }
 
@@ -717,7 +782,79 @@ func newAggregateFixtureForRepo(t *testing.T, repo string) aggregateFixture {
 	}
 	writeJSON(t, filepath.Join(input, "catalog.json"), CatalogResult{SchemaVersion: SchemaVersion, Commit: commit, EngineSHA256: engineHash, RepositoryHash: repoHash, Status: validationharness.ResultStatusPassed, CatalogCount: len(bundles), Passed: len(bundles), Memberships: 1, UniqueModules: 1})
 	writeJSON(t, filepath.Join(input, "canary.json"), canary)
-	return aggregateFixture{Request: AggregateRequest{EnginePath: engine, RepoRoot: repo, Commit: commit, InputDir: input, ResultPath: filepath.Join(results, "aggregate.json")}, Input: input, Canary: canary}
+	fixture := aggregateFixture{Request: AggregateRequest{EnginePath: engine, RepoRoot: repo, Commit: commit, InputDir: input, ResultPath: filepath.Join(results, "aggregate.json")}, Input: input, Canary: canary}
+	writeAggregateLedgers(t, &fixture, plan.Rows)
+	return fixture
+}
+
+func writeAggregateLedgers(t *testing.T, fixture *aggregateFixture, rows []validationmatrix.SyntheticRow) {
+	t.Helper()
+	identities := make([]KnownFailureIdentity, 0, len(rows))
+	modules := map[string]struct{}{}
+	for _, row := range rows {
+		identities = append(identities, knownFailureIdentity(row))
+		modules[row.ModuleID] = struct{}{}
+	}
+	sort.Slice(identities, func(left, right int) bool {
+		leftKey, _ := identityKey(identities[left])
+		rightKey, _ := identityKey(identities[right])
+		return leftKey < rightKey
+	})
+	inventory := KnownFailureInventory{ModuleCount: len(modules), ScenarioCount: len(identities), Rows: identities}
+	inventory.SHA256 = inventorySHA256(inventory)
+	ledger := KnownFailureLedger{SchemaVersion: SchemaVersion, Inventory: inventory, KnownFailures: []KnownFailure{}, FailureTransitions: []FailureTransition{}, InventoryRemovals: []InventoryRemoval{}}
+	runnerTemp := filepath.Dir(fixture.Input)
+	fixture.Request.BaseAuthorityPath = filepath.Join(runnerTemp, "base-known-failures.json")
+	fixture.Request.HeadCandidatePath = filepath.Join(fixture.Request.RepoRoot, ".github", "validation", "synthetic-known-failures.json")
+	writeJSON(t, fixture.Request.BaseAuthorityPath, ledger)
+	if err := os.MkdirAll(filepath.Dir(fixture.Request.HeadCandidatePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeJSON(t, fixture.Request.HeadCandidatePath, ledger)
+	rewriteAggregateEvidenceRepositoryHash(t, fixture)
+}
+
+func rewriteAggregateEvidenceRepositoryHash(t *testing.T, fixture *aggregateFixture) {
+	t.Helper()
+	repositoryHash, err := repositorySHA256(fixture.Request.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for shard := 0; shard < ShardCount; shard++ {
+		path := filepath.Join(fixture.Input, "shard-"+string(rune('0'+shard))+".json")
+		var evidence ShardResult
+		readJSON(t, path, &evidence)
+		evidence.RepositoryHash = repositoryHash
+		writeJSON(t, path, evidence)
+	}
+	var catalog CatalogResult
+	readJSON(t, filepath.Join(fixture.Input, "catalog.json"), &catalog)
+	catalog.RepositoryHash = repositoryHash
+	writeJSON(t, filepath.Join(fixture.Input, "catalog.json"), catalog)
+	var canary CanaryResult
+	readJSON(t, filepath.Join(fixture.Input, "canary.json"), &canary)
+	canary.RepositoryHash = repositoryHash
+	writeJSON(t, filepath.Join(fixture.Input, "canary.json"), canary)
+	fixture.Canary = canary
+}
+
+func writeKnownFailureDebt(t *testing.T, fixture aggregateFixture, shard ShardResult, row ShardRow) {
+	t.Helper()
+	var base KnownFailureLedger
+	readJSON(t, fixture.Request.BaseAuthorityPath, &base)
+	identity := KnownFailureIdentity{ModuleID: row.Identity.ModuleID, ScenarioID: row.Identity.ScenarioID, Kind: string(row.Identity.ScenarioKind)}
+	fingerprint, err := NewFailureFingerprint(row.Result.Failure.Code, row.Result.Failure.Phase, row.Result.Failure.Coordinate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	debt := KnownFailure{Identity: identity, PreviousEvidence: PreviousEvidence{
+		Commit: shard.Commit, EngineSHA256: shard.EngineSHA256, RepositoryHash: shard.RepositoryHash,
+		Row: LedgerRowID{ModuleID: row.Identity.ModuleID, ModuleRevision: row.Identity.ModuleRevision, ScenarioID: row.Identity.ScenarioID, ScenarioKind: string(row.Identity.ScenarioKind), ScenarioDigest: row.Identity.ScenarioDigest, Shard: row.Identity.Shard, RowSHA256: row.Identity.RowSHA256},
+	}, Failure: fingerprint, Detail: "expected fixture debt"}
+	base.KnownFailures = []KnownFailure{debt}
+	writeJSON(t, fixture.Request.BaseAuthorityPath, base)
+	writeJSON(t, fixture.Request.HeadCandidatePath, base)
+	rewriteAggregateEvidenceRepositoryHash(t, &fixture)
 }
 
 func testShardRequest(t *testing.T, resultPath string) ShardRequest {

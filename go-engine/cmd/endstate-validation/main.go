@@ -104,7 +104,7 @@ func runShard(args []string, stdout io.Writer, runner scenarioRunner) int {
 		}
 		return writeJSON(stdout, result, true)
 	}
-	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
+	return writeJSON(stdout, result, false)
 }
 
 func runCanary(args []string, stdout io.Writer, runner scenarioRunner) int {
@@ -163,6 +163,8 @@ func runAggregate(args []string, stdout io.Writer) int {
 	flags.StringVar(&request.RepoRoot, "repo", "", "absolute repository root")
 	flags.StringVar(&request.Commit, "commit", "", "exact checked-out commit")
 	flags.StringVar(&request.InputDir, "input", "", "runner-temp evidence directory")
+	flags.StringVar(&request.BaseAuthorityPath, "base-authority", "", "protected-main known-failure authority path")
+	flags.StringVar(&request.HeadCandidatePath, "head-candidate", "", "head known-failure candidate path")
 	flags.StringVar(&request.ResultPath, "result", "", "compact result path")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return writeCommandError(stdout, "invalid aggregate flags")
@@ -210,6 +212,7 @@ func safeValidationCICommandFailure(err error) string {
 		"duplicate planned canary",
 		"missing planned canary",
 		"impossible canary proof or status combination",
+		"canary harness I/O failure",
 		"engine changed during canary",
 		"repository changed during canary",
 		"catalog harness I/O failure",
@@ -229,14 +232,26 @@ func safeValidationCICommandFailure(err error) string {
 		"result directory is unsafe",
 		"missing or malformed shard evidence",
 		"foreign shard evidence",
-		"failed shard evidence",
 		"row proof identity drift",
 		"duplicate row evidence",
 		"failed row evidence",
 		"missing row evidence",
 		"missing or failed catalog evidence",
 		"catalog bundle count drift",
-		"missing or failed synthetic canary":
+		"missing or failed synthetic canary",
+		"missing known-failure authority",
+		"missing known-failure candidate",
+		"malformed known-failure authority",
+		"malformed known-failure candidate",
+		"missing or malformed head evidence",
+		"unauthorized row removal",
+		"new failed row",
+		"removed known-failure debt",
+		"unreviewed failure fingerprint transition",
+		"stale known-failure debt",
+		"invalid head-added failure transition",
+		"authorized transition not consumed",
+		"authorized row removal not consumed":
 		return detail
 	default:
 		return "validation CI command failed"

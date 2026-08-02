@@ -9,6 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +108,80 @@ func TestRunCLICommandsDispatchesCanaryFlags(t *testing.T) {
 	}
 }
 
+func TestRunAggregateAcceptsSeparateAuthorityFlags(t *testing.T) {
+	var stdout bytes.Buffer
+	code := runAggregate([]string{
+		"--engine", `C:\\missing\\endstate.exe`, "--repo", `C:\\missing\\repo`,
+		"--commit", strings.Repeat("a", 40), "--input", `C:\\tmp\\validation-input`,
+		"--base-authority", `C:\\tmp\\base-known-failures.json`,
+		"--head-candidate", `C:\\repo\\.github\\validation\\synthetic-known-failures.json`,
+		"--result", `C:\\tmp\\endstate-validation-results\\aggregate.json`,
+	}, &stdout)
+	if code == 0 {
+		t.Fatalf("exit = 0, output=%s", stdout.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["failure"] != "engine and repository must be canonical absolute paths" {
+		t.Fatalf("aggregate authority flags were not parsed: %s", stdout.String())
+	}
+}
+
+func TestRunShardSucceedsAfterPersistingCanonicalFailedEvidence(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	repo := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	runnerTemp := filepath.Join(t.TempDir(), "runner-temp")
+	resultRoot := filepath.Join(runnerTemp, "endstate-validation-results")
+	if err := os.MkdirAll(resultRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RUNNER_TEMP", runnerTemp)
+	engine := filepath.Join(t.TempDir(), "endstate.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := validationmatrix.PlanSynthetic(catalog, validationmatrix.SyntheticPlanOptions{ShardCount: validationci.ShardCount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, request validationharness.Request) (validationharness.Result, error) {
+		for _, row := range plan.Rows {
+			if row.ModuleID == request.ModuleID && row.ScenarioID == request.ScenarioID {
+				return validationharness.Result{
+					SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision,
+					ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed,
+					ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: map[string]int{},
+					Failure:      &validationharness.Failure{Code: validationharness.CodeExecutionFailure, Phase: "harness", Coordinate: "scenario", Detail: "expected"},
+					PhaseTimings: map[string]time.Duration{},
+				}, nil
+			}
+		}
+		t.Fatalf("unexpected scenario %s/%s", request.ModuleID, request.ScenarioID)
+		return validationharness.Result{}, nil
+	}
+	var stdout bytes.Buffer
+	code := runShard([]string{
+		"--engine", engine, "--repo", repo, "--commit", strings.Repeat("a", 40),
+		"--shards", "8", "--shard", "0", "--result", filepath.Join(resultRoot, "shard-0.json"),
+	}, &stdout, runner)
+	if code != 0 {
+		t.Fatalf("exit = %d, output=%s", code, stdout.String())
+	}
+	var result validationci.ShardResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != validationharness.ResultStatusFailed || result.Failure != "scenario failed" || len(result.Rows) == 0 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestRunCLICommandsRejectsInvalidSyncRevisionFlags(t *testing.T) {
 	tests := [][]string{
 		{"sync-revisions"},
@@ -194,8 +272,8 @@ func TestValidationCICommandFailureRedactsUnknownPaths(t *testing.T) {
 	if got := safeValidationCICommandFailure(errors.New("engine authority is unsafe")); got != "engine authority is unsafe" {
 		t.Fatalf("classified validation CI failure = %q", got)
 	}
-	if got := safeValidationCICommandFailure(errors.New("failed shard evidence")); got != "failed shard evidence" {
-		t.Fatalf("failed shard classification = %q", got)
+	if got := safeValidationCICommandFailure(errors.New("missing known-failure authority")); got != "missing known-failure authority" {
+		t.Fatalf("known-failure authority classification = %q", got)
 	}
 }
 

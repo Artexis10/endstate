@@ -210,6 +210,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
+          fetch-depth: 2
       - name: Download built binaries
         # v5.0.0
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
@@ -235,6 +236,36 @@ jobs:
         with:
           name: notepad-engine-contract
           path: ${{ runner.temp }}/validation-input
+      - name: Extract known-failure authority
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($head -ne $env:GITHUB_SHA.ToLowerInvariant()) {
+            throw 'checkout commit does not match GITHUB_SHA'
+          }
+          $baseAuthority = Join-Path $env:RUNNER_TEMP 'base-known-failures.json'
+          $ledgerPath = '.github/validation/synthetic-known-failures.json'
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            $event = Get-Content -Raw $env:GITHUB_EVENT_PATH | ConvertFrom-Json
+            $parents = ((git rev-list --parents -n 1 HEAD).Trim() -split '\s+')
+            if ($parents.Count -ne 3) {
+              throw 'pull request checkout must be a two-parent merge commit'
+            }
+            if ($parents[1].ToLowerInvariant() -ne $event.pull_request.base.sha.ToLowerInvariant() -or $parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()) {
+              throw 'pull request merge parents do not match event authority'
+            }
+            git cat-file -e "$($parents[1]):$ledgerPath" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              git show "$($parents[1]):$ledgerPath" | Set-Content -NoNewline -Encoding utf8 $baseAuthority
+            }
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main') {
+            git cat-file -e "$env:GITHUB_SHA`:$ledgerPath" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              git show "$env:GITHUB_SHA`:$ledgerPath" | Set-Content -NoNewline -Encoding utf8 $baseAuthority
+            }
+          } else {
+            throw 'unsupported validation authority event or ref'
+          }
       - name: Aggregate compact evidence
         shell: pwsh
         run: |
@@ -243,8 +274,10 @@ jobs:
           $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
           $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
+          $baseAuthority = Join-Path $env:RUNNER_TEMP 'base-known-failures.json'
+          $headCandidate = Join-Path $env:GITHUB_WORKSPACE '.github\validation\synthetic-known-failures.json'
           New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
-          & $validator aggregate --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --input (Join-Path $env:RUNNER_TEMP 'validation-input') --result (Join-Path $resultRoot 'aggregate.json') | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'aggregate-output.json')
+          & $validator aggregate --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --input (Join-Path $env:RUNNER_TEMP 'validation-input') --base-authority $baseAuthority --head-candidate $headCandidate --result (Join-Path $resultRoot 'aggregate.json') | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'aggregate-output.json')
           exit $LASTEXITCODE
       - name: Write summary
         if: always()

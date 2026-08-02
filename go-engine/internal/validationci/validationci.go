@@ -121,21 +121,30 @@ type CatalogResult struct {
 }
 
 type AggregateRequest struct {
-	EnginePath string
-	RepoRoot   string
-	Commit     string
-	InputDir   string
-	ResultPath string
+	EnginePath        string
+	RepoRoot          string
+	Commit            string
+	InputDir          string
+	BaseAuthorityPath string
+	HeadCandidatePath string
+	ResultPath        string
 }
 
 type AggregateResult struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Commit        string         `json:"commit"`
-	Status        string         `json:"status"`
-	Modules       PassedEligible `json:"modules"`
-	Scenarios     PassedEligible `json:"scenarios"`
-	Bundles       PassedEligible `json:"bundles"`
-	Failure       string         `json:"failure,omitempty"`
+	SchemaVersion     int            `json:"schemaVersion"`
+	Commit            string         `json:"commit"`
+	Status            string         `json:"status"`
+	Modules           PassedEligible `json:"modules"`
+	Scenarios         PassedEligible `json:"scenarios"`
+	Bundles           PassedEligible `json:"bundles"`
+	KnownDebt         int            `json:"knownDebt"`
+	ResolvedDebt      int            `json:"resolvedDebt"`
+	NewFailures       int            `json:"newFailures"`
+	ChangedFailures   int            `json:"changedFailures"`
+	MissingDebt       int            `json:"missingDebt"`
+	StaleDebt         int            `json:"staleDebt"`
+	InventoryRemovals int            `json:"inventoryRemovals"`
+	Failure           string         `json:"failure,omitempty"`
 }
 
 type PassedEligible struct {
@@ -190,7 +199,7 @@ func RunSyntheticShard(request ShardRequest) (ShardResult, error) {
 		rowNumber++
 		harnessResult, runErr := runHarnessScenario(run, request.EnginePath, request.RepoRoot, row.ModuleID, row.ScenarioID, rowPath)
 		if runErr != nil {
-			harnessResult = failedRow(row, "harness I/O failure")
+			return ShardResult{}, errors.New("harness I/O failure")
 		}
 		if !matchesRow(row, harnessResult) {
 			return ShardResult{}, errors.New("row result identity drift")
@@ -258,7 +267,7 @@ func RunCanary(request CanaryRequest) (CanaryResult, error) {
 	}
 	harnessResult, runErr := runHarnessScenario(run, request.EnginePath, request.RepoRoot, row.ModuleID, row.ScenarioID, "canary-harness.json")
 	if runErr != nil {
-		harnessResult = failedRow(row, "harness I/O failure")
+		return CanaryResult{}, errors.New("canary harness I/O failure")
 	}
 	if !matchesRow(row, harnessResult) || !validRowResult(row, harnessResult) {
 		return CanaryResult{}, errors.New("impossible canary proof or status combination")
@@ -347,8 +356,9 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 		expected[rowKey(row)] = row
 	}
 	seen := map[string]struct{}{}
-	failedShards := 0
 	emptyFailedShards := 0
+	headRows := make([]KnownFailureRow, 0, len(expected))
+	failedModules := map[string]struct{}{}
 	for shard := 0; shard < ShardCount; shard++ {
 		var evidence ShardResult
 		if err := readBounded(filepath.Join(request.InputDir, fmt.Sprintf("shard-%d.json", shard)), &evidence); err != nil {
@@ -376,6 +386,14 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 			}
 			if row.Result.Status == validationharness.ResultStatusFailed {
 				failedRows++
+				failedModules[expectedRow.ModuleID] = struct{}{}
+				fingerprint, fingerprintErr := NewFailureFingerprint(row.Result.Failure.Code, row.Result.Failure.Phase, row.Result.Failure.Coordinate)
+				if fingerprintErr != nil {
+					return aggregateFailure(request, result, "failed row evidence")
+				}
+				headRows = append(headRows, KnownFailureRow{Identity: knownFailureIdentity(expectedRow), Failure: fingerprint})
+			} else {
+				headRows = append(headRows, KnownFailureRow{Identity: knownFailureIdentity(expectedRow), Passed: true})
 			}
 			seen[key] = struct{}{}
 		}
@@ -383,7 +401,6 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 			if failedRows == 0 {
 				emptyFailedShards++
 			}
-			failedShards++
 		}
 	}
 	if len(seen) != len(expected) {
@@ -392,13 +409,18 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 	if emptyFailedShards > 0 {
 		return aggregateFailure(request, result, "failed row evidence")
 	}
-	if failedShards > 0 {
-		return aggregateFailure(request, result, "failed shard evidence")
+	passedRows := 0
+	for _, row := range headRows {
+		if row.Passed {
+			passedRows++
+		}
 	}
-	result.Scenarios.Passed = len(seen)
+	result.Scenarios.Passed = passedRows
 	modulePass := map[string]struct{}{}
 	for _, row := range expected {
-		modulePass[row.ModuleID] = struct{}{}
+		if _, failed := failedModules[row.ModuleID]; !failed {
+			modulePass[row.ModuleID] = struct{}{}
+		}
 	}
 	result.Modules.Passed = len(modulePass)
 	var catalogEvidence CatalogResult
@@ -418,6 +440,25 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 	if err := readBounded(filepath.Join(request.InputDir, "canary.json"), &canary); err != nil || !validCanary(canary, request.Commit, engineHash, repositoryHash, expected) {
 		return aggregateFailure(request, result, "missing or failed synthetic canary")
 	}
+	base, baseErr := readKnownFailureLedger(request.BaseAuthorityPath, true, request.RepoRoot)
+	head, headErr := readKnownFailureLedger(request.HeadCandidatePath, false, request.RepoRoot)
+	comparison := EvaluateKnownFailureLedger(KnownFailureComparison{Base: base, Head: head, HeadRows: headRows})
+	result.KnownDebt = len(comparison.KnownDebt)
+	result.ResolvedDebt = len(comparison.ResolvedDebt)
+	result.NewFailures = len(comparison.NewFailures)
+	result.ChangedFailures = len(comparison.ChangedFailures)
+	result.MissingDebt = len(comparison.MissingDebt)
+	result.StaleDebt = len(comparison.StaleDebt)
+	result.InventoryRemovals = len(comparison.InventoryRemovals)
+	if baseErr != nil {
+		return aggregateFailure(request, result, "malformed known-failure authority")
+	}
+	if headErr != nil {
+		return aggregateFailure(request, result, "malformed known-failure candidate")
+	}
+	if !comparison.Clean() {
+		return aggregateFailure(request, result, comparison.Failure)
+	}
 	result.Status = validationharness.ResultStatusPassed
 	if err := persist(request.ResultPath, result); err != nil {
 		return AggregateResult{}, err
@@ -431,9 +472,42 @@ func aggregateFailure(request AggregateRequest, result AggregateResult, detail s
 	return result, errors.New(detail)
 }
 
-func failedRow(row validationmatrix.SyntheticRow, detail string) validationharness.Result {
-	return validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision, ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: map[string]int{}, Failure: &validationharness.Failure{Code: validationharness.CodeExecutionFailure, Phase: "harness", Detail: detail}, PhaseTimings: map[string]time.Duration{}}
+func knownFailureIdentity(row validationmatrix.SyntheticRow) KnownFailureIdentity {
+	return KnownFailureIdentity{ModuleID: row.ModuleID, ScenarioID: row.ScenarioID, Kind: string(row.ScenarioKind)}
 }
+
+func readKnownFailureLedger(path string, baseAuthority bool, repoRoot string) (*KnownFailureLedger, error) {
+	if path == "" {
+		return nil, nil
+	}
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, errors.New("known-failure ledger path is unsafe")
+	}
+	if baseAuthority {
+		if !withinEvidenceRoot(path) {
+			return nil, errors.New("known-failure authority path is unsafe")
+		}
+	} else if path != filepath.Join(repoRoot, ".github", "validation", "synthetic-known-failures.json") {
+		return nil, errors.New("known-failure candidate path is unsafe")
+	}
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil || !info.Mode().IsRegular() || safepath.IsLinkOrReparse(info) || info.Size() > maxKnownFailureLedgerSize {
+		return nil, errors.New("unsafe known-failure ledger")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	ledger, err := ParseKnownFailureLedger(data)
+	if err != nil {
+		return nil, err
+	}
+	return &ledger, nil
+}
+
 func matchesRow(row validationmatrix.SyntheticRow, result validationharness.Result) bool {
 	return result.SchemaVersion == validationharness.ResultSchemaVersion && result.ModuleID == row.ModuleID && result.ModuleRevision == row.ModuleRevision && result.ScenarioID == row.ScenarioID && result.Kind == row.ScenarioKind
 }
@@ -441,7 +515,7 @@ func validRowResult(row validationmatrix.SyntheticRow, result validationharness.
 	if result.Status == validationharness.ResultStatusPassed {
 		return validPassedRow(row, result)
 	}
-	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || result.AssertionCounts == nil || result.PhaseTimings == nil || len(result.ProofLevels) != 0 || !canonicalFailureCode(result.Failure.Code) || strings.TrimSpace(result.Failure.Phase) == "" || strings.TrimSpace(result.Failure.Detail) == "" {
+	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || result.AssertionCounts == nil || result.PhaseTimings == nil || len(result.ProofLevels) != 0 || !canonicalFailureCode(result.Failure.Code) || strings.TrimSpace(result.Failure.Phase) == "" || strings.TrimSpace(result.Failure.Coordinate) == "" || strings.TrimSpace(result.Failure.Detail) == "" {
 		return false
 	}
 	allowed := allowedAssertions(row.ScenarioKind)
