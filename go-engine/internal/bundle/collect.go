@@ -198,6 +198,17 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 	var collected []string
 
 	for index, keyEntry := range module.Capture.RegistryKeys {
+		if err := validateRegistryCaptureSecrets(module, keyEntry.Key); err != nil {
+			coordinate, authored := fmt.Sprintf("capture.registryKeys[%d].key", index), keyEntry.Key
+			var secret *registrySecretDeclarationError
+			if errors.As(err, &secret) {
+				coordinate, authored = secret.coordinate, secret.authored
+			}
+			if context != nil {
+				return collected, captureIsolation(module.ID, coordinate, "registry", authored, validationmode.ErrUnsafeRegistry)
+			}
+			return collected, fmt.Errorf("registry capture secret overlap at %s: %w", coordinate, validationmode.ErrUnsafeRegistry)
+		}
 		exportKey := keyEntry.Key
 		semanticKey := keyEntry.Key
 		if context != nil {
@@ -278,6 +289,52 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 	}
 
 	return collected, nil
+}
+
+type registrySecretDeclarationError struct {
+	coordinate string
+	authored   string
+}
+
+func (err *registrySecretDeclarationError) Error() string {
+	return "registry secret declaration overlaps capture"
+}
+
+func validateRegistryCaptureSecrets(module *modules.Module, captureKey string) error {
+	captureKind, normalizedCapture := modules.ClassifySecretCoordinate(captureKey)
+	if captureKind != modules.SecretCoordinateRegistry {
+		return validationmode.ErrUnsafeRegistry
+	}
+	if module == nil || module.Secrets == nil {
+		return nil
+	}
+	for _, declaration := range []struct {
+		coordinate string
+		values     []string
+	}{
+		{coordinate: "secrets.files", values: module.Secrets.Files},
+		{coordinate: "secrets.registryKeys", values: module.Secrets.RegistryKeys},
+	} {
+		for index, authored := range declaration.values {
+			kind, normalizedSecret := modules.ClassifySecretCoordinate(authored)
+			coordinate := fmt.Sprintf("%s[%d]", declaration.coordinate, index)
+			if kind == modules.SecretCoordinateFilesystem {
+				continue
+			}
+			if kind == modules.SecretCoordinateRegistryInvalid {
+				return &registrySecretDeclarationError{coordinate: coordinate, authored: authored}
+			}
+			if registrySubtreesOverlap(normalizedCapture, normalizedSecret) {
+				return &registrySecretDeclarationError{coordinate: coordinate, authored: authored}
+			}
+		}
+	}
+	return nil
+}
+
+func registrySubtreesOverlap(first, second string) bool {
+	first, second = strings.ToLower(first), strings.ToLower(second)
+	return first == second || strings.HasPrefix(first, second+`\`) || strings.HasPrefix(second, first+`\`)
 }
 
 // CapturedRegistryValue is a single named value captured at value-level (its

@@ -98,6 +98,22 @@ func TestCollectConfigSetWithValidationPreservesProductionInstanceAndFingerprint
 	}
 }
 
+func TestCollectConfigSetWithValidationKeepsRegistrySecretsOutOfFilesystemPaths(t *testing.T) {
+	context := activeBundleValidationContext(t, "apps.example")
+	virtualAppData, _ := context.VirtualRoot("APPDATA")
+	instanceRoot := filepath.Join(virtualAppData, "Vendor", "27.4")
+	writeCaptureFile(t, filepath.Join(instanceRoot, "prefs.json"), []byte("sandbox-generation"))
+	plan := testConfigSetCapturePlanWithSecrets(instanceRoot, &modules.CaptureDef{Files: []modules.CaptureFile{{
+		Source: `${instance.root}/prefs.json`, Dest: "profiles/${instance.version}/prefs.json",
+	}}}, &modules.SecretsDef{Files: []string{`HKCU:\Software\Example\Secret`}, RegistryKeys: []string{`HKCU\Software\Example\TypedSecret`}})
+	plan.Instance.Evidence = modules.InstanceEvidence{Type: "path", Path: instanceRoot}
+	plan.Instance.CanonicalLocator = "path:" + filepath.ToSlash(strings.ToLower(instanceRoot))
+	result, err := CollectConfigSetWithValidation(plan, bundleValidationWorkRoot(t, context, "generation-registry-secrets"), context)
+	if err != nil || len(result.Files) != 1 {
+		t.Fatalf("registry secret generation capture = %+v, %v", result, err)
+	}
+}
+
 func TestValidationCollectorsRejectUnsafeSourceBeforeStaging(t *testing.T) {
 	context := activeBundleValidationContext(t, "apps.example")
 	staging := bundleValidationWorkRoot(t, context, "unsafe-source")

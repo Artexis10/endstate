@@ -127,13 +127,35 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 			}
 		}
 		if mod.Secrets != nil {
-			for _, secret := range mod.Secrets.Files {
-				secretKey, err := validationmode.NormalizeHKCU(secret)
-				if err == nil && registryKeyContains(key, secretKey) {
-					if strings.EqualFold(key, secretKey) {
-						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture equals a declared secret")
+			for _, declaration := range []struct {
+				coordinate string
+				values     []string
+			}{
+				{coordinate: "secrets.files", values: mod.Secrets.Files},
+				{coordinate: "secrets.registryKeys", values: mod.Secrets.RegistryKeys},
+			} {
+				for secretIndex, secret := range declaration.values {
+					secretCoordinate := fmt.Sprintf("%s[%d]", declaration.coordinate, secretIndex)
+					kind, normalized := modules.ClassifySecretCoordinate(secret)
+					if kind == modules.SecretCoordinateFilesystem {
+						continue
 					}
-					return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture contains a declared secret descendant")
+					if kind == modules.SecretCoordinateRegistryInvalid {
+						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", secretCoordinate, "registry secret is malformed")
+					}
+					secretKey, err := validationmode.NormalizeHKCU(normalized)
+					if err != nil {
+						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", secretCoordinate, "registry secret requires a canonical HKCU key")
+					}
+					if registryKeyContains(key, secretKey) {
+						if strings.EqualFold(key, secretKey) {
+							return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture equals a declared secret")
+						}
+						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture contains a declared secret descendant")
+					}
+					if registryKeyContains(secretKey, key) {
+						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture is contained by a declared secret ancestor")
+					}
 				}
 			}
 		}

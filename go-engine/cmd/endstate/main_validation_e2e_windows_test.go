@@ -69,14 +69,23 @@ func TestBundleContainsValueDecodesUTF16LE(t *testing.T) {
 func TestLifecycleRegistryImportRestoreEvidence(t *testing.T) {
 	restored := map[string]interface{}{
 		"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
-		"restoreType": "registry-import", "status": "restored",
+		"restoreType": "registry-import", "status": "restored", "targetExistedBefore": true,
+		"backupCreated": true, "backupPath": "state/backups/7zip/prior.reg",
+	}
+	repeated := map[string]interface{}{
+		"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+		"restoreType": "registry-import", "status": "skipped_up_to_date", "targetExistedBefore": true,
+		"backupCreated": false,
 	}
 	tests := []struct {
 		name                     string
 		rebuildItems, applyItems interface{}
 		wantErr                  bool
+		repeat                   bool
 	}{
 		{name: "restored", rebuildItems: []interface{}{restored}, applyItems: []interface{}{restored}},
+		{name: "repeat rejects restored", rebuildItems: []interface{}{restored}, applyItems: []interface{}{restored}, wantErr: true, repeat: true},
+		{name: "repeat skips without backup", rebuildItems: []interface{}{repeated}, applyItems: []interface{}{repeated}, repeat: true},
 		{name: "failed", rebuildItems: []interface{}{map[string]interface{}{
 			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
 			"restoreType": "registry-import", "status": "failed", "error": "import failed",
@@ -96,7 +105,7 @@ func TestLifecycleRegistryImportRestoreEvidence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := lifecycleRegistryImportRestoreEvidenceError(tt.rebuildItems, tt.applyItems); (err != nil) != tt.wantErr {
+			if err := lifecycleRegistryImportRestoreEvidenceError(tt.rebuildItems, tt.applyItems, tt.repeat); (err != nil) != tt.wantErr {
 				t.Fatalf("lifecycleRegistryImportRestoreEvidenceError() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -167,15 +176,15 @@ func runTracked7ZipRegistryLifecycle(t *testing.T, moduleRoot, buildRoot, binary
 	}
 
 	writeLifecycleRegistry(t, mappedSubkey, "mutated-registry-sentinel")
-	assertLifecycleNestedSuccess(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
+	assertLifecycleNestedRestore(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
 	assertLifecycleRegistry(t, mappedSubkey, "captured-registry-sentinel")
 	assertNamedLifecycleRegistry(t, semanticSubkey, "EndstateE2EOriginalSentinel", "original-registry-sentinel")
 	harness.run("revert", "--json")
 	assertLifecycleRegistry(t, mappedSubkey, "mutated-registry-sentinel")
 	assertNamedLifecycleRegistry(t, semanticSubkey, "EndstateE2EOriginalSentinel", "original-registry-sentinel")
-	assertLifecycleNestedSuccess(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
+	assertLifecycleNestedRestore(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
 	assertLifecycleRegistry(t, mappedSubkey, "captured-registry-sentinel")
-	assertLifecycleNestedSuccess(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
+	assertLifecycleNestedConvergence(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
 	assertLifecycleRegistry(t, mappedSubkey, "captured-registry-sentinel")
 	assertNamedLifecycleRegistry(t, semanticSubkey, "EndstateE2EOriginalSentinel", "original-registry-sentinel")
 
@@ -564,11 +573,19 @@ func assertNamedLifecycleRegistry(t *testing.T, subkey, name, want string) {
 	}
 }
 
-func assertLifecycleNestedSuccess(t *testing.T, envelopeValue map[string]interface{}) {
+func assertLifecycleNestedRestore(t *testing.T, envelopeValue map[string]interface{}) {
+	assertLifecycleNested(t, envelopeValue, false)
+}
+
+func assertLifecycleNestedConvergence(t *testing.T, envelopeValue map[string]interface{}) {
+	assertLifecycleNested(t, envelopeValue, true)
+}
+
+func assertLifecycleNested(t *testing.T, envelopeValue map[string]interface{}, repeat bool) {
 	t.Helper()
 	data := envelopeValue["data"].(map[string]interface{})
 	apply := data["apply"].(map[string]interface{})
-	if err := lifecycleRegistryImportRestoreEvidenceError(data["restoreItems"], apply["restoreItems"]); err != nil {
+	if err := lifecycleRegistryImportRestoreEvidenceError(data["restoreItems"], apply["restoreItems"], repeat); err != nil {
 		t.Fatalf("registry import restore evidence invalid: %v\nrebuild restoreItems=%#v\napply restoreItems=%#v",
 			err, data["restoreItems"], apply["restoreItems"])
 	}
@@ -583,7 +600,7 @@ func assertLifecycleNestedSuccess(t *testing.T, envelopeValue map[string]interfa
 	}
 }
 
-func lifecycleRegistryImportRestoreEvidenceError(rebuildItems, applyItems interface{}) error {
+func lifecycleRegistryImportRestoreEvidenceError(rebuildItems, applyItems interface{}, repeat bool) error {
 	if !reflect.DeepEqual(rebuildItems, applyItems) {
 		return errors.New("rebuild and apply restore items differ")
 	}
@@ -599,8 +616,20 @@ func lifecycleRegistryImportRestoreEvidenceError(rebuildItems, applyItems interf
 			continue
 		}
 		matched++
-		if item["status"] != "restored" || (item["error"] != nil && item["error"] != "") {
-			return errors.New("registry import was not restored without error")
+		if item["error"] != nil && item["error"] != "" {
+			return errors.New("registry import has an error")
+		}
+		if repeat {
+			if item["status"] != "skipped_up_to_date" || item["targetExistedBefore"] != true || item["backupCreated"] != false {
+				return errors.New("registry import did not converge without a backup")
+			}
+			if backupPath, exists := item["backupPath"]; exists && backupPath != "" {
+				return errors.New("converged registry import retained a backup path")
+			}
+			continue
+		}
+		if item["status"] != "restored" || item["backupCreated"] != true || item["backupPath"] == "" {
+			return errors.New("registry import was not restored with a backup")
 		}
 	}
 	if matched != 1 {

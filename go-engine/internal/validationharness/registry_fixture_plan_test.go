@@ -90,6 +90,34 @@ func TestCompositeFixturePlanRetainsFileOnlyPlans(t *testing.T) {
 	}
 }
 
+func TestCompositeFixturePlanBindsCoveredRegistryKeyVerifierIntoEveryState(t *testing.T) {
+	mod := registryFixtureModule()
+	mod.Verify = []modules.VerifyDef{{Type: "registry-key-exists", Path: `HKCU:\Software\Fixture\Child`}, {Type: "registry-key-exists", Path: `HKCU\Software\Fixture\Verifier\Nested`}, {Type: "registry-key-exists", Path: `HKCU\Software\Other`}}
+	scenario := fixtureScenario()
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{})
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	for _, state := range []validationmode.RegistryState{plan.RegistryTargets[0].Captured, plan.RegistryTargets[0].Mutated, plan.RegistryTargets[0].Restored} {
+		paths := map[string]bool{}
+		for _, key := range state.Keys() {
+			paths[key.Path] = true
+		}
+		for _, want := range []string{"", "child", "verifier", `verifier\nested`} {
+			found := false
+			for path := range paths {
+				found = found || strings.EqualFold(path, want)
+			}
+			if !found {
+				t.Fatalf("registry verifier state keys = %#v, missing %q", paths, want)
+			}
+		}
+		if paths[`software\other`] {
+			t.Fatalf("uncovered verifier leaked into captured subtree: %#v", paths)
+		}
+	}
+}
+
 func TestRegistryArtifactPayloadSetRequiresEveryCompositeTarget(t *testing.T) {
 	mod := mixedRegistryFixtureModule()
 	scenario := fixtureScenario()
@@ -502,10 +530,10 @@ func TestCompositeFixturePlanAtCompilesSafeRegistryCatalogPlans(t *testing.T) {
 		registryTargets += len(plan.RegistryTargets)
 		fileTargets += len(plan.Targets)
 	}
-	if accepted != 27 || registryTargets != 35 || fileTargets != 36 {
-		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets; want 27, 35, 36", accepted, registryTargets, fileTargets)
+	if accepted != 25 || registryTargets != 32 || fileTargets != 36 {
+		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets; want 25, 32, 36", accepted, registryTargets, fileTargets)
 	}
-	wantRejected := map[string]string{"apps.ccleaner": "capture.registryKeys[0].key", "apps.revo-uninstaller": "capture.registryKeys[0].key"}
+	wantRejected := map[string]string{"apps.ccleaner": "capture.registryKeys[0].key", "apps.displayfusion": "capture.registryKeys[0].key", "apps.revo-uninstaller": "capture.registryKeys[0].key", "apps.tableplus": "capture.registryKeys[0].key"}
 	if fmt.Sprint(rejected) != fmt.Sprint(wantRejected) {
 		t.Fatalf("rejected registry modules = %+v, want %+v", rejected, wantRejected)
 	}

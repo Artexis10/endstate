@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -69,11 +70,18 @@ func resolveCaptureHost(context *validationmode.Context, moduleID, coordinate, a
 }
 
 func resolveCaptureSecretPatterns(context *validationmode.Context, moduleID string, patterns []string, policy validationmode.HostPathPolicy) ([]string, error) {
-	if context == nil {
-		return patterns, nil
-	}
 	resolved := make([]string, 0, len(patterns))
 	for index, authored := range patterns {
+		switch kind, _ := modules.ClassifySecretCoordinate(authored); kind {
+		case modules.SecretCoordinateRegistry:
+			continue
+		case modules.SecretCoordinateRegistryInvalid:
+			return nil, captureIsolation(moduleID, fmt.Sprintf("secrets.files[%d]", index), "registry", authored, validationmode.ErrUnsafeRegistry)
+		}
+		if context == nil {
+			resolved = append(resolved, authored)
+			continue
+		}
 		if IsSafeRelativeCaptureSecretPattern(authored) {
 			// Relative secret globs are match-only filters evaluated against each
 			// already-authorized capture source. They grant no filesystem authority

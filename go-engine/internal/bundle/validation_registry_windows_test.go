@@ -16,6 +16,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 func TestCollectRegistryKeysWithValidationMapsExportAndPublishesSemanticDocument(t *testing.T) {
@@ -97,6 +98,18 @@ func TestCollectRegistryKeysWithValidationMapsBeforeExec(t *testing.T) {
 	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{Key: `HKLM\Software\Vendor`, Dest: "settings.reg"}}}}
 	if _, err := CollectRegistryKeysWithValidation(mod, bundleValidationWorkRoot(t, context, "registry-wrong-hive"), context); err == nil {
 		t.Fatal("wrong hive reached registry export")
+	}
+}
+
+func TestCollectRegistryKeysRejectsTypedSecretOverlapBeforeExport(t *testing.T) {
+	original := runRegistryExport
+	runRegistryExport = func(_, _ string) error { panic("registry export reached") }
+	t.Cleanup(func() { runRegistryExport = original })
+	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{
+		Key: `HKCU\Software\Example`, Dest: "settings.reg", Optional: true,
+	}}}, Secrets: &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Example\Secret`}}}
+	if _, err := CollectRegistryKeys(mod, t.TempDir()); !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+		t.Fatalf("CollectRegistryKeys() error = %v, want ErrUnsafeRegistry", err)
 	}
 }
 

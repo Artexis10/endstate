@@ -611,13 +611,33 @@ func walkValidationModuleDeclarations(context *validationmode.Context, session *
 	}
 	if mod.Secrets != nil {
 		for index, authored := range mod.Secrets.Files {
+			coordinate := fmt.Sprintf("secrets.files[%d]", index)
+			switch kind, normalized := modules.ClassifySecretCoordinate(authored); kind {
+			case modules.SecretCoordinateRegistry:
+				if strings.HasPrefix(normalized, `HKLM\`) {
+					return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
+				}
+				continue
+			case modules.SecretCoordinateRegistryInvalid:
+				return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
+			}
 			if bundle.IsSafeRelativeCaptureSecretPattern(authored) {
 				// A relative secret glob only filters content below capture sources
 				// that are separately authorized. It is not a host path authority.
 				continue
 			}
-			if err := preflightHostPath(context, session, fmt.Sprintf("secrets.files[%d]", index), authored, validationmode.HostPathPolicy{}); err != nil {
+			if err := preflightHostPath(context, session, coordinate, authored, validationmode.HostPathPolicy{}); err != nil {
 				return err
+			}
+		}
+		for index, authored := range mod.Secrets.RegistryKeys {
+			coordinate := fmt.Sprintf("secrets.registryKeys[%d]", index)
+			kind, normalized := modules.ClassifySecretCoordinate(authored)
+			if kind != modules.SecretCoordinateRegistry {
+				return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
+			}
+			if strings.HasPrefix(normalized, `HKLM\`) {
+				return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
 			}
 		}
 	}

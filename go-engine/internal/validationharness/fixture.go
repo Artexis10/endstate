@@ -261,10 +261,76 @@ func compileCompositeFixturePlanWithRegistryDefinitions(context *validationmode.
 			Captured: captured, Mutated: mutated, Restored: restored,
 		})
 	}
+	if failure := plan.bindCoveredRegistryKeyVerifiers(mod); failure != nil {
+		return nil, failure
+	}
 	if plan.OperationCount() == 0 {
 		return nil, fail(CodeUnsupportedFixture, "fixture", "operations", "fixture plan is empty")
 	}
 	return plan, nil
+}
+
+func (plan *FixturePlan) bindCoveredRegistryKeyVerifiers(mod *modules.Module) *Failure {
+	if plan == nil || mod == nil {
+		return nil
+	}
+	for verifierIndex, verifier := range mod.Verify {
+		if verifier.Type != "registry-key-exists" {
+			continue
+		}
+		verifierKey, err := validationmode.NormalizeHKCU(verifier.Path)
+		if err != nil {
+			return fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("verify[%d].path", verifierIndex), "registry verifier key is invalid")
+		}
+		for targetIndex := range plan.RegistryTargets {
+			target := &plan.RegistryTargets[targetIndex]
+			root, err := validationmode.NormalizeHKCU(target.Authored)
+			if err != nil || !registryKeyContains(root, verifierKey) {
+				continue
+			}
+			relative := strings.TrimPrefix(verifierKey[len(root):], `\`)
+			captured, err := bindRegistryKeyExists(target.Captured, relative)
+			if err != nil {
+				return fail(CodeUnsupportedFixture, "fixture", target.Coordinate, "registry verifier state is invalid")
+			}
+			mutated, err := bindRegistryKeyExists(target.Mutated, relative)
+			if err != nil {
+				return fail(CodeUnsupportedFixture, "fixture", target.Coordinate, "registry verifier state is invalid")
+			}
+			restored, err := bindRegistryKeyExists(target.Restored, relative)
+			if err != nil {
+				return fail(CodeUnsupportedFixture, "fixture", target.Coordinate, "registry verifier state is invalid")
+			}
+			target.Captured, target.Mutated, target.Restored = captured, mutated, restored
+		}
+	}
+	return nil
+}
+
+func bindRegistryKeyExists(state validationmode.RegistryState, relative string) (validationmode.RegistryState, error) {
+	keys := state.Keys()
+	for current := relative; ; {
+		found := false
+		for _, key := range keys {
+			if strings.EqualFold(key.Path, current) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			keys = append(keys, validationmode.RegistryKey{Path: current})
+		}
+		if current == "" {
+			break
+		}
+		separator := strings.LastIndex(current, `\`)
+		if separator < 0 {
+			current = ""
+		} else {
+			current = current[:separator]
+		}
+	}
+	return validationmode.NewRegistryState(keys)
 }
 
 func moduleHasRegistryFixtureContract(mod *modules.Module) bool {

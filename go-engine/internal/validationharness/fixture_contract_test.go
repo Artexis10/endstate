@@ -6,7 +6,6 @@ package validationharness
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -167,12 +166,20 @@ func TestCompileRegistryDefinitionsClassifiesProductionCatalog(t *testing.T) {
 			t.Fatalf("registry module %q changed file fixture failure = %+v", id, fileFailure)
 		}
 	}
-	if acceptedModules != 27 || acceptedDefinitions != 35 || existingFileCaptures != 36 {
-		t.Fatalf("registry catalog = %d modules, %d definitions, %d file captures; want 27, 35, 36", acceptedModules, acceptedDefinitions, existingFileCaptures)
+	if acceptedModules != 25 || acceptedDefinitions != 32 || existingFileCaptures != 36 {
+		t.Fatalf("registry catalog = %d modules, %d definitions, %d file captures; want 25, 32, 36", acceptedModules, acceptedDefinitions, existingFileCaptures)
 	}
 	wantRejected := map[string]string{
 		"apps.ccleaner":         "capture.registryKeys[0].key",
+		"apps.displayfusion":    "capture.registryKeys[0].key",
 		"apps.revo-uninstaller": "capture.registryKeys[0].key",
+		"apps.tableplus":        "capture.registryKeys[0].key",
+	}
+	wantDetails := map[string]string{
+		"apps.ccleaner":         "registry capture contains a declared secret descendant",
+		"apps.displayfusion":    "registry capture is contained by a declared secret ancestor",
+		"apps.revo-uninstaller": "registry capture contains a declared secret descendant",
+		"apps.tableplus":        "registry capture contains a declared secret descendant",
 	}
 	if len(rejected) != len(wantRejected) {
 		t.Fatalf("rejected registry modules = %+v, want %+v", rejected, wantRejected)
@@ -183,22 +190,28 @@ func TestCompileRegistryDefinitionsClassifiesProductionCatalog(t *testing.T) {
 		}
 		mod := catalog.Modules[id]
 		_, failure := compileRegistryDefinitions(mod, catalog.Records[id].Synthetic.Scenarios[0])
-		if failure == nil || failure.Detail != "registry capture contains a declared secret descendant" {
-			t.Fatalf("registry module %q failure = %+v, want secret-descendant overlap", id, failure)
+		if failure == nil || failure.Detail != wantDetails[id] {
+			t.Fatalf("registry module %q failure = %+v, want %q", id, failure, wantDetails[id])
 		}
 		captureKey, err := validationmode.NormalizeHKCU(mod.Capture.RegistryKeys[0].Key)
 		if err != nil {
 			t.Fatal(err)
 		}
-		hasDescendant := false
-		for _, secret := range mod.Secrets.Files {
-			secretKey, err := validationmode.NormalizeHKCU(secret)
-			if err == nil && !strings.EqualFold(captureKey, secretKey) && registryKeyContains(captureKey, secretKey) {
-				hasDescendant = true
+		hasOverlap := false
+		for _, secrets := range [][]string{mod.Secrets.Files, mod.Secrets.RegistryKeys} {
+			for _, secret := range secrets {
+				kind, normalized := modules.ClassifySecretCoordinate(secret)
+				if kind != modules.SecretCoordinateRegistry {
+					continue
+				}
+				secretKey, err := validationmode.NormalizeHKCU(normalized)
+				if err == nil && (registryKeyContains(captureKey, secretKey) || registryKeyContains(secretKey, captureKey)) {
+					hasOverlap = true
+				}
 			}
 		}
-		if !hasDescendant {
-			t.Fatalf("registry module %q has no declared secret descendant", id)
+		if !hasOverlap {
+			t.Fatalf("registry module %q has no declared secret overlap", id)
 		}
 	}
 }

@@ -216,6 +216,7 @@ func cloneConfigModule(value *modules.Module) *modules.Module {
 	if value.Secrets != nil {
 		secrets := *value.Secrets
 		secrets.Files = cloneConfigSlice(value.Secrets.Files)
+		secrets.RegistryKeys = cloneConfigSlice(value.Secrets.RegistryKeys)
 		cloned.Secrets = &secrets
 	}
 	cloned.Config = cloneConfigModuleConfigDef(value.Config)
