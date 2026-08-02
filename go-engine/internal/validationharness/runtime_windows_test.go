@@ -24,15 +24,7 @@ func TestRunFreshBuiltEngineTrackedNotepadDefaultV1(t *testing.T) {
 		t.Fatal(err)
 	}
 	repoRoot := filepath.Dir(engineRoot)
-	buildRoot := t.TempDir()
-	engine := filepath.Join(buildRoot, "endstate.exe")
-	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
-	build.Dir = engineRoot
-	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
-		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build engine: %v\n%s", err, output)
-	}
+	engine := freshBuiltEngine(t, engineRoot)
 
 	resultPath := filepath.Join(t.TempDir(), "notepad-default-v1.json")
 	result, err := Run(context.Background(), Request{
@@ -68,15 +60,7 @@ func TestRunFreshBuiltEngineTrackedSchemaV1FileMerges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buildRoot := t.TempDir()
-	engine := filepath.Join(buildRoot, "endstate.exe")
-	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
-	build.Dir = engineRoot
-	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
-		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build engine: %v\n%s", err, output)
-	}
+	engine := freshBuiltEngine(t, engineRoot)
 	rows := []string{"apps.beekeeper-studio", "apps.copyq", "apps.core-temp", "apps.crystaldiskinfo", "apps.drawio-desktop", "apps.duckstation", "apps.files", "apps.flameshot", "apps.mkvtoolnix", "apps.nomacs", "apps.pip", "apps.smplayer", "apps.wiztree"}
 	targets := map[string]int{}
 	total := 0
@@ -190,15 +174,7 @@ func TestRunFreshBuiltEngineRegistryRoundtrips(t *testing.T) {
 	if len(rows) != 24 {
 		t.Fatalf("safe registry rows = %d, want 24 (%v)", len(rows), rows)
 	}
-	buildRoot := t.TempDir()
-	engine := filepath.Join(buildRoot, "endstate.exe")
-	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
-	build.Dir = engineRoot
-	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
-		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build engine: %v\n%s", err, output)
-	}
+	engine := freshBuiltEngine(t, engineRoot)
 	for _, moduleID := range rows {
 		result, err := Run(context.Background(), Request{
 			EnginePath: engine, RepoRoot: repoRoot, ModuleID: moduleID, ScenarioID: "default-v1",
@@ -219,15 +195,7 @@ func TestRunFreshBuiltEngineTrackedKubectlInstallV1(t *testing.T) {
 		t.Fatal(err)
 	}
 	repoRoot := filepath.Dir(engineRoot)
-	buildRoot := t.TempDir()
-	engine := filepath.Join(buildRoot, "endstate.exe")
-	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
-	build.Dir = engineRoot
-	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
-		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build engine: %v\n%s", err, output)
-	}
+	engine := freshBuiltEngine(t, engineRoot)
 
 	resultPath := filepath.Join(t.TempDir(), "kubectl-install-v1.json")
 	result, err := Run(context.Background(), Request{
@@ -260,15 +228,7 @@ func TestRunFreshBuiltEngineTrackedMGBACaptureV1(t *testing.T) {
 		t.Fatal(err)
 	}
 	repoRoot := filepath.Dir(engineRoot)
-	buildRoot := t.TempDir()
-	engine := filepath.Join(buildRoot, "endstate.exe")
-	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
-	build.Dir = engineRoot
-	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
-		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build engine: %v\n%s", err, output)
-	}
+	engine := freshBuiltEngine(t, engineRoot)
 
 	resultPath := filepath.Join(t.TempDir(), "mgba-capture-v1.json")
 	result, err := Run(context.Background(), Request{
@@ -307,15 +267,7 @@ func TestRunFreshBuiltEngineTrackedRestoreContractV1(t *testing.T) {
 		t.Fatal(err)
 	}
 	repoRoot := materializeRestoreContractRepository(t)
-	buildRoot := t.TempDir()
-	engine := filepath.Join(buildRoot, "endstate.exe")
-	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
-	build.Dir = engineRoot
-	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
-		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build engine: %v\n%s", err, output)
-	}
+	engine := freshBuiltEngine(t, engineRoot)
 
 	resultPath := filepath.Join(t.TempDir(), "restore-contract-v1.json")
 	result, err := Run(context.Background(), Request{
@@ -348,15 +300,7 @@ func TestRunFreshBuiltEngineTrackedSchemaV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	repoRoot := filepath.Dir(engineRoot)
-	buildRoot := t.TempDir()
-	engine := filepath.Join(buildRoot, "endstate.exe")
-	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
-	build.Dir = engineRoot
-	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
-		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build engine: %v\n%s", err, output)
-	}
+	engine := freshBuiltEngine(t, engineRoot)
 
 	tests := []struct{ module, scenario string }{
 		{"apps.windows-terminal", "generation-preferences-g1-97631ba2d2e5"},
@@ -389,6 +333,20 @@ func TestRunFreshBuiltEngineTrackedSchemaV2(t *testing.T) {
 			}
 		})
 	}
+}
+
+func freshBuiltEngine(t *testing.T, engineRoot string) string {
+	t.Helper()
+	buildRoot := t.TempDir()
+	engine := filepath.Join(buildRoot, "endstate.exe")
+	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
+	build.Dir = engineRoot
+	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
+		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build engine: %v\n%s", err, output)
+	}
+	return engine
 }
 
 func withoutTestEnvironment(values []string, names ...string) []string {

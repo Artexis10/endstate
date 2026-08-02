@@ -225,7 +225,7 @@ func decodeEventsWithPolicy(stderr []byte, command, envelopeRunID string, allowV
 
 func rejectDuplicateJSONKeys(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := walkJSONValue(decoder); err != nil {
+	if err := walkUniqueJSONValue(decoder); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); err != io.EOF {
@@ -237,7 +237,7 @@ func rejectDuplicateJSONKeys(data []byte) error {
 	return nil
 }
 
-func walkJSONValue(decoder *json.Decoder) error {
+func walkUniqueJSONValue(decoder *json.Decoder) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -248,7 +248,7 @@ func walkJSONValue(decoder *json.Decoder) error {
 	}
 	switch delimiter {
 	case '{':
-		seen := map[string]struct{}{}
+		var seen []string
 		for decoder.More() {
 			key, err := decoder.Token()
 			if err != nil {
@@ -258,11 +258,13 @@ func walkJSONValue(decoder *json.Decoder) error {
 			if !ok {
 				return fmt.Errorf("object key is not a string")
 			}
-			if _, duplicate := seen[name]; duplicate {
-				return fmt.Errorf("duplicate object key %q", name)
+			for _, existing := range seen {
+				if strings.EqualFold(name, existing) {
+					return fmt.Errorf("duplicate object key %q", name)
+				}
 			}
-			seen[name] = struct{}{}
-			if err := walkJSONValue(decoder); err != nil {
+			seen = append(seen, name)
+			if err := walkUniqueJSONValue(decoder); err != nil {
 				return err
 			}
 		}
@@ -270,7 +272,7 @@ func walkJSONValue(decoder *json.Decoder) error {
 		return err
 	case '[':
 		for decoder.More() {
-			if err := walkJSONValue(decoder); err != nil {
+			if err := walkUniqueJSONValue(decoder); err != nil {
 				return err
 			}
 		}

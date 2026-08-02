@@ -420,56 +420,7 @@ func compileFilesystemFixtureDefinitionsAt(repoRoot string, mod *modules.Module,
 
 func rejectDuplicateJSONFields(raw []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	var consume func() error
-	consume = func() error {
-		token, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		delimiter, nested := token.(json.Delim)
-		if !nested {
-			return nil
-		}
-		switch delimiter {
-		case '{':
-			seen := map[string]struct{}{}
-			for decoder.More() {
-				keyToken, err := decoder.Token()
-				if err != nil {
-					return err
-				}
-				key, ok := keyToken.(string)
-				if !ok {
-					return fmt.Errorf("object key is not a string")
-				}
-				if _, duplicate := seen[key]; duplicate {
-					return fmt.Errorf("duplicate object key %q", key)
-				}
-				seen[key] = struct{}{}
-				if err := consume(); err != nil {
-					return err
-				}
-			}
-			closing, err := decoder.Token()
-			if err != nil || closing != json.Delim('}') {
-				return fmt.Errorf("object is not closed")
-			}
-		case '[':
-			for decoder.More() {
-				if err := consume(); err != nil {
-					return err
-				}
-			}
-			closing, err := decoder.Token()
-			if err != nil || closing != json.Delim(']') {
-				return fmt.Errorf("array is not closed")
-			}
-		default:
-			return fmt.Errorf("unexpected delimiter %q", delimiter)
-		}
-		return nil
-	}
-	if err := consume(); err != nil {
+	if err := walkUniqueJSONValue(decoder); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); err != io.EOF {

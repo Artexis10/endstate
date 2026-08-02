@@ -326,15 +326,28 @@ func TestDeclarativeFixtureRejectsDuplicateJSONFields(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	raw := []byte(`{"schemaVersion":1,"schemaVersion":1,"entries":[{"coordinate":"capture.files[0]","kind":"file"},{"coordinate":"capture.files[1]","kind":"directory"}]}`)
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name string
+		raw  []byte
+	}{
+		{"exact", []byte(`{"schemaVersion":1,"schemaVersion":1,"entries":[{"coordinate":"capture.files[0]","kind":"file"},{"coordinate":"capture.files[1]","kind":"directory"}]}`)},
+		{"case-folded outer canonical first", []byte(`{"schemaVersion":1,"SCHEMAVERSION":1,"entries":[{"coordinate":"capture.files[0]","kind":"file"},{"coordinate":"capture.files[1]","kind":"directory"}]}`)},
+		{"case-folded outer alias first", []byte(`{"SCHEMAVERSION":1,"schemaVersion":1,"entries":[{"coordinate":"capture.files[0]","kind":"file"},{"coordinate":"capture.files[1]","kind":"directory"}]}`)},
+		{"case-folded nested canonical first", []byte(`{"schemaVersion":1,"entries":[{"coordinate":"capture.files[0]","COORDINATE":"capture.files[0]","kind":"file"},{"coordinate":"capture.files[1]","kind":"directory"}]}`)},
+		{"case-folded nested alias first", []byte(`{"schemaVersion":1,"entries":[{"COORDINATE":"capture.files[0]","coordinate":"capture.files[0]","kind":"file"},{"coordinate":"capture.files[1]","kind":"directory"}]}`)},
 	}
-	digest := sha256.Sum256(raw)
-	scenario := fixtureScenario()
-	scenario.Fixture = validationmatrix.Fixture{Type: validationmatrix.FixtureDeclarative, Path: "fixtures/shape.jsonc", SHA256: fmt.Sprintf("%x", digest)}
-	if _, failure := compileFixtureDefinitionsAt(repo, mod, scenario); failure == nil || failure.Code != CodeUnsupportedFixture {
-		t.Fatalf("duplicate field failure = %+v", failure)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(path, tt.raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			digest := sha256.Sum256(tt.raw)
+			scenario := fixtureScenario()
+			scenario.Fixture = validationmatrix.Fixture{Type: validationmatrix.FixtureDeclarative, Path: "fixtures/shape.jsonc", SHA256: fmt.Sprintf("%x", digest)}
+			if _, failure := compileFixtureDefinitionsAt(repo, mod, scenario); failure == nil || failure.Code != CodeUnsupportedFixture {
+				t.Fatalf("duplicate field failure = %+v", failure)
+			}
+		})
 	}
 }
 
@@ -382,6 +395,10 @@ func TestDecodeEnvelopeRejectsMalformedIdentityAndNestedFailure(t *testing.T) {
 		{"multiple", valid + ` {}`},
 		{"duplicate top-level key", strings.Replace(valid, `"runId":"rebuild-run"`, `"runId":"rebuild-run","runId":"forged"`, 1)},
 		{"duplicate nested key", strings.Replace(valid, `"failed":0`, `"failed":0,"failed":1`, 1)},
+		{"case-folded duplicate outer key canonical first", strings.Replace(valid, `"runId":"rebuild-run"`, `"runId":"rebuild-run","RUNID":"rebuild-run"`, 1)},
+		{"case-folded duplicate outer key alias first", strings.Replace(valid, `"runId":"rebuild-run"`, `"RUNID":"rebuild-run","runId":"rebuild-run"`, 1)},
+		{"case-folded duplicate nested key canonical first", strings.Replace(valid, `"failed":0`, `"failed":0,"FAILED":0`, 1)},
+		{"case-folded duplicate nested key alias first", strings.Replace(valid, `"failed":0`, `"FAILED":0,"failed":0`, 1)},
 		{"wrong command", strings.Replace(valid, `"rebuild"`, `"apply"`, 1)},
 		{"missing test mode", strings.Replace(valid, `"testMode":{"active":true,"scenarioId":"default-v1","moduleId":"apps.fixture"},`, "", 1)},
 		{"mismatched scenario", strings.Replace(valid, `"default-v1"`, `"foreign"`, 1)},
