@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf16"
 
@@ -38,20 +39,21 @@ type registryFixture interface {
 }
 
 type FixtureTarget struct {
-	Coordinate          string
-	Authored            string
-	Destination         string
-	Resolved            string
-	PayloadPath         string
-	Strategy            string
-	Captured            string
-	Mutated             string
-	Restored            string
-	Directory           bool
-	Optional            bool
-	CaptureExcluded     []FixtureExcluded
-	RestoreExcluded     []FixtureExcluded
-	OverlappingExcluded []FixtureExcluded
+	Coordinate                  string
+	Authored                    string
+	Destination                 string
+	Resolved                    string
+	PayloadPath                 string
+	Strategy                    string
+	Captured                    string
+	Mutated                     string
+	Restored                    string
+	Directory                   bool
+	Optional                    bool
+	CaptureExcluded             []FixtureExcluded
+	RestoreExcluded             []FixtureExcluded
+	OverlappingExcluded         []FixtureExcluded
+	RetainedCaptureAncestorDirs []string
 }
 
 type RegistryFixtureTarget struct {
@@ -212,6 +214,7 @@ func compileFixturePlanWithEmptyOption(context *validationmode.Context, mod *mod
 					target.RestoreExcluded = append(target.RestoreExcluded, witness)
 				}
 			}
+			target.RetainedCaptureAncestorDirs = retainedCaptureAncestorDirs(target)
 		} else if len(definition.TargetExclude) != 0 {
 			return nil, fail(CodeUnsupportedFixture, "fixture", definition.Coordinate, "target-specific exclude glob requires a directory capture")
 		}
@@ -224,6 +227,34 @@ func compileFixturePlanWithEmptyOption(context *validationmode.Context, mod *mod
 		return nil, failure
 	}
 	return plan, nil
+}
+
+func retainedCaptureAncestorDirs(target FixtureTarget) []string {
+	if !target.Directory {
+		return nil
+	}
+	witnesses := append(append([]FixtureExcluded(nil), target.CaptureExcluded...), target.OverlappingExcluded...)
+	patterns := make([]string, 0)
+	for _, witness := range witnesses {
+		patterns = append(patterns, witness.CapturePatterns...)
+	}
+	seen := make(map[string]struct{})
+	var result []string
+	for _, witness := range witnesses {
+		for parent := path.Dir(catalogPath(witness.Relative)); parent != "." && parent != "/"; parent = path.Dir(parent) {
+			if fixtureRelativeMatchesPatterns(parent, patterns) {
+				continue
+			}
+			key := strings.ToLower(catalogPath(parent))
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			result = append(result, parent)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool { return strings.ToLower(result[left]) < strings.ToLower(result[right]) })
+	return result
 }
 
 func compileCompositeFixturePlanAt(repoRoot string, context *validationmode.Context, mod *modules.Module, scenario validationmatrix.Scenario, fixture registryFixture) (*FixturePlan, *Failure) {
@@ -591,10 +622,26 @@ func (plan *FixturePlan) MaterializeRestored() *Failure {
 		if failure := plan.materialize(&plan.Targets[index], plan.Targets[index].Restored, false); failure != nil {
 			return failure
 		}
+		if failure := plan.materializeRetainedCaptureAncestorDirs(&plan.Targets[index]); failure != nil {
+			return failure
+		}
 	}
 	for index := range plan.RegistryTargets {
 		if failure := plan.replaceRegistry(&plan.RegistryTargets[index], plan.RegistryTargets[index].Restored); failure != nil {
 			return failure
+		}
+	}
+	return nil
+}
+
+func (plan *FixturePlan) materializeRetainedCaptureAncestorDirs(target *FixtureTarget) *Failure {
+	for _, relative := range target.RetainedCaptureAncestorDirs {
+		path := filepath.Join(target.Resolved, filepath.FromSlash(relative))
+		if failure := prepareFixtureFile(plan.context, path, target.Coordinate); failure != nil {
+			return failure
+		}
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			return fail(CodeIsolationFailure, "fixture", target.Coordinate, "create retained capture ancestor")
 		}
 	}
 	return nil
@@ -878,6 +925,11 @@ func (plan *FixturePlan) compare(state string, includeExcluded bool) *Failure {
 				for parent := filepath.Dir(relative); parent != "."; parent = filepath.Dir(parent) {
 					expected[parent] = expectedFixtureEntry{Directory: true}
 				}
+			}
+		}
+		if state == "restored" {
+			for _, retained := range target.RetainedCaptureAncestorDirs {
+				expected[filepath.FromSlash(retained)] = expectedFixtureEntry{Directory: true}
 			}
 		}
 		seen := make(map[string]struct{}, len(expected))

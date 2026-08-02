@@ -483,6 +483,121 @@ func TestFixturePlanSeparatesCaptureAndRestoreExcludeWitnesses(t *testing.T) {
 	}
 }
 
+func TestFixturePlanRestoresNonExcludedCaptureAncestorDirectories(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	for index := range definitions.Entries {
+		definitions.Entries[index].GlobalExclude = []string{`**\HeidiSQL\Backups\**`}
+	}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	target := plan.Targets[1]
+	ancestor := filepath.Join(target.Resolved, "HeidiSQL")
+	excluded := filepath.Join(ancestor, "Backups")
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := plan.CompareCaptureSeed(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := plan.Mutate(); failure != nil {
+		t.Fatal(failure)
+	}
+	if _, err := os.Lstat(ancestor); !os.IsNotExist(err) {
+		t.Fatalf("mutated fixture retained capture-only ancestor: %v", err)
+	}
+	if failure := plan.MaterializeRestored(); failure != nil {
+		t.Fatal(failure)
+	}
+	info, err := os.Lstat(ancestor)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("restored fixture omitted retained capture ancestor: info=%v err=%v", info, err)
+	}
+	if _, err := os.Lstat(excluded); !os.IsNotExist(err) {
+		t.Fatalf("restored fixture materialized excluded descendant: %v", err)
+	}
+	if failure := plan.CompareRestored(); failure != nil {
+		t.Fatalf("restored fixture rejected retained capture ancestor: %+v", failure)
+	}
+	if failure := plan.Mutate(); failure != nil {
+		t.Fatal(failure)
+	}
+	if _, err := os.Lstat(ancestor); !os.IsNotExist(err) {
+		t.Fatalf("reverted fixture retained capture-only ancestor: %v", err)
+	}
+}
+
+func TestProductionCatalogCaptureExcludesRetainNonExcludedAncestors(t *testing.T) {
+	repo := productionLiveRepoRoot(t)
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		moduleID, retained string
+		allowRegistry      bool
+	}{
+		{moduleID: "apps.acrobat-reader", retained: "Security", allowRegistry: true},
+		{moduleID: "apps.heidisql", retained: "HeidiSQL"},
+	} {
+		t.Run(test.moduleID, func(t *testing.T) {
+			mod := catalog.Modules[test.moduleID]
+			scenario := catalog.Records[test.moduleID].Synthetic.Scenarios[0]
+			definitions, failure := compileFilesystemFixtureDefinitions(mod, scenario, test.allowRegistry)
+			if failure != nil {
+				t.Fatal(failure)
+			}
+			plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+			if failure != nil {
+				t.Fatal(failure)
+			}
+			var target *FixtureTarget
+			for index := range plan.Targets {
+				if plan.Targets[index].Directory {
+					target = &plan.Targets[index]
+					break
+				}
+			}
+			if target == nil || !containsFixtureRelative(target.RetainedCaptureAncestorDirs, test.retained) {
+				t.Fatalf("retained capture ancestors = %+v, want %q", target, test.retained)
+			}
+			if failure := plan.MaterializeCaptured(); failure != nil {
+				t.Fatal(failure)
+			}
+			if failure := plan.Mutate(); failure != nil {
+				t.Fatal(failure)
+			}
+			retainedPath := filepath.Join(target.Resolved, filepath.FromSlash(test.retained))
+			if _, err := os.Lstat(retainedPath); !os.IsNotExist(err) {
+				t.Fatalf("mutated fixture retained capture-only ancestor: %v", err)
+			}
+			if failure := plan.MaterializeRestored(); failure != nil {
+				t.Fatal(failure)
+			}
+			if info, err := os.Lstat(retainedPath); err != nil || !info.IsDir() {
+				t.Fatalf("restored fixture omitted retained capture ancestor: info=%v err=%v", info, err)
+			}
+			if failure := plan.CompareRestored(); failure != nil {
+				t.Fatal(failure)
+			}
+		})
+	}
+}
+
+func containsFixtureRelative(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(catalogPath(value), catalogPath(want)) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFixturePlanModelsCaptureRestoreExcludeOverlapWithoutRestoreClaim(t *testing.T) {
 	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
 	if err != nil {

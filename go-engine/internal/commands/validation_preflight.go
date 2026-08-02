@@ -612,11 +612,8 @@ func walkValidationModuleDeclarations(context *validationmode.Context, session *
 	if mod.Secrets != nil {
 		for index, authored := range mod.Secrets.Files {
 			coordinate := fmt.Sprintf("secrets.files[%d]", index)
-			switch kind, normalized := modules.ClassifySecretCoordinate(authored); kind {
+			switch kind, _ := modules.ClassifySecretCoordinate(authored); kind {
 			case modules.SecretCoordinateRegistry:
-				if strings.HasPrefix(normalized, `HKLM\`) {
-					return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
-				}
 				continue
 			case modules.SecretCoordinateRegistryInvalid:
 				return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
@@ -632,11 +629,8 @@ func walkValidationModuleDeclarations(context *validationmode.Context, session *
 		}
 		for index, authored := range mod.Secrets.RegistryKeys {
 			coordinate := fmt.Sprintf("secrets.registryKeys[%d]", index)
-			kind, normalized := modules.ClassifySecretCoordinate(authored)
+			kind, _ := modules.ClassifySecretCoordinate(authored)
 			if kind != modules.SecretCoordinateRegistry {
-				return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
-			}
-			if strings.HasPrefix(normalized, `HKLM\`) {
 				return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", authored), isolationReasonUnsafeRegistry)
 			}
 		}

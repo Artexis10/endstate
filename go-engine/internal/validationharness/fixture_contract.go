@@ -143,10 +143,7 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 					if kind == modules.SecretCoordinateRegistryInvalid {
 						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", secretCoordinate, "registry secret is malformed")
 					}
-					secretKey, err := validationmode.NormalizeHKCU(normalized)
-					if err != nil {
-						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", secretCoordinate, "registry secret requires a canonical HKCU key")
-					}
+					secretKey := normalized
 					if registryKeyContains(key, secretKey) {
 						if strings.EqualFold(key, secretKey) {
 							return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture equals a declared secret")

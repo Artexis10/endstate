@@ -356,11 +356,7 @@ func registryCaptureSecrets(module *modules.Module) ([]string, error) {
 			if kind == modules.SecretCoordinateRegistryInvalid {
 				return nil, &registrySecretBoundaryError{coordinate: coordinate, authored: authored}
 			}
-			secret, err := validationmode.NormalizeHKCU(normalizedSecret)
-			if err != nil {
-				return nil, &registrySecretBoundaryError{coordinate: coordinate, authored: authored}
-			}
-			secrets = append(secrets, secret)
+			secrets = append(secrets, normalizedSecret)
 		}
 	}
 	return secrets, nil

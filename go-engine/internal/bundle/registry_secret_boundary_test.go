@@ -143,9 +143,7 @@ func TestCreateCaptureBundlePreflightsSchemaV2RegistrySecretsWithoutLegacyCaptur
 		coordinate string
 	}{
 		{name: "malformed typed registry key", secrets: &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Example\*`}}, coordinate: "secrets.registryKeys[0]"},
-		{name: "non-HKCU typed registry key", secrets: &modules.SecretsDef{RegistryKeys: []string{`HKLM\Software\Example\Token`}}, coordinate: "secrets.registryKeys[0]"},
 		{name: "malformed registry-shaped legacy file", secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\Example\*`}}, coordinate: "secrets.files[0]"},
-		{name: "non-HKCU registry-shaped legacy file", secrets: &modules.SecretsDef{Files: []string{`HKLM\Software\Example\Token`}}, coordinate: "secrets.files[0]"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			plan := testGenerationCapturePlan(t, "apps.registry-generation", "instance-a", t.TempDir(), false, false)
@@ -276,5 +274,15 @@ func TestRegistryCaptureAllowsSiblingSecret(t *testing.T) {
 	mod := &modules.Module{ID: "apps.registry-secret", Capture: &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{Key: `HKCU\Software\App`, Dest: "settings.reg", Optional: true}}}, Secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\Other\Token`}}}
 	if err := validateRegistryCaptureBoundary(mod); err != nil {
 		t.Fatalf("sibling secret rejected: %v", err)
+	}
+}
+
+func TestRegistryCaptureAllowsUnrelatedHKLMSecretDenyMetadata(t *testing.T) {
+	mod := &modules.Module{ID: "apps.registry-secret", Capture: &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{Key: `HKCU\Software\App`, Dest: "settings.reg", Optional: true}}}, Secrets: &modules.SecretsDef{
+		Files:        []string{`HKLM\Software\Other\LegacyToken`},
+		RegistryKeys: []string{`HKLM\Software\Other\TypedToken`},
+	}}
+	if err := validateRegistryCaptureBoundary(mod); err != nil {
+		t.Fatalf("unrelated HKLM secret deny metadata rejected capture: %v", err)
 	}
 }

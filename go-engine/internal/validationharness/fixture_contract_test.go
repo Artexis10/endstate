@@ -129,6 +129,17 @@ func TestCompileRegistryDefinitionsAcceptsSiblingSecret(t *testing.T) {
 	}
 }
 
+func TestCompileRegistryDefinitionsAcceptsUnrelatedHKLMSecretDenyMetadata(t *testing.T) {
+	mod := registryFixtureModule()
+	mod.Secrets = &modules.SecretsDef{
+		Files:        []string{`HKLM\Software\Sibling\LegacyToken`},
+		RegistryKeys: []string{`HKLM\Software\Sibling\TypedToken`},
+	}
+	if _, failure := compileRegistryDefinitions(mod, fixtureScenario()); failure != nil {
+		t.Fatal(failure)
+	}
+}
+
 func TestCompileRegistryDefinitionsClassifiesProductionCatalog(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {

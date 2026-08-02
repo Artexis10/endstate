@@ -250,18 +250,25 @@ func TestPreflightValidationProductionModuleKeepsRegistrySecretsOutOfFilesystemA
 	}
 }
 
-func TestPreflightValidationProductionModuleRejectsHKLMRegistrySecretAtSecretCoordinate(t *testing.T) {
+func TestPreflightValidationProductionModuleKeepsHKLMRegistrySecretsAsInertDenyMetadata(t *testing.T) {
 	mod := syntheticValidationModule(t, 1)
-	mod.Secrets.RegistryKeys = []string{`HKLM\Software\Synthetic\Secret`}
+	mod.Secrets = &modules.SecretsDef{
+		Files:        []string{`HKLM\Software\Synthetic\LegacySecret`},
+		RegistryKeys: []string{`HKLM\Software\Synthetic\TypedSecret`},
+	}
 	mod = repinValidationModule(t, mod)
 	mf := manifestForValidationModule(mod)
 	context, session := validationPreflightSession(t)
-	err := preflightValidationProductionModule(validationProductionModulePreflight{
+	if err := preflightValidationProductionModule(validationProductionModulePreflight{
 		Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod},
 		Manifest: mf, PortableRoot: context.Root(),
-	})
-	if !errors.Is(err, validationmode.ErrUnsafeRegistry) || session.IsolationError() == nil || !strings.Contains(session.IsolationError().Error(), "coordinate=secrets.registryKeys[0]") {
-		t.Fatalf("error=%v isolation=%v", err, session.IsolationError())
+	}); err != nil {
+		t.Fatalf("HKLM registry deny metadata preflight: %v; isolation=%v", err, session.IsolationError())
+	}
+	for _, coordinate := range session.filesystemCoordinate {
+		if strings.HasPrefix(coordinate, "secrets.") {
+			t.Fatalf("registry secret registered filesystem authority at %s", coordinate)
+		}
 	}
 }
 
