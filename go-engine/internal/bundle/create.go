@@ -105,6 +105,9 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 // collection results used to build it. onStage is optional.
 func CreateBundleWithReport(manifestPath string, matchedModules []*modules.Module, outputPath string, version string, onStage func(Stage)) (report BundleReport, retErr error) {
 	report.Modules = []ModuleCollectionResult{}
+	if err := preflightRegistryCaptureBoundaries(matchedModules, nil); err != nil {
+		return report, err
+	}
 	stagingDir, err := os.MkdirTemp("", "endstate-bundle-")
 	if err != nil {
 		return report, fmt.Errorf("failed to create staging directory: %w", err)

@@ -246,6 +246,13 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	if strings.TrimSpace(request.ManifestPath) == "" || strings.TrimSpace(request.OutputPath) == "" {
 		return nil, fmt.Errorf("capture bundle: manifestPath and outputPath are required")
 	}
+	selected := append([]*modules.Module(nil), request.Modules...)
+	for _, plan := range request.GenerationPlans {
+		selected = append(selected, plan.Module)
+	}
+	if err := preflightRegistryCaptureBoundaries(selected, request.ValidationContext); err != nil {
+		return nil, err
+	}
 	if err := validateCaptureModuleIdentities(request.Modules, request.GenerationPlans); err != nil {
 		return nil, err
 	}
@@ -653,6 +660,9 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			if errors.As(fileErr, &isolation) {
 				return nil, fileErr
 			}
+			if isRegistryCaptureBoundaryFailure(fileErr) {
+				return nil, fileErr
+			}
 			legacy.skipped = append(legacy.skipped, shortID)
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s: %v", mod.ID, fileErr))
 			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
@@ -668,6 +678,10 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 				_ = os.RemoveAll(workRoot)
 				return nil, registryErr
 			}
+			if isRegistryCaptureBoundaryFailure(registryErr) {
+				_ = os.RemoveAll(workRoot)
+				return nil, registryErr
+			}
 			hadCollectionError = true
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s registry: %v", mod.ID, registryErr))
 		}
@@ -675,6 +689,10 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		if registryValuesErr != nil {
 			var isolation *CaptureIsolationError
 			if errors.As(registryValuesErr, &isolation) {
+				_ = os.RemoveAll(workRoot)
+				return nil, registryValuesErr
+			}
+			if isRegistryCaptureBoundaryFailure(registryValuesErr) {
 				_ = os.RemoveAll(workRoot)
 				return nil, registryValuesErr
 			}

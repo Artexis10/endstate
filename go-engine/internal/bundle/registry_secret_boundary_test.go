@@ -87,6 +87,82 @@ func TestCreateBundleDoesNotDowngradeRegistryBoundaryFailure(t *testing.T) {
 	}
 }
 
+func TestCreateBundleWithReportPreflightsEveryModuleBeforeIO(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mods []*modules.Module
+	}{
+		{name: "safe then unsafe", mods: []*modules.Module{safeRegistryBoundaryModule("apps.safe"), unsafeRegistryBoundaryModule("apps.unsafe")}},
+		{name: "unsafe then safe", mods: []*modules.Module{unsafeRegistryBoundaryModule("apps.unsafe"), safeRegistryBoundaryModule("apps.safe")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			output := filepath.Join(dir, "capture.zip")
+			_, err := CreateBundleWithReport(filepath.Join(dir, "missing-manifest.jsonc"), test.mods, output, "test", func(Stage) {
+				t.Fatal("bundle stage ran before registry boundary preflight")
+			})
+			if !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+				t.Fatalf("CreateBundleWithReport() error = %v, want boundary failure", err)
+			}
+			if _, err := os.Stat(output); !os.IsNotExist(err) {
+				t.Fatalf("bundle output exists after boundary failure: %v", err)
+			}
+		})
+	}
+}
+
+func TestCreateCaptureBundlePreflightsEveryModuleBeforeManifestRead(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mods []*modules.Module
+	}{
+		{name: "safe then unsafe", mods: []*modules.Module{safeRegistryBoundaryModule("apps.safe"), unsafeRegistryBoundaryModule("apps.unsafe")}},
+		{name: "unsafe then safe", mods: []*modules.Module{unsafeRegistryBoundaryModule("apps.unsafe"), safeRegistryBoundaryModule("apps.safe")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			output := filepath.Join(dir, "capture.zip")
+			_, err := CreateCaptureBundle(CaptureBundleRequest{
+				ManifestPath: filepath.Join(dir, "missing-manifest.jsonc"), OutputPath: output, Modules: test.mods,
+				OnStage: func(Stage) { t.Fatal("capture stage ran before registry boundary preflight") },
+			})
+			if !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+				t.Fatalf("CreateCaptureBundle() error = %v, want boundary failure", err)
+			}
+			if _, err := os.Stat(output); !os.IsNotExist(err) {
+				t.Fatalf("capture output exists after boundary failure: %v", err)
+			}
+		})
+	}
+}
+
+func TestRegistryCaptureBoundaryPreflightsSelectedCatalogSecretModules(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "modules", "apps")
+	selected := make([]*modules.Module, 0, 4)
+	for _, name := range []string{"ccleaner", "displayfusion", "revo-uninstaller", "tableplus"} {
+		data, err := os.ReadFile(filepath.Join(root, name, "module.jsonc"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		mod, err := modules.ParseModuleJSON(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected = append(selected, mod)
+	}
+	if err := preflightRegistryCaptureBoundaries(selected, nil); !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+		t.Fatalf("selected registry secret boundary error = %v", err)
+	}
+}
+
+func safeRegistryBoundaryModule(id string) *modules.Module {
+	return &modules.Module{ID: id, Capture: &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{Key: `HKCU\Software\Safe`, Dest: "safe.reg", Optional: true}}}}
+}
+
+func unsafeRegistryBoundaryModule(id string) *modules.Module {
+	return &modules.Module{ID: id, Capture: &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{Key: `HKCU\Software\Unsafe`, Dest: "unsafe.reg", Optional: true}}}, Secrets: &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Unsafe\Secret`}}}
+}
+
 func TestResolveCaptureSecretPatternsRejectsInvalidRegistryCoordinatesAtSecretCoordinate(t *testing.T) {
 	context := activeBundleValidationContext(t, "apps.registry-secret")
 	_, err := resolveCaptureSecretPatterns(context, "apps.registry-secret", []string{`HKCU\Software\App\*`}, validationmode.HostPathPolicy{})

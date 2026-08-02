@@ -387,6 +387,23 @@ func registryCaptureBoundaryFailure(module *modules.Module, context *validationm
 	return captureIsolation(moduleID, coordinate, "registry", authored, validationmode.ErrUnsafeRegistry)
 }
 
+func preflightRegistryCaptureBoundaries(selected []*modules.Module, context *validationmode.Context) error {
+	seen := make(map[*modules.Module]struct{}, len(selected))
+	for _, module := range selected {
+		if module == nil {
+			continue
+		}
+		if _, duplicate := seen[module]; duplicate {
+			continue
+		}
+		seen[module] = struct{}{}
+		if err := validateRegistryCaptureBoundary(module); err != nil {
+			return registryCaptureBoundaryFailure(module, context, err)
+		}
+	}
+	return nil
+}
+
 func registrySubtreesOverlap(first, second string) bool {
 	first, second = strings.ToLower(first), strings.ToLower(second)
 	return first == second || strings.HasPrefix(first, second+`\`) || strings.HasPrefix(second, first+`\`)

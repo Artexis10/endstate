@@ -77,6 +77,14 @@ func TestLifecycleRegistryImportRestoreEvidence(t *testing.T) {
 		"restoreType": "registry-import", "status": "skipped_up_to_date", "targetExistedBefore": true,
 		"backupCreated": false,
 	}
+	invalidRestored := func(mutate func(map[string]interface{})) map[string]interface{} {
+		item := map[string]interface{}{}
+		for key, value := range restored {
+			item[key] = value
+		}
+		mutate(item)
+		return item
+	}
 	tests := []struct {
 		name                     string
 		rebuildItems, applyItems interface{}
@@ -84,6 +92,11 @@ func TestLifecycleRegistryImportRestoreEvidence(t *testing.T) {
 		repeat                   bool
 	}{
 		{name: "restored", rebuildItems: []interface{}{restored}, applyItems: []interface{}{restored}},
+		{name: "restored missing target existence", rebuildItems: []interface{}{invalidRestored(func(item map[string]interface{}) { delete(item, "targetExistedBefore") })}, applyItems: []interface{}{invalidRestored(func(item map[string]interface{}) { delete(item, "targetExistedBefore") })}, wantErr: true},
+		{name: "restored target absent", rebuildItems: []interface{}{invalidRestored(func(item map[string]interface{}) { item["targetExistedBefore"] = false })}, applyItems: []interface{}{invalidRestored(func(item map[string]interface{}) { item["targetExistedBefore"] = false })}, wantErr: true},
+		{name: "restored missing backup path", rebuildItems: []interface{}{invalidRestored(func(item map[string]interface{}) { delete(item, "backupPath") })}, applyItems: []interface{}{invalidRestored(func(item map[string]interface{}) { delete(item, "backupPath") })}, wantErr: true},
+		{name: "restored empty backup path", rebuildItems: []interface{}{invalidRestored(func(item map[string]interface{}) { item["backupPath"] = "" })}, applyItems: []interface{}{invalidRestored(func(item map[string]interface{}) { item["backupPath"] = "" })}, wantErr: true},
+		{name: "restored nonstring backup path", rebuildItems: []interface{}{invalidRestored(func(item map[string]interface{}) { item["backupPath"] = true })}, applyItems: []interface{}{invalidRestored(func(item map[string]interface{}) { item["backupPath"] = true })}, wantErr: true},
 		{name: "repeat rejects restored", rebuildItems: []interface{}{restored}, applyItems: []interface{}{restored}, wantErr: true, repeat: true},
 		{name: "repeat skips without backup", rebuildItems: []interface{}{repeated}, applyItems: []interface{}{repeated}, repeat: true},
 		{name: "failed", rebuildItems: []interface{}{map[string]interface{}{
@@ -628,7 +641,8 @@ func lifecycleRegistryImportRestoreEvidenceError(rebuildItems, applyItems interf
 			}
 			continue
 		}
-		if item["status"] != "restored" || item["backupCreated"] != true || item["backupPath"] == "" {
+		backupPath, ok := item["backupPath"].(string)
+		if item["status"] != "restored" || item["targetExistedBefore"] != true || item["backupCreated"] != true || !ok || backupPath == "" {
 			return errors.New("registry import was not restored with a backup")
 		}
 	}
