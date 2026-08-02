@@ -90,6 +90,16 @@ func TestCompositeFixturePlanRetainsFileOnlyPlans(t *testing.T) {
 	}
 }
 
+func TestCompositeFixturePlanRejectsFlattenedFileAndRegistryPayloadCollision(t *testing.T) {
+	mod := mixedRegistryFixtureModule()
+	mod.Capture.Files[0].Dest = "apps/fixture/nested/SETTINGS.REG"
+	mod.Restore[1].Source = "./payload/apps/fixture/nested/SETTINGS.REG"
+	scenario := fixtureScenario()
+	if _, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{}); failure == nil || failure.Code != CodeUnsupportedFixture || failure.Phase != "fixture" || failure.Coordinate != "capture.registryKeys[0].dest" || failure.Detail != "capture destinations collide after the production flattened payload rewrite" {
+		t.Fatalf("file and registry payload collision failure = %+v", failure)
+	}
+}
+
 func TestCompositeFixturePlanBindsCoveredRegistryKeyVerifierIntoEveryState(t *testing.T) {
 	mod := registryFixtureModule()
 	mod.Verify = []modules.VerifyDef{{Type: "registry-key-exists", Path: `HKCU:\Software\Fixture\Child`}, {Type: "registry-key-exists", Path: `HKCU\Software\Fixture\Verifier\Nested`}, {Type: "registry-key-exists", Path: `HKCU\Software\Other`}}

@@ -56,6 +56,28 @@ type registryDefinitions struct {
 	Entries []registryDefinition
 }
 
+func rejectFlattenedPayloadCollisions(mod *modules.Module, files fixtureDefinitions, registries registryDefinitions) *Failure {
+	if mod == nil {
+		return nil
+	}
+	seenPayloads := make(map[string]struct{}, len(files.Entries)+len(registries.Entries))
+	for _, entry := range files.Entries {
+		payload := strings.ToLower(v1ArtifactPayloadPath(mod.ID, entry.Destination))
+		if _, duplicate := seenPayloads[payload]; duplicate {
+			return fail(CodeUnsupportedFixture, "fixture", entry.Coordinate+".dest", "capture destinations collide after the production flattened payload rewrite")
+		}
+		seenPayloads[payload] = struct{}{}
+	}
+	for _, entry := range registries.Entries {
+		payload := strings.ToLower(v1ArtifactPayloadPath(mod.ID, entry.Destination))
+		if _, duplicate := seenPayloads[payload]; duplicate {
+			return fail(CodeUnsupportedFixture, "fixture", entry.Coordinate+".dest", "capture destinations collide after the production flattened payload rewrite")
+		}
+		seenPayloads[payload] = struct{}{}
+	}
+	return nil
+}
+
 func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.Scenario) (registryDefinitions, *Failure) {
 	if mod == nil || mod.EffectiveSchemaVersion() != 1 || scenario.Mode != validationmatrix.ScenarioConfigRoundtripV1 {
 		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "schema", "registry fixture requires a schema-v1 roundtrip module")
@@ -200,6 +222,9 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", restoreIndex), "registry import is not consumed by a capture")
 		}
 	}
+	if failure := rejectFlattenedPayloadCollisions(mod, fixtureDefinitions{}, result); failure != nil {
+		return registryDefinitions{}, failure
+	}
 	return result, nil
 }
 
@@ -259,7 +284,6 @@ func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validatio
 	}
 	result := fixtureDefinitions{}
 	consumedRestore := make(map[int]struct{}, len(mod.Restore))
-	seenPayloads := make(map[string]struct{}, len(mod.Capture.Files))
 	for captureIndex, capture := range mod.Capture.Files {
 		if strings.ContainsAny(capture.Source, "*?[") {
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d].source", captureIndex), "authored operation does not support wildcard paths")
@@ -280,11 +304,6 @@ func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validatio
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d]", captureIndex), "restore is consumed by more than one capture")
 		}
 		consumedRestore[matches[0]] = struct{}{}
-		payload := strings.ToLower(v1ArtifactPayloadPath(mod.ID, capture.Dest))
-		if _, duplicate := seenPayloads[payload]; duplicate {
-			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d].dest", captureIndex), "capture destinations collide after the production flattened payload rewrite")
-		}
-		seenPayloads[payload] = struct{}{}
 		restore := mod.Restore[matches[0]]
 		kind := fixtureKindFile
 		// Auto fixtures use a deterministic synthetic shape only: a destination
@@ -307,6 +326,9 @@ func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validatio
 	}
 	if len(consumedRestore) != fileRestores {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "restore", "every copy restore must be consumed exactly once")
+	}
+	if failure := rejectFlattenedPayloadCollisions(mod, result, registryDefinitions{}); failure != nil {
+		return fixtureDefinitions{}, failure
 	}
 	for index, verifier := range mod.Verify {
 		if verifier.Type == "file-exists" && strings.ContainsAny(verifier.Path, "*?[") {

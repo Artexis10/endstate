@@ -28,6 +28,19 @@ func TestCompileRegistryDefinitionsAcceptsSafeWholeKey(t *testing.T) {
 	}
 }
 
+func TestCompileRegistryDefinitionsRejectsCaseInsensitiveFlattenedPayloadCollision(t *testing.T) {
+	mod := registryFixtureModule()
+	mod.Capture.RegistryKeys = append(mod.Capture.RegistryKeys, modules.CaptureRegistryKey{
+		Key: `HKCU\Software\Sibling`, Dest: "apps/fixture/nested/SETTINGS.REG", Optional: true,
+	})
+	mod.Restore = append(mod.Restore, modules.RestoreDef{
+		Type: "registry-import", Source: "./payload/apps/fixture/nested/SETTINGS.REG", Target: `HKCU\Software\Sibling`, Optional: true, Backup: true,
+	})
+	if _, failure := compileRegistryDefinitions(mod, fixtureScenario()); failure == nil || failure.Code != CodeUnsupportedFixture || failure.Phase != "fixture" || failure.Coordinate != "capture.registryKeys[1].dest" || failure.Detail != "capture destinations collide after the production flattened payload rewrite" {
+		t.Fatalf("registry payload collision failure = %+v", failure)
+	}
+}
+
 func TestCompileRegistryDefinitionsDoesNotConsultCurrentDirectory(t *testing.T) {
 	workingDirectory, err := os.Getwd()
 	if err != nil {

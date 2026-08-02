@@ -269,6 +269,9 @@ func compileCompositeFixturePlanAt(repoRoot string, context *validationmode.Cont
 			return nil, failure
 		}
 	}
+	if failure := rejectFlattenedPayloadCollisions(mod, definitions, registries); failure != nil {
+		return nil, failure
+	}
 	return compileCompositeFixturePlanWithRegistryDefinitions(context, mod, scenario, definitions, registries, fixture)
 }
 

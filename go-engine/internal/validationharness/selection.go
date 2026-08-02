@@ -73,6 +73,9 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 			return selected, failure
 		}
 		selected.fixture = fixture
+		if failure := rejectFlattenedPayloadCollisions(mod, selected.fixture, selected.registries); failure != nil {
+			return selected, failure
+		}
 	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
 		fixture, failure := compileV2FixtureAt(request.RepoRoot, mod, scenario)
 		if failure != nil {
