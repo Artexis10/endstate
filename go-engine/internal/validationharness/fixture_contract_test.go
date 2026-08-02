@@ -4,6 +4,7 @@
 package validationharness
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,6 +26,25 @@ func TestCompileRegistryDefinitionsAcceptsSafeWholeKey(t *testing.T) {
 	definition := definitions.Entries[0]
 	if definition.Coordinate != "capture.registryKeys[0]" || definition.Key != `HKCU\Software\Fixture` || definition.Destination != "apps/fixture/settings.reg" || definition.Target != `HKCU\Software\Fixture` {
 		t.Fatalf("registry definition = %+v", definition)
+	}
+}
+
+func TestCompileRegistryDefinitionsDoesNotConsultCurrentDirectory(t *testing.T) {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, outside := t.TempDir(), t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "apps")); err != nil {
+		t.Skipf("symlink setup unavailable: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(workingDirectory) })
+
+	if _, failure := compileRegistryDefinitions(registryFixtureModule(), fixtureScenario()); failure != nil {
+		t.Fatalf("registry classification consulted current directory: %+v", failure)
 	}
 }
 

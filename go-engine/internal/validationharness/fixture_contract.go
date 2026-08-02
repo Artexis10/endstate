@@ -179,19 +179,14 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 }
 
 func portableRegistryDestination(value string) (string, bool) {
-	root, err := filepath.Abs(".")
+	normalized, err := safepath.NormalizePortable(value)
 	if err != nil {
 		return "", false
 	}
-	resolved, err := safepath.Resolve(root, value)
-	if err != nil {
+	if !strings.HasSuffix(strings.ToLower(normalized), ".reg") {
 		return "", false
 	}
-	normalized, err := filepath.Rel(root, resolved)
-	if err != nil || !strings.HasSuffix(strings.ToLower(normalized), ".reg") {
-		return "", false
-	}
-	return filepath.ToSlash(normalized), true
+	return normalized, true
 }
 
 func registryRootsOverlap(first, second string) bool {
