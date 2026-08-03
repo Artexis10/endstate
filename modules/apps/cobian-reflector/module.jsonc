@@ -10,7 +10,11 @@
   "matches": {
     "winget": [],
     "exe": ["Reflector.exe", "CobianReflector.exe"],
-    "uninstallDisplayName": ["^Cobian Reflector"]
+    "uninstallDisplayName": ["^Cobian Reflector"],
+    // No winget package — vendor installer only, so config presence is the signal.
+    "pathExists": [
+      "%APPDATA%\\CobianSoft\\Cobian Reflector"
+    ]
   },
 
   "verify": [

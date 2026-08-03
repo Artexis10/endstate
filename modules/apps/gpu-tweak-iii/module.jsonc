@@ -12,7 +12,11 @@
   "matches": {
     "winget": [],
     "exe": ["GPUTweakIII.exe"],
-    "uninstallDisplayName": ["^ASUS GPU Tweak III"]
+    "uninstallDisplayName": ["^ASUS GPU Tweak III"],
+    // No winget package — ASUS vendor installer only, so config presence is the signal.
+    "pathExists": [
+      "%PROGRAMDATA%\\ASUS\\GPUTweakIII"
+    ]
   },
 
   "verify": [

@@ -17,7 +17,16 @@
   "matches": {
     "winget": [],
     "exe": ["dBpoweramp.exe", "dBpowerampC.exe"],
-    "uninstallDisplayName": ["^dBpoweramp"]
+    "uninstallDisplayName": ["^dBpoweramp"],
+    // Settings live entirely under HKCU and matches has no registry predicate
+    // (only verify does), so the install directory stands in as the detection
+    // signal. Weaker than the other modules here: it proves the app is present
+    // rather than that settings exist. Replace with a registry matcher if one
+    // is added.
+    "pathExists": [
+      "%ProgramFiles%\\dBpoweramp",
+      "%ProgramFiles(x86)%\\dBpoweramp"
+    ]
   },
 
   "verify": [
