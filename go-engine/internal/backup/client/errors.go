@@ -89,7 +89,7 @@ func defaultRemediation(c envelope.ErrorCode) string {
 	case envelope.ErrAuthRequired:
 		return "Run `endstate backup login` and retry."
 	case envelope.ErrSubscriptionRequired:
-		return "Subscribe to Endstate Hosted Backup to upload backups; restore remains available during grace and cancelled states."
+		return "Subscribe to Endstate Cloud to upload backups; restore remains available during grace and cancelled states."
 	case envelope.ErrRateLimited:
 		return "Wait a few seconds and retry."
 	case envelope.ErrBackendUnreachable:
