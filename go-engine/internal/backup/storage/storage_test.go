@@ -120,6 +120,49 @@ func TestCommitVersion_HonorsBackupAPIBase(t *testing.T) {
 	}
 }
 
+// TestCreateVersion_AdvertisesEngineSchemaVersion: substrate decides
+// whether a version requires a commit from the client's advertised minor on
+// the request that CREATES it, and its parser fails closed — an absent or
+// unparseable header means "publish at creation", i.e. the pre-2.1
+// behaviour. If this header ever goes missing here, the two-phase commit is
+// inert while every other test still passes, so it is pinned at the call
+// site substrate actually reads and not only in the shared client.
+func TestCreateVersion_AdvertisesEngineSchemaVersion(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(validDiscovery(srv.URL, srv.URL+"/api/backups"))
+	})
+
+	var seenClientVersion string
+	mux.HandleFunc("/api/backups/b-1/versions", func(w http.ResponseWriter, r *http.Request) {
+		seenClientVersion = r.Header.Get("X-Endstate-API-Version")
+		w.Header().Set("X-Endstate-API-Version", "2.1")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"versionId": "v-1",
+			"uploadUrls": []map[string]interface{}{
+				{"chunkIndex": -1, "presignedUrl": srv.URL + "/blob/manifest", "expiresAt": "2026-06-01T00:00:00Z"},
+				{"chunkIndex": 0, "presignedUrl": srv.URL + "/blob/0", "expiresAt": "2026-06-01T00:00:00Z"},
+			},
+		})
+	})
+
+	oc := oidc.NewClient(srv.URL, srv.Client())
+	hc := client.New(client.Options{Tokens: client.Anonymous{}})
+	st := storage.New(srv.URL, oc, hc)
+
+	meta := []storage.ChunkMetaWire{{Index: 0, EncryptedSize: 16, SHA256: strings.Repeat("a", 64)}}
+	if _, err := st.CreateVersion(context.Background(), "b-1", []byte("enc-manifest"), meta); err != nil {
+		t.Fatalf("CreateVersion: %+v", err)
+	}
+	if seenClientVersion != client.EngineSchemaVersion() {
+		t.Errorf("CreateVersion request X-Endstate-API-Version = %q, want %q — substrate fails closed without it and never gates the version",
+			seenClientVersion, client.EngineSchemaVersion())
+	}
+}
+
 // TestCommitVersion_404IsGracefulDegradation: a schema-2.0 backend has no
 // commit route. The engine must treat that 404 as "already durable" — no
 // error, acknowledged=false — so a 2.1 engine keeps working against a 2.0

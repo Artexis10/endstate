@@ -6,8 +6,10 @@ package client_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -346,8 +348,29 @@ func TestDo_AdvertisesEngineSchemaVersionOnRequests(t *testing.T) {
 	if want := client.EngineSchemaVersion(); seen != want {
 		t.Errorf("request X-Endstate-API-Version = %q, want %q", seen, want)
 	}
-	if want := "2.1"; client.EngineSchemaVersion() != want {
-		t.Errorf("EngineSchemaVersion() = %q, want %q for contract schema 2.1", client.EngineSchemaVersion(), want)
+}
+
+// TestEngineSchemaVersion_DerivesFromConstants pins the advertised value to
+// the schema constants rather than to a string literal. Substrate's
+// clientRequiresVersionCommit parses this header and fails closed — an
+// absent or unparseable value means "no commit required" — so a hardcoded
+// string that drifted from EngineSchemaMajor/Minor would silently disable
+// the two-phase commit while every test that only compares the header
+// against itself kept passing.
+func TestEngineSchemaVersion_DerivesFromConstants(t *testing.T) {
+	want := fmt.Sprintf("%d.%d", client.EngineSchemaMajor, client.EngineSchemaMinor)
+	if got := client.EngineSchemaVersion(); got != want {
+		t.Errorf("EngineSchemaVersion() = %q, want %q derived from EngineSchemaMajor/EngineSchemaMinor", got, want)
+	}
+	// And the constants themselves are the contract's current schema, so a
+	// bump that forgets one half of the pair is caught here.
+	if got, want := client.EngineSchemaVersion(), "2.1"; got != want {
+		t.Errorf("engine advertises schema %q, want %q for hosted-backup contract 2.1", got, want)
+	}
+	// The value must parse as MAJOR.MINOR or substrate's parser rejects it
+	// and falls back to "no commit required".
+	if !regexp.MustCompile(`^\d+\.\d+$`).MatchString(client.EngineSchemaVersion()) {
+		t.Errorf("EngineSchemaVersion() = %q is not MAJOR.MINOR; substrate would fail closed on it", client.EngineSchemaVersion())
 	}
 }
 

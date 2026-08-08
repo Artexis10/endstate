@@ -6,7 +6,14 @@
 //
 //   - bearer-token injection via a TokenProvider
 //   - JSON request/response marshaling
-//   - X-Endstate-API-Version checking on every response
+//   - X-Endstate-API-Version advertised on every request and checked on
+//     every response. The request side is not cosmetic: substrate reads
+//     the client's advertised minor to decide whether a created version
+//     must be committed before it becomes durable (contract §7, §8), and
+//     it fails closed — an absent or unparseable header means "no commit
+//     required", which would silently disable the two-phase commit while
+//     appearing to work. It is set here, in the single place that builds
+//     requests, so no call site can omit it.
 //   - status → envelope.ErrorCode mapping
 //   - retry with exponential backoff and jitter on 5xx + transport errors
 //   - one-shot 401 → refresh-then-retry hook
