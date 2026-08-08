@@ -4,7 +4,9 @@
 package commands_test
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"sync"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
@@ -57,6 +59,49 @@ func loadFixture() *testFixture {
 		fixture = f
 	})
 	return fixture
+}
+
+// commitLog records the `POST .../versions/:versionId/commit` calls the
+// substrate mock received (contract §7). Shared by the push orchestration
+// tests: the durability invariant they assert is "no commit ⇒ the
+// generation was never presented as protected", so every one of them needs
+// to count commits per version.
+type commitLog struct {
+	mu    sync.Mutex
+	calls []string // versionIds, in arrival order
+}
+
+func (c *commitLog) record(versionID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, versionID)
+}
+
+// count returns how many commits arrived for versionID.
+func (c *commitLog) count(versionID string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, v := range c.calls {
+		if v == versionID {
+			n++
+		}
+	}
+	return n
+}
+
+// total returns the number of commit calls across all versions.
+func (c *commitLog) total() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.calls)
+}
+
+// sha256Hex is the hex SHA-256 of b — the shape substrate returns as
+// `manifestSha256` on `GET /api/backups/:id/versions`.
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func bytes16(b byte) []byte {

@@ -227,6 +227,46 @@ func (c *Client) CreateVersion(ctx context.Context, backupID string, encryptedMa
 	return &resp, nil
 }
 
+// CommitVersion finalises a version created by CreateVersion, calling
+// `POST /api/backups/:backupId/versions/:versionId/commit` (contract §7).
+//
+// Until this call lands, a version created by a schema-2.1 client is not
+// durable: substrate does not list it, does not count it against quota,
+// and does not prune retention on its behalf (contract §8). Committing is
+// therefore the moment a generation becomes a restore target — which is
+// why upload.PushVersion only calls it after every chunk AND the manifest
+// have been PUT successfully.
+//
+// The endpoint is idempotent server-side: a repeated commit of an
+// already-committed version succeeds and changes nothing.
+//
+// Backwards compatibility (contract §11): a schema-2.0 backend has no such
+// route and answers 404. That is not an error — 2.0 versions are durable
+// the moment they are created. The returned bool reports whether the
+// backend acknowledged an explicit commit (true) or does not implement the
+// endpoint (false); in both cases a nil error means the version is durable.
+// Any other failure (401, 5xx, transport) returns a non-nil error and the
+// caller MUST NOT report the generation as protected.
+//
+// Like every sibling call, the URL is resolved through backupBaseURL so
+// `endstate_extensions.backup_api_base` (contract §9) is honoured verbatim.
+func (c *Client) CommitVersion(ctx context.Context, backupID, versionID string) (bool, *envelope.Error) {
+	err := c.httpc.Do(ctx, client.Request{
+		Method:   "POST",
+		URL:      c.url(ctx, "/"+backupID+"/versions/"+versionID+"/commit"),
+		ReadOnly: false,
+	}, nil)
+	if err == nil {
+		return true, nil
+	}
+	if err.Code == envelope.ErrNotFound {
+		// Schema 2.0 backend: no commit route. Create was the durability
+		// point there, so the version is already final.
+		return false, nil
+	}
+	return false, err
+}
+
 // ChunkMetaWire is the on-the-wire shape of a chunk-metadata entry sent
 // to substrate in CreateVersion. Distinct from manifest.ChunkMeta to
 // keep wire and storage models loosely coupled.

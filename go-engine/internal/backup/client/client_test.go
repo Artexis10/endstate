@@ -6,8 +6,10 @@ package client_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -299,6 +301,76 @@ func TestDo_VersionMinorMismatch_WriteRejected(t *testing.T) {
 	err := c.Do(context.Background(), client.Request{Method: "POST", URL: srv.URL}, nil)
 	if err == nil || err.Code != envelope.ErrSchemaIncompatible {
 		t.Errorf("write minor mismatch: got %+v, want SCHEMA_INCOMPATIBLE", err)
+	}
+}
+
+// TestDo_OlderBackendMinorAccepted: the engine now speaks 2.1, but a 2.0
+// substrate is still fully usable — an OLDER minor is not a mismatch on
+// either reads or writes. This is the graceful-degradation guarantee that
+// lets a 2.1 engine keep pushing to a substrate that has not yet shipped
+// the commit endpoint (contract §11).
+func TestDo_OlderBackendMinorAccepted(t *testing.T) {
+	if client.EngineSchemaMinor < 1 {
+		t.Skip("engine minor is 0; there is no older minor to test against")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newClient(t, client.Anonymous{})
+
+	if err := c.Do(context.Background(), client.Request{Method: "GET", URL: srv.URL, ReadOnly: true}, nil); err != nil {
+		t.Errorf("read against an older-minor backend: got %+v, want nil", err)
+	}
+	if err := c.Do(context.Background(), client.Request{Method: "POST", URL: srv.URL}, nil); err != nil {
+		t.Errorf("write against an older-minor backend: got %+v, want nil", err)
+	}
+}
+
+// TestDo_AdvertisesEngineSchemaVersionOnRequests: the backend decides
+// whether a created version needs an explicit commit from the client's
+// advertised minor (contract §8), so every request must carry
+// X-Endstate-API-Version.
+func TestDo_AdvertisesEngineSchemaVersionOnRequests(t *testing.T) {
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("X-Endstate-API-Version")
+		versionV1(w.Header())
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newClient(t, client.Anonymous{})
+
+	if err := c.Do(context.Background(), client.Request{Method: "POST", URL: srv.URL}, nil); err != nil {
+		t.Fatalf("Do: %+v", err)
+	}
+	if want := client.EngineSchemaVersion(); seen != want {
+		t.Errorf("request X-Endstate-API-Version = %q, want %q", seen, want)
+	}
+}
+
+// TestEngineSchemaVersion_DerivesFromConstants pins the advertised value to
+// the schema constants rather than to a string literal. Substrate's
+// clientRequiresVersionCommit parses this header and fails closed — an
+// absent or unparseable value means "no commit required" — so a hardcoded
+// string that drifted from EngineSchemaMajor/Minor would silently disable
+// the two-phase commit while every test that only compares the header
+// against itself kept passing.
+func TestEngineSchemaVersion_DerivesFromConstants(t *testing.T) {
+	want := fmt.Sprintf("%d.%d", client.EngineSchemaMajor, client.EngineSchemaMinor)
+	if got := client.EngineSchemaVersion(); got != want {
+		t.Errorf("EngineSchemaVersion() = %q, want %q derived from EngineSchemaMajor/EngineSchemaMinor", got, want)
+	}
+	// And the constants themselves are the contract's current schema, so a
+	// bump that forgets one half of the pair is caught here.
+	if got, want := client.EngineSchemaVersion(), "2.1"; got != want {
+		t.Errorf("engine advertises schema %q, want %q for hosted-backup contract 2.1", got, want)
+	}
+	// The value must parse as MAJOR.MINOR or substrate's parser rejects it
+	// and falls back to "no commit required".
+	if !regexp.MustCompile(`^\d+\.\d+$`).MatchString(client.EngineSchemaVersion()) {
+		t.Errorf("EngineSchemaVersion() = %q is not MAJOR.MINOR; substrate would fail closed on it", client.EngineSchemaVersion())
 	}
 }
 
