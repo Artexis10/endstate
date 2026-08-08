@@ -136,6 +136,11 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 			httpReq.Header.Set("Content-Type", "application/json")
 		}
 		httpReq.Header.Set("Accept", "application/json")
+		// Advertise the engine's schema version so the backend can
+		// negotiate per-client behaviour (contract §8, §11). A 2.1 client
+		// tells substrate its created versions stay invisible until
+		// committed; a 2.0 client keeps the create-is-durable semantics.
+		httpReq.Header.Set(versionHeader, EngineSchemaVersion())
 		for k, vs := range req.Headers {
 			for _, v := range vs {
 				httpReq.Header.Add(k, v)
