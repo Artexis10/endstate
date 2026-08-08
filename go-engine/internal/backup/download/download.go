@@ -8,7 +8,7 @@
 //
 //   storage.DownloadURLs([-1])                  → manifest URL
 //        ↓
-//   GET manifest URL → AES-256-GCM open (0xFFFFFFFF AAD) → manifest JSON
+//   GET manifest URL → SHA-256 verify (vs API manifestSha256) → AES-256-GCM open (0xFFFFFFFF AAD) → manifest JSON
 //        ↓
 //   storage.DownloadURLs([0..N-1])              → chunk URLs
 //        ↓
@@ -86,12 +86,17 @@ func PullVersion(ctx context.Context, deps Dependencies, backupID, versionID, to
 	}
 	defer wipe(dek)
 
+	// The version listing is fetched unconditionally — not only when
+	// resolving "latest" — because it is the sole source of the
+	// `manifestSha256` the manifest blob is verified against below
+	// (contract §7). Read-only, so a newer backend minor only warns.
+	versions, vErr := deps.Storage.ListVersions(ctx, backupID)
+	if vErr != nil {
+		return nil, vErr
+	}
+
 	resolvedVersionID := strings.TrimSpace(versionID)
 	if resolvedVersionID == "" {
-		versions, err := deps.Storage.ListVersions(ctx, backupID)
-		if err != nil {
-			return nil, err
-		}
 		if len(versions) == 0 {
 			return nil, envelope.NewError(envelope.ErrNotFound,
 				"backup pull: backup has no versions to restore").
@@ -103,6 +108,7 @@ func PullVersion(ctx context.Context, deps Dependencies, backupID, versionID, to
 		}
 		resolvedVersionID = latest.VersionID
 	}
+	expectedManifestSHA := manifestSHAFor(versions, resolvedVersionID)
 
 	deps.Events.EmitPhase("backup-pull")
 
@@ -131,6 +137,14 @@ func PullVersion(ctx context.Context, deps Dependencies, backupID, versionID, to
 	if gerr != nil {
 		return nil, envelope.NewError(envelope.ErrBackendUnreachable,
 			"backup pull: download manifest: "+gerr.Error())
+	}
+
+	// Integrity gate BEFORE decrypt, mirroring the per-chunk check in
+	// getParallelChunks: a manifest whose bytes do not match the hash the
+	// API advertised is refused outright and nothing is written to disk.
+	// Without this the manifest's only protection is the AEAD tag.
+	if ivErr := verifyManifestSHA256("backup pull", encManifest, expectedManifestSHA); ivErr != nil {
+		return nil, ivErr
 	}
 
 	mfJSON, dmErr := crypto.DecryptManifest(encManifest, dek)
@@ -235,6 +249,9 @@ func LatestManifest(ctx context.Context, deps Dependencies, backupID string) (*m
 	if gerr != nil {
 		return nil, envelope.NewError(envelope.ErrBackendUnreachable, "backup: download manifest: "+gerr.Error())
 	}
+	if ivErr := verifyManifestSHA256("backup", encManifest, latest.ManifestSHA256); ivErr != nil {
+		return nil, ivErr
+	}
 	mfJSON, dmErr := crypto.DecryptManifest(encManifest, dek)
 	if dmErr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, "backup: decrypt manifest: "+dmErr.Error())
@@ -244,6 +261,44 @@ func LatestManifest(ctx context.Context, deps Dependencies, backupID string) (*m
 		return nil, envelope.NewError(envelope.ErrInternalError, "backup: parse manifest: "+pErr.Error())
 	}
 	return mf, nil
+}
+
+// manifestSHAFor returns the API-advertised manifest SHA-256 for versionID,
+// or "" when the listing does not carry one (older backend, soft-deleted
+// version, or a version absent from the page). An empty value disables
+// verification rather than failing the pull — the check hardens the
+// transport when the backend supplies the hash and must not break restore
+// against backends that do not.
+func manifestSHAFor(versions []storage.VersionInfo, versionID string) string {
+	for _, v := range versions {
+		if v.VersionID == versionID {
+			return v.ManifestSHA256
+		}
+	}
+	return ""
+}
+
+// verifyManifestSHA256 compares the encrypted manifest blob against the
+// `manifestSha256` value the API returns for the version (contract §7),
+// BEFORE any decryption is attempted. This mirrors the per-chunk integrity
+// gate in getParallelChunks: on mismatch the engine refuses to decrypt and
+// writes nothing to disk.
+//
+// An empty expectation is a no-op (see manifestSHAFor).
+func verifyManifestSHA256(prefix string, blob []byte, expected string) *envelope.Error {
+	want := strings.ToLower(strings.TrimSpace(expected))
+	if want == "" {
+		return nil
+	}
+	sum := sha256.Sum256(blob)
+	got := hex.EncodeToString(sum[:])
+	if got == want {
+		return nil
+	}
+	return envelope.NewError(envelope.ErrInternalError,
+		prefix+": manifest SHA-256 mismatch — refusing to decrypt").
+		WithDetail(map[string]string{"expected": want, "actual": got}).
+		WithRemediation("Re-run; if it persists, the manifest blob is corrupt in storage or disagrees with the version metadata. Restore an earlier version with `endstate backup pull --version-id <id>`.")
 }
 
 // toManifestVersions adapts storage.VersionInfo (from substrate) to the
