@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.blender",
+  "moduleRevision": "a5d4bca1fc2917018519fb2a0f55b2c00b71145ad39f3a11b8ebddf6b20ab9f7",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

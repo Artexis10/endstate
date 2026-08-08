@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.fancontrol",
+  "moduleRevision": "9b5c5f396c52fa54868d435b3599e083cd365ceb2edffeda188ee58cdbfeeb6b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

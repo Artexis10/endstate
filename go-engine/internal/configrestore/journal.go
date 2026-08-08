@@ -23,11 +23,18 @@ func PersistJournalIntent(ctx context.Context, request JournalIntentRequest) (*J
 
 // PersistIntent is PersistJournalIntent with private failure checkpoints.
 func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntentRequest) (*JournalIntent, error) {
+	if request.Prepared != nil {
+		ctx = withHostBoundary(ctx, request.Prepared.boundary)
+	}
 	root, lineage, actions, validations, err := validateJournalIntentRequest(ctx, request)
 	if err != nil {
 		return nil, journalIntentError(request.TransactionRoot, err)
 	}
-	if err := validateAndSyncPreparedSnapshots(ctx, w, root, request.Prepared, actions); err != nil {
+	ioActions, err := resolveJournalActionsForHostIO(actions, request.Prepared.boundary)
+	if err != nil {
+		return nil, journalIntentError(request.Prepared.SnapshotRoot(), err)
+	}
+	if err := validateAndSyncPreparedSnapshots(ctx, w, root, request.Prepared, ioActions); err != nil {
 		return nil, journalIntentError(request.Prepared.SnapshotRoot(), err)
 	}
 	disk, encoded, err := newJournalIntentDisk(lineage, actions, validations)
@@ -35,6 +42,9 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 		return nil, journalIntentError(root, err)
 	}
 	journalDirectory := filepath.Join(root, "journal")
+	if err := validateHostIO(ctx, journalDirectory); err != nil {
+		return nil, journalIntentError(journalDirectory, err)
+	}
 	created, err := ensureJournalDirectory(journalDirectory)
 	if err != nil {
 		return nil, journalIntentError(journalDirectory, err)
@@ -45,7 +55,10 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 		}
 	}
 	intentPath := filepath.Join(journalDirectory, "intent.json")
-	if existing, err := readJournalIntentFile(ctx, root, intentPath); err == nil {
+	if existing, err := readJournalIntentFileWithBoundary(ctx, root, intentPath, request.Prepared.boundary); err == nil {
+		if err := validateHostIO(ctx, intentPath); err != nil {
+			return nil, journalIntentError(intentPath, err)
+		}
 		existingBytes, readErr := os.ReadFile(intentPath)
 		if readErr != nil {
 			return nil, journalIntentError(intentPath, readErr)
@@ -53,23 +66,32 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 		if existing.digest != disk.IntentDigest || !bytes.Equal(existingBytes, encoded) {
 			return nil, journalIntentError(intentPath, fmt.Errorf("conflicting journal intent already exists"))
 		}
-		reconciled, reconcileErr := w.reconcileIntent(ctx, root, intentPath, encoded, disk.IntentDigest)
+		reconciled, reconcileErr := w.reconcileIntent(ctx, root, intentPath, encoded, disk.IntentDigest, request.Prepared.boundary)
 		if reconcileErr != nil {
 			return nil, journalIntentError(intentPath, errors.Join(ErrPublicationAmbiguous, reconcileErr))
 		}
+		reconciled.boundary = request.Prepared.boundary
 		return reconciled, nil
 	} else if !os.IsNotExist(err) {
 		return nil, journalIntentError(intentPath, err)
 	}
 
-	temporary, err := os.CreateTemp(journalDirectory, ".intent-*.tmp")
+	temporary, err := createBoundaryTempFile(journalDirectory, ".intent-*.tmp", request.Prepared.boundary)
 	if err != nil {
 		return nil, journalIntentError(journalDirectory, err)
 	}
 	temporaryPath := temporary.Name()
+	if err := validateHostIO(ctx, temporaryPath); err != nil {
+		_ = temporary.Close()
+		return nil, journalIntentError(temporaryPath, err)
+	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if request.Prepared.boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(context.WithoutCancel(ctx), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		return nil, journalIntentError(temporaryPath, err)
@@ -91,7 +113,7 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 	}
 	publication, publishErr := w.publishNoReplace(temporaryPath, intentPath)
 	if publishErr != nil || publication != publicationDurable {
-		reconciled, reconcileErr := w.reconcileIntent(ctx, root, intentPath, encoded, disk.IntentDigest)
+		reconciled, reconcileErr := w.reconcileIntent(ctx, root, intentPath, encoded, disk.IntentDigest, request.Prepared.boundary)
 		if reconcileErr == nil {
 			return reconciled, nil
 		}
@@ -106,13 +128,14 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 	if err := syncDurableDirectory(journalDirectory); err != nil {
 		return nil, journalIntentError(journalDirectory, err)
 	}
-	verified, err := readJournalIntentFile(ctx, root, intentPath)
+	verified, err := readJournalIntentFileWithBoundary(ctx, root, intentPath, request.Prepared.boundary)
 	if err != nil {
 		return nil, journalIntentError(intentPath, err)
 	}
 	if verified.digest != disk.IntentDigest {
 		return nil, journalIntentError(intentPath, fmt.Errorf("journal intent readback identity changed"))
 	}
+	verified.boundary = request.Prepared.boundary
 	return verified, nil
 }
 
@@ -122,11 +145,15 @@ func (w *JournalWriter) reconcileIntent(
 	path string,
 	expectedBytes []byte,
 	expectedDigest string,
+	boundary HostBoundary,
 ) (*JournalIntent, error) {
 	reconcileContext := context.WithoutCancel(ctx)
 	check := func() (*JournalIntent, error) {
-		existing, err := readJournalIntentFile(reconcileContext, root, path)
+		existing, err := readJournalIntentFileWithBoundary(reconcileContext, root, path, boundary)
 		if err != nil {
+			return nil, err
+		}
+		if err := validateHostIO(reconcileContext, path); err != nil {
 			return nil, err
 		}
 		data, err := os.ReadFile(path)
@@ -153,7 +180,17 @@ func (w *JournalWriter) reconcileIntent(
 // ReadJournalIntent reads and verifies the canonical pending intent beneath a
 // safe transaction root.
 func ReadJournalIntent(ctx context.Context, transactionRoot string) (*JournalIntent, error) {
+	return ReadJournalIntentWithBoundary(ctx, transactionRoot, nil)
+}
+
+// ReadJournalIntentWithBoundary verifies semantic durable identities against
+// the current optional host authority before reading snapshot artifacts.
+func ReadJournalIntentWithBoundary(ctx context.Context, transactionRoot string, boundary HostBoundary) (*JournalIntent, error) {
 	if err := checkSnapshotContext(ctx); err != nil {
+		return nil, journalIntentError(transactionRoot, err)
+	}
+	ctx = withHostBoundary(ctx, boundary)
+	if err := validateHostIO(ctx, transactionRoot); err != nil {
 		return nil, journalIntentError(transactionRoot, err)
 	}
 	root, err := validateJournalRoot(transactionRoot)
@@ -161,7 +198,7 @@ func ReadJournalIntent(ctx context.Context, transactionRoot string) (*JournalInt
 		return nil, journalIntentError(transactionRoot, err)
 	}
 	path := filepath.Join(root, "journal", "intent.json")
-	intent, err := readJournalIntentFile(ctx, root, path)
+	intent, err := readJournalIntentFileWithBoundary(ctx, root, path, boundary)
 	if err != nil {
 		return nil, journalIntentError(path, err)
 	}
@@ -169,11 +206,19 @@ func ReadJournalIntent(ctx context.Context, transactionRoot string) (*JournalInt
 }
 
 func readJournalIntentFile(ctx context.Context, root, path string) (*JournalIntent, error) {
-	intent, err := readJournalIntentMetadataFile(ctx, root, path)
+	return readJournalIntentFileWithBoundary(ctx, root, path, nil)
+}
+
+func readJournalIntentFileWithBoundary(ctx context.Context, root, path string, boundary HostBoundary) (*JournalIntent, error) {
+	intent, err := readJournalIntentMetadataFileWithBoundary(ctx, root, path, boundary)
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := verifySnapshotArtifacts(ctx, filepath.Join(root, "snapshots"), intent.actions); err != nil {
+	ioActions, err := resolveJournalActionsForHostIO(intent.actions, boundary)
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := verifySnapshotArtifacts(ctx, filepath.Join(root, "snapshots"), ioActions); err != nil {
 		return nil, err
 	}
 	return intent, nil
@@ -184,10 +229,21 @@ func readJournalIntentFile(ctx context.Context, root, path string) (*JournalInte
 // Terminal classification must use this view before deciding whether backups
 // are relevant; pending recovery upgrades to the full reader above.
 func readJournalIntentMetadataFile(ctx context.Context, root, path string) (*JournalIntent, error) {
+	return readJournalIntentMetadataFileWithBoundary(ctx, root, path, nil)
+}
+
+func readJournalIntentMetadataFileWithBoundary(ctx context.Context, root, path string, boundary HostBoundary) (*JournalIntent, error) {
+	ctx = withHostBoundary(ctx, boundary)
 	if err := checkSnapshotContext(ctx); err != nil {
 		return nil, err
 	}
 	if err := rejectExistingTargetLinks(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	if err := validateHostIO(ctx, filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	if err := validateHostIO(ctx, path); err != nil {
 		return nil, err
 	}
 	data, _, err := safepath.ReadRegularFile(path)
@@ -201,13 +257,31 @@ func readJournalIntentMetadataFile(ctx context.Context, root, path string) (*Jou
 	if err := validateJournalLineage(disk.Lineage); err != nil {
 		return nil, err
 	}
-	if err := validateJournalActions(root, disk.Actions); err != nil {
+	ioActions, err := resolveJournalActionsForHostIO(disk.Actions, boundary)
+	if err != nil {
 		return nil, err
 	}
-	if err := validateJournalValidations(root, disk.Actions, disk.Validations); err != nil {
+	if err := validateJournalActions(root, ioActions); err != nil {
 		return nil, err
 	}
-	return intentFromDisk(root, path, disk), nil
+	validations := append([]JournalValidation(nil), disk.Validations...)
+	if boundary != nil {
+		for index := range validations {
+			validations[index].HostPath, err = boundary.ResolveFilesystemIdentity(validations[index].HostPath)
+			if err != nil {
+				return nil, err
+			}
+			if err := boundary.ValidateFilesystemTarget(validations[index].HostPath); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := validateJournalValidations(root, ioActions, validations); err != nil {
+		return nil, err
+	}
+	intent := intentFromDisk(root, path, disk)
+	intent.boundary = boundary
+	return intent, nil
 }
 
 func validateJournalIntentRequest(
@@ -255,10 +329,27 @@ func validateJournalIntentRequest(
 			Section: validation.Definition.Section, Key: validation.Definition.Key, HostPath: validation.HostPath,
 		}
 	}
-	if err := validateJournalActions(root, actions); err != nil {
+	ioActions, err := resolveJournalActionsForHostIO(actions, request.Prepared.boundary)
+	if err != nil {
 		return "", JournalLineage{}, nil, nil, err
 	}
-	if err := validateJournalValidations(root, actions, validations); err != nil {
+	if err := validateJournalActions(root, ioActions); err != nil {
+		return "", JournalLineage{}, nil, nil, err
+	}
+	ioValidations := append([]JournalValidation(nil), validations...)
+	if request.Prepared.boundary != nil {
+		for index := range ioValidations {
+			if index < len(request.Prepared.validationTargets) && request.Prepared.validationTargets[index] != "" {
+				ioValidations[index].HostPath = request.Prepared.validationTargets[index]
+			} else {
+				ioValidations[index].HostPath, err = request.Prepared.boundary.ResolveFilesystemIdentity(ioValidations[index].HostPath)
+				if err != nil {
+					return "", JournalLineage{}, nil, nil, err
+				}
+			}
+		}
+	}
+	if err := validateJournalValidations(root, ioActions, ioValidations); err != nil {
 		return "", JournalLineage{}, nil, nil, err
 	}
 	return root, lineage, actions, validations, nil

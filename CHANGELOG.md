@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.30.0](https://github.com/Artexis10/endstate/compare/v2.29.0...v2.30.0) (2026-08-01)
+
+
+### Features
+
+* **profile:** add read-only profile inspection ([dc740df](https://github.com/Artexis10/endstate/commit/dc740dfa80fa8603942c919972f97f5d6755ae62))
+
+
+### Bug Fixes
+
+* **modules:** resolve pathExists globs and attach Thunderbird by config presence ([#209](https://github.com/Artexis10/endstate/issues/209)) ([cabb27e](https://github.com/Artexis10/endstate/commit/cabb27e013536bd786dfeb4a6d43a07159154b05))
+
 ## [2.29.0](https://github.com/Artexis10/endstate/compare/v2.28.0...v2.29.0) (2026-07-26)
 
 

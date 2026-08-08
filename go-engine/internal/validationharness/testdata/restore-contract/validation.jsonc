@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.validation-restore-contract",
+  "moduleRevision": "b99f33c6217f437fed61a58adbd0e9c1516c170d79907757b35e1987cceb2332",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-restore-v1",
+        "mode": "restore-contract",
+        "fixture": {
+          "type": "declarative",
+          "path": "tests/fixtures/validation-restore-contract/fixture.jsonc",
+          "sha256": "29d90f7c9d898858dad3c488bbe127f2462f8d50e688e01c5c8ad5b5e7f058f5"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "restored": 1,
+          "content": 1,
+          "nestedSummary": 1,
+          "revert": 1,
+          "verify": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "harness-restore-contract",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-26",
+          "evidence": "Tracked harness-only fixture proves the real schema-v1 restore and revert engine contract without entering the production catalog."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "not-applicable",
+    "reasonCode": "harness-only",
+    "explanation": "This tracked fixture is isolated from the production module catalog and makes no live-install claim."
+  }
+}

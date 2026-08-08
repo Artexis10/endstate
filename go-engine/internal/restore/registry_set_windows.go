@@ -10,7 +10,32 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 	"golang.org/x/sys/windows/registry"
+)
+
+var (
+	registrySetReadNative = func(key, valueName string) (bool, string, string, bool) {
+		hive, subkey, err := splitHKCUKey(key)
+		if err != nil {
+			return false, "", "", false
+		}
+		return readRegistryValue(hive, subkey, valueName)
+	}
+	registrySetWriteNative = func(key, valueName, valueType, data string) error {
+		hive, subkey, err := splitHKCUKey(key)
+		if err != nil {
+			return err
+		}
+		return writeRegistryValue(hive, subkey, valueName, valueType, data)
+	}
+	registrySetDeleteNative = func(key, valueName string) error {
+		hive, subkey, err := splitHKCUKey(key)
+		if err != nil {
+			return err
+		}
+		return deleteRegistryValue(hive, subkey, valueName)
+	}
 )
 
 // RestoreRegistrySet implements the value-level registry-set restore strategy.
@@ -31,6 +56,7 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 		Target:      registrySetTarget(entry),
 		RestoreType: "registry-set",
 	}
+	defer projectValidationRestoreResult(result, entry, opts)
 
 	// Validate target + value (cross-platform — runs before any registry call).
 	if err := validateRegistrySet(entry); err != nil {
@@ -38,16 +64,25 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 		result.Error = err.Error()
 		return result, nil
 	}
-
-	hive, subkey, err := splitHKCUKey(entry.Key)
-	if err != nil {
-		result.Status = "failed"
-		result.Error = err.Error()
-		return result, nil
+	nativeKey := entry.Key
+	if opts.ValidationContext != nil {
+		semanticKey, err := validationmode.NormalizeHKCU(entry.Key)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = err.Error()
+			return result, nil
+		}
+		mappedKey, err := opts.ValidationContext.MapHKCU(semanticKey)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = err.Error()
+			return result, nil
+		}
+		nativeKey = mappedKey
 	}
 
 	// Probe the current state of the named value (existence + type + data).
-	existed, curType, curData, keyExisted := readRegistryValue(hive, subkey, entry.ValueName)
+	existed, curType, curData, keyExisted := registrySetReadNative(nativeKey, entry.ValueName)
 	result.TargetExistedBefore = existed
 
 	desiredType := strings.ToUpper(strings.TrimSpace(entry.ValueType))
@@ -74,6 +109,13 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 		result.Status = "restored"
 		return result, nil
 	}
+	backupDir := restoreBackupDirectory(opts)
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: backupDir}
+	if err := boundary.authorizeBackupDir(backupDir); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("backup: %v", err)
+		return result, nil
+	}
 
 	backupPath, err := writeRegistrySetBackup(backup, opts)
 	if err != nil {
@@ -85,7 +127,7 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 	result.BackupCreated = true
 
 	// Create the key if missing, then write the value.
-	if err := writeRegistryValue(hive, subkey, entry.ValueName, desiredType, entry.Data); err != nil {
+	if err := registrySetWriteNative(nativeKey, entry.ValueName, desiredType, entry.Data); err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()
 		return result, nil

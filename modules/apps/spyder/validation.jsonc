@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.spyder",
+  "moduleRevision": "041b5e99fedb068728cb14e96bfa81172a0ebb776775867e420964167f521710",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Spyder's primary INI preferences (%APPDATA%\\spyder-py3\\config\\spyder.ini): editor, font, keybindings, appearance, and run configurations. Logs, autosave, history, LSP logs, and completion caches are excluded. Sensitivity is none for local-only setups; secrets block guards against users who configure remote kernels with tokens. Confidence: high - config path confirmed by Spyder documentation and %APPDATA%\\spyder-py3 is the canonical Windows config root. Authored secret warning: spyder.ini may embed remote kernel connection info (e.g. SSH tunnels, remote Jupyter server URLs and tokens). Review the captured file before sharing a bundle. Authored excluded secret or machine-bound paths: %APPDATA%\\spyder-py3\\config\\spyder.ini"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.arduino-ide",
+  "moduleRevision": "2b7e467e9a50414e94950f0fa1197abebf15f13776460be2d46bcf1561cb2ae3",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

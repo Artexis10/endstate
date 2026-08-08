@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.foobar2000",
+  "moduleRevision": "60fa1ab8005ceb4e7b743b81d38ce94ebf2e7482ad02c6c45db54859f142f9b6",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

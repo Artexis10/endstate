@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.hyper",
+  "moduleRevision": "52d65effdb957f9ac18b7bdd0a94c148c8311edb53ff40ee00af8e5943ffb5bd",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

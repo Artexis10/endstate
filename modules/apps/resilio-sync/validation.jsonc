@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.resilio-sync",
+  "moduleRevision": "e7427e2456b9d781a13d6ba00c3c4aa6a6cb44226daaa86cc0c27a82400a188f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

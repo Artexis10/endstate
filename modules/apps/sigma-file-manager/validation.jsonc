@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.sigma-file-manager",
+  "moduleRevision": "9a1bbf7799dfe077c38fc75a9f3117db12e16c9123cd9b56dd439c4dc0343777",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

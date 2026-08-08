@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.notepad-plus-plus",
+  "moduleRevision": "45e498e66bf7a84e4cf63a64207a2e8c6bf93e34d6aee1a4c1a8ee2cb5e727c9",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/notepad-plus-plus/validation-fixtures/default-v1.jsonc",
+          "sha256": "34fdb589dc331cb68d2fd18753531f68f1ad6bc1d1e25191e43d7a050f715fc7"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "driver": "winget",
+    "ref": "Notepad++.Notepad++",
+    "seed": "seed.ps1",
+    "comparator": "exact-bytes",
+    "proofMode": "live-config-roundtrip",
+    "prTimeoutMinutes": 25,
+    "scheduledTimeoutMinutes": 45,
+    "runnerLabel": "windows-latest",
+    "trust": {
+      "seedSha256": "16d3e5b91068be222789be0270c15f30d6b3d03264c4210f46efcc57f955219b"
+    }
+  }
+}

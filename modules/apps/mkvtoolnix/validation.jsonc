@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mkvtoolnix",
+  "moduleRevision": "bf77e0f0fcb611772dbcc01b1c0380ed06513d2f56cf17784639209b9a211aaa",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

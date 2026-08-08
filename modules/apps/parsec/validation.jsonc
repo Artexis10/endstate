@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.parsec",
+  "moduleRevision": "26861ece9ecde4f164b3f98893241fe2ed5fbf5458ab6edc596d5b3e638232ab",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Parsec user preferences (config.txt) from %APPDATA%\\Parsec - display, codec, decoder, and streaming settings. Session tokens and auth state are excluded via secrets block. Confidence: medium - config.txt path known from community documentation; exact auth token filename may vary by client version. Authored secret warning: Parsec stores session authentication tokens in %APPDATA%\\Parsec\\auth (or similarly named token files). These are session-bound credentials for the Parsec cloud service and must never be restored on another machine. Re-authenticate through the Parsec client after a rebuild. Authored excluded secret or machine-bound paths: %APPDATA%\\Parsec\\auth"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

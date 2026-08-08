@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.ccleaner",
+  "moduleRevision": "9bb2cbd4f51f2a45ba70908b4ef2c0f13909a88ec3a359ae8c48a86a47c631ae",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.maya",
+  "moduleRevision": "43e67940de957039760f297e8c6d412c9e8bbf954376ac47f7a32035b5bb6737",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "nestedSummary": 1,
+          "payload": 1,
+          "provenance": 1,
+          "rebuild": 1,
+          "revert": 1,
+          "rewrittenRestore": 1,
+          "verify": 2
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

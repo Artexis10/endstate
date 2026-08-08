@@ -39,6 +39,9 @@
             "matches": [
               { "versionRange": ">=5 <8" }
             ],
+            "acceptsSourceFingerprints": [
+              "abc0141add2928b64ab8fd6b82319c2f57fb086c1ed4b16b776b991d22882444"
+            ],
             "capture": {
               "files": [
                 // Whole versioned settings folder: preferences/Options, Key Commands (keymaps),
@@ -77,6 +80,9 @@
                   "**\\user.license"
                 ]
               }
+            ],
+            "validate": [
+              { "type": "file-exists", "path": "settings/Studio One.settings" }
             ]
           }
         ]

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.openscad",
+  "moduleRevision": "9e15bdc0108654eccaa9f1990357e961c75f0cdc87f4d6cf87648a0aff7b0121",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures OpenSCAD application settings (openscad.json) and user-managed libraries under %APPDATA%\\OpenSCAD. Capture-only; no shipped payload. Confidence: medium — settings filename inferred from known OpenSCAD Windows config layout."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.smplayer",
+  "moduleRevision": "33161296eb1253dbcb2258c6fcb5faa3f0c3f0f022fbed0b3c84827b894e0ae2",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.gpu-tweak-iii",
+  "moduleRevision": "c6260e11c4e6801ef1c1ed59f7a35e47fc848f5d6c6bb62604d8825cda695dd0",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures ASUS GPU Tweak III OC profiles, fan-curve presets, and UI settings from %PROGRAMDATA%\\ASUS\\GPUTweakIII. No winget ID — distributed via ASUS Armoury Crate or standalone installer. Restore omitted: ProgramData requires elevation. Confidence: medium — path confirmed by community reports; exact filenames vary by version. Authored excluded secret or machine-bound paths: %PROGRAMDATA%\\ASUS\\GPUTweakIII\\account.json, %PROGRAMDATA%\\ASUS\\GPUTweakIII\\token.json, %PROGRAMDATA%\\ASUS\\GPUTweakIII\\credentials.json"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

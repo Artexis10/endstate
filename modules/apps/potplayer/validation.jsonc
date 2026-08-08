@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.potplayer",
+  "moduleRevision": "d7fd0d0d7a2d74284cde43f8df2cc0b6a492d53a786ed25bc8b4e4fdf9bd2bbd",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

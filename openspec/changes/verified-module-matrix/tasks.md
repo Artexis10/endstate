@@ -1,0 +1,112 @@
+# Tasks: Verified Module Matrix
+
+## 1. Validation Metadata and Planning
+
+- [ ] 1.1 Define and validate schema v1 for `modules/apps/<id>/validation.jsonc`, including the canonical scenario-kind enum (`config-roundtrip-v1`, `config-generation-v2`, `config-migration-v2`, `capture-contract`, `restore-contract`, `install-contract`), multiple schema-specific scenarios, fixture/minimum assertions, live mode (`hosted`, `candidate`, `blocked`, `lab`, `manual`, `not-applicable`), driver/ref, PR/scheduled timeout, reason codes, trust hashes, and scoped quarantine metadata.
+- [ ] 1.2 Add a matrix planner that loads JSONC through the canonical parser, requires exactly one sidecar per production module, enumerates every schema-v2 generation/migration scenario, validates merge-base/head policy without allowing head self-authorization, and emits deterministic bounded synthetic/live shard JSON.
+- [ ] 1.3 Add planner tests for missing/stale/duplicate sidecars/scenarios, schema-v2 alternative or migration omissions, invalid downgrades, head-added live authorization/quarantine, expired quarantine, PR/scheduled/dispatch/release job/runner-minute/artifact caps, seven-day rotation, exact-commit chunking, path-based change selection, and stable shard assignment.
+- [ ] 1.4 Reconcile the 14 current `curation.seed`/`seed.ps1` metadata mismatches; identify the 30 intentional install-only modules; repair the 43 capture-only modules before they can earn config-roundtrip proof; and classify any genuinely one-way contract outside the config-roundtrip numerator with explicit review.
+- [ ] 1.5 Add a catalog policy check that rejects larger-runner labels, unpinned third-party Actions, permanent/ownerless/unscoped quarantine, PR timeouts above 25 minutes, scheduled timeouts above 45 minutes, and resource plans above the declared caps.
+
+## 2. Synthetic Production-Engine Harness
+
+- [ ] 2.1 Implement a fail-closed CLI test-mode inventory/detection seam that injects exactly one app for `capture --only <app>,apps.<module>`, is identified in output, and cannot bypass module matching, capture planning, bundle creation, restore, verifier, journal, revert, nested-summary, or event/envelope behavior.
+- [ ] 2.2 Build a harness around the workflow-built `endstate` executable and production module definitions; do not duplicate capture, bundle rewriting, generation/migration selection, restore, verifier, journal, or revert behavior in PowerShell.
+- [ ] 2.3 Virtualize APPDATA, LOCALAPPDATA, USERPROFILE, Program Files, Program Files (x86), ProgramData, Public, SystemRoot/Windows, Temp, dynamic roots, and HKCU; reject unresolved/unsafe/HKLM paths, disable synthetic package/network execution, and independently detect writes to original host/repo/task paths.
+- [ ] 2.4 Add deterministic contained declarative fixtures for copy/file, directory copy, merge-json, merge-ini, append, registry, optional-source, excluded-path, and custom dynamic-root behavior; do not permit arbitrary synthetic PowerShell fixtures.
+- [ ] 2.5 Implement schema-v1 assertions for targeted recovery-bundle capture, exact payload/provenance/rewritten restore entries, mutation, rebuild, nested summaries, hashes, backup/journal, immediate revert, recovery rebuild, and repeat-rebuild convergence.
+- [ ] 2.6 Implement one schema-v2 scenario for every generation/fingerprint alternative and migration edge, asserting capture/config-set/instance identity, validation, migration outcome, rebuild, revert, and convergence.
+- [ ] 2.7 Implement install-contract assertions for intentional no-config modules: production module resolution, plan contents, isolated installed-state fixture, and at least one production verifier.
+- [ ] 2.8 Implement reviewed `capture-contract` and `restore-contract` assertions with non-zero one-way operation/content/provenance or restore/revert assertions, emitting only `engine-contract` and never config-roundtrip proof.
+- [ ] 2.9 Fail zero-assertion, all-skipped, unknown-operation, missing schema-specific evidence, host escape, out-of-bound write, malformed output/events, nested apply/config/restore/verify failure, content mismatch, non-idempotence, and failed revert even when the outer rebuild envelope succeeds.
+- [ ] 2.10 Add deliberately good and deliberately broken harness fixtures covering inventory-selection failure, unresolved/escaped path, forbidden write/network, zero capture, malformed output, success-with-nested-failure, schema-v2 omission, mismatch, and failed revert.
+
+## 3. Bundle Contract Matrix
+
+- [x] 3.1 Add `endstate catalog-plan --bundle <tracked-bundle-path> --json --events jsonl`, a read-only built-engine command that strictly parses one canonical tracked bundle and emits one ordered, revision-bound module-resolution action per membership without synthesizing application/package intent.
+- [x] 3.2 Run every tracked bundle twice with the separately workflow-built engine; reject non-canonical paths/schema, empty or partial/zero-action resolution, missing or stale modules/sidecars, within-bundle canonical duplicates, skips, unstable output, and wrong revision/hash while allowing and reporting cross-bundle reuse.
+- [x] 3.3 Include the complete expected bundle set, total membership count, unique-module count, cross-bundle reuse, row identities, and failures in aggregate `catalog` proof; reject missing, duplicate, partial, wrong-commit/hash, and schema-incompatible rows.
+
+## 4. Live Installed-Application Harness
+
+- [ ] 4.1 Add a one-module live runner that independently proves package absence, invokes production `endstate apply`, and reconciles the engine verifier/version with an exact package-manager query plus executable/uninstall-registry/version observer.
+- [ ] 4.2 For `live-config-roundtrip` modules, run the trusted seed, targeted production capture, independently prove app/settings absence, invoke production `rebuild`, reconcile the package observer, inspect every nested summary, compare known non-secret sentinels locally, immediately revert configuration targets to the wiped state while proving the package remains installed, then rebuild twice for configuration recovery/convergence.
+- [ ] 4.3 Make exact Winget package `Notepad++.Notepad++` the first real-app canary using its production module and seed; remove workflow-level pre-installation so the engine itself proves install, capture, uninstall/wipe, rebuild/restore, revert, recovery, repeat-rebuild convergence, and unconditional final cleanup.
+- [ ] 4.4 Add classified one-time retry for recognized Winget source/network failures with `PASS_AFTER_RETRY`, retained attempts, and a two-in-ten flake budget keyed to a stable runner lane; never retry assertion or engine failures and never let a workflow rerun erase an earlier product/assertion failure.
+- [ ] 4.5 Emit useful diagnostics for absent package, install failure, seed failure, zero capture, unsuccessful wipe/uninstall, malformed envelope/events, nested-summary failure, restore mismatch, verifier failure, timeout, policy block, and upstream infrastructure failure.
+
+## 5. Evidence and Aggregation
+
+- [ ] 5.1 Define schema-versioned evidence with workflow run/attempt/event/ref/time/artifact digest; engine commit/version/binary hash; canonical module/seed/comparator/metadata/fixture hashes; scenario kind/proof mode/status; stable runner lane plus exact image; package driver/source/ref/version; timings/assertions; local comparator outcome; scheduled-attempt identity; retry/freshness/quarantine fields.
+- [ ] 5.2 Add an `always()` aggregator named `Verified Module Matrix` that rejects missing, skipped, cancelled, neutral, timed-out, duplicate, wrong-commit, and incompatible rows and enforces protected-main-approved quarantine semantics. (The delivered synthetic aggregate rejects compact evidence failures and identity drift; protected-main quarantine policy remains a later hosted-live concern.)
+- [ ] 5.3 Publish exact `passed / eligible` and `eligible / catalog` denominators plus scenario counts to the job summary and compact JSON; preserve candidate/blocked/deferred/stale/quarantined/retry/manual/N/A/missing rows.
+- [ ] 5.4 Add tests proving skipped, candidate, blocked, deferred/stale, manual, lab, quarantined, expired, pass-after-retry, infrastructure-failed, not-applicable, and missing states cannot become clean pass or shrink denominators.
+
+## 6. GitHub Actions
+
+- [x] 6.1 Preserve the existing `Go Tests` required check and build the Windows engine once for reuse with one-day artifact retention.
+- [x] 6.2 Add the all-module/all-schema-scenario synthetic and all-bundle PR matrix using 8 balanced shards, `fail-fast: false`, a 15-minute shard timeout, and the stable aggregate blocking result.
+- [ ] 6.3 Add a dedicated `.github/workflows/hosted-live.yml`, separate from the synthetic aggregate, that initially runs only a pinned exact-identity Notepad++ candidate campaign on trusted `main` by nightly schedule and manual dispatch with one non-cancelling concurrency group, a 45-minute safety timeout, no qualification retry, and sanitized evidence capped at 64 KiB/90 days.
+- [ ] 6.4 Select up to three changed live modules from merge-base-controlled policy; report overflow and head-added/materially changed live definitions as deferred/candidate and provide exact-commit trusted dispatch limited to one deterministic chunk of at most 64 jobs/2,880 runner-minutes with `max-parallel: 8` and a 100 MiB upload cap.
+- [ ] 6.5 Add scheduled rotation only for individually promoted modules, with `max-parallel: 8`, at most 64 jobs/2,880 runner-minutes per run, seven-day hosted attempt freshness, immediate stale-on-any-proof-identity-change semantics, per-module nightly-only timeout up to 45 minutes, complete aggregation, and no `continue-on-error` proof lanes. Require every additional candidate to complete its own pinned ten-clean-run campaign, reviewed promotion, and fresh post-promotion pass before rotation or PR selection; Notepad++ promotion is not global authorization.
+- [ ] 6.6 Use standard runners and immutable action SHAs; on forks use `pull_request`, read-only permissions, `persist-credentials: false`, no installer token/secrets, trusted live allowlists, no `pull_request_target` untrusted execution, and no self-hosted jobs. (The synthetic workflow has the stated read-only/action-pin/no-installer boundaries; trusted live allowlist work remains open.)
+- [ ] 6.7 Enforce artifact caps/retention: engine one day; evidence 64 KiB each with PR retention at most seven days and scheduled-live retention 90 days; diagnostics 1 MiB per module/three days; 100 MiB total per run; never cache installers or upload captured configs.
+- [ ] 6.8 Measure representative cold engine-only, one-module, and harness-change PRs including build/transfer/planning/aggregation; require p95 critical path <=40 minutes and <=250 new runner-minutes before gating.
+- [ ] 6.9 Configure branch protection to require the exact stable `Verified Module Matrix` aggregate check after missing-job and cold-run acceptance pass.
+- [ ] 6.10 Add bounded release validation as at most six deterministic exact-commit chunks, each at most 64 jobs/2,880 runner-minutes with `max-parallel: 8` and 100 MiB uploads; cap the campaign at 17,280 runner-minutes and reject an oversized plan.
+- [ ] 6.11 Add a serialized repository artifact-budget reconciler with a 1 GiB rolling cap and at least 25% included-storage headroom; account for in-progress reservations, prune expired/superseded artifacts, compact verified scheduled history to ten attempts per module/lane, drop optional diagnostics first, and fail closed when required evidence cannot fit.
+
+## 7. Documentation and Public Proof
+
+- [ ] 7.1 Update `docs/VALIDATION.md` with proof levels; the hosted-live versus hosted-backup distinction; hosted-safe admission criteria; local synthetic/live commands; classification rules; failure interpretation; and the rule that legacy direct-copy Windows Sandbox results are curation-only evidence.
+- [ ] 7.2 Document the repository-owner zero-dollar Actions budget/stop-on-limit setting and the standard-runner-only policy.
+- [ ] 7.3 Add a protected-main publishing job that reconstructs the rolling ten-attempt history from 90-day compact evidence and deploys a per-row commit-bound seven-day-TTL compatibility ledger to GitHub Pages without executing PR code; attach only complete bounded exact-commit release evidence to its matching GitHub Release and add a badge only after stable evidence exists.
+- [ ] 7.4 Create a follow-up GUI-repository OpenSpec for Tauri/WebDriver happy and unhappy paths against an identified engine artifact; do not represent it as complete in this repository.
+
+## 8. Verification and Rollout
+
+- [ ] 8.1 Run targeted planner, harness, module, bundle, evidence, and failure-classification tests.
+- [ ] 8.2 Run `cd go-engine && go test ./...` after engine/harness integration changes.
+- [ ] 8.3 Run `npm run openspec:validate`.
+- [ ] 8.4 Produce a local all-catalog/all-schema-scenario synthetic summary with no missing/vacuous result and no capture-only module falsely counted as config-roundtrip.
+- [ ] 8.5 Produce a GitHub-hosted Notepad++ evidence record showing engine-driven install plus live config roundtrip on the tested commit.
+- [ ] 8.6 Record ten consecutive scheduled first-attempt clean Notepad++ runs for one pinned campaign identity, each completing the whole job within 25 minutes; do not count manual dispatches, workflow reruns, slow passes, or `PASS_AFTER_RETRY`; use a separate reviewed change to promote only Notepad++; then require one fresh <=25-minute trusted-main pass of the promoted identity before making the live canary a required aggregate row for engine-affecting same-repository pull requests while forks remain synthetic-only. Keep only the stable `Verified Module Matrix` aggregate in branch protection.
+
+## 9. Candidate Baseline and Trusted Live Evidence
+
+- [x] 9.1 Define and validate the Task 9 candidate baseline: a production-Winget-bound, module-relative seed-hash-bound `exact-bytes` `live-config-roundtrip` policy that remains diagnostic, excluded from ordinary hosted selection and all proof/public denominators, and cannot authorize local mutation or proof minting.
+- [x] 9.2 Approve the independent Windows package observer contract: it reconciles native package-manager, uninstall-registry, and executable/version observations without becoming proof evidence or an execution authority.
+- [ ] 9.3 Add the causal process receipt boundary. Bind every execution request to its typed operation, canonical executable file identity/hash, argv/environment/current-directory digests, process identity/timing/exit, bounded stdout/stderr bytes and digests, and phase nonce/sequence; make the evidence decoder consume the immediate unexported receipt rather than substitutable raw bytes.
+- [ ] 9.4 Add fail-closed evidence decoding and event topology validation: audit stable raw-key inventories with bounded duplicate-key/EOF framing; decode official value structs only after those raw checks; require the exact initial apply and rebuild nested run topology, including the distinct outer rebuild envelope run ID.
+- [ ] 9.5 Add the genuinely read-only config-restore inspector: existing-root-only immutable records, no mkdir/lock/recovery/temp cleanup/writes, reject pending/temp/link/unknown state, double-scan and fail on change, and require a no-concurrent-writer/exclusive-lease precondition.
+- [ ] 9.6 Bind pre/post evidence exactly: pinned ZIP identity/digests, mapping targets, config-restore state, backups, generations, relevant journals/logs, artifact/output roots, one transaction/lineage to the nested apply run/capture/config set, one-to-one output/event/journal/physical-backup correspondence, exact revert marker/digest/bytes, and convergence with zero validation-owned persistent or target-state delta.
+- [ ] 9.7 Add disposable-runner lifecycle and declared-boundary cleanup proof: observe clean absence immediately before install receipt and presence immediately after; enumerate package/executable/uninstall-key/config-target/service/driver/task/reboot observers; seed only staged hash-bound bytes with least privilege; use unique attempt roots and link-safe exact-leaf wipe; reject unexpected observed deltas; and retry only after boundary absence is re-proven. UI, elevation, reboot, and lock conditions are unsupported and not retryable; do not claim whole-machine cleanliness.
+- [ ] 9.8 Introduce the external trusted exact-ref hosted authority that verifies repository, workflow, event, ref, checkout commit, run, attempt, and trusted actor before minting a single-use private permit bound to the exact engine/package/module/validation/seed/comparator/targets/observer/workflow-policy hashes, phase nonce, and expiry. It may run the fixed candidate on trusted `main`, but promotion requires the separate ten-clean-run reviewed rollout plus a fresh post-promotion pass; do not mark hosted/public proof complete before that sequence.
+
+## 10. Hosted Synthetic Baseline Recovery
+
+- [x] 10.1 Rebaseline all eight local shards at exact HEAD and preserve the current structured residuals before changing shared harness behavior (362 total, 112 passed, 250 failed).
+- [x] 10.2 Validate every shard row identity, uniqueness, completeness, and result/failure grammar before distinguishing canonical failed-shard evidence from foreign or malformed evidence.
+- [x] 10.3 Normalize authored tilde paths and route registry verifiers through disposable registry authority before guard/verifier I/O; reject rather than synthesize unsupported wildcard restore semantics.
+- [ ] 10.4 Generate production-matcher-confirmed descendant witnesses for directory excludes; for direct-file captures, prove only whether each glob excludes the exact declared basename and reject an invalid dead capture.
+- [x] 10.5 Add typed automatic `merge-json` and `merge-ini` state models that independently prove production merge precedence, backup, exact restore, revert, and convergence.
+- [ ] 10.6 Make nonce-scoped validation registry cleanup post-prove absence on every exit and override/augment earlier failures, then add typed `registry-import` state with exact value/type restoration.
+- [ ] 10.7 Run targeted packages, `go test ./...`, `go vet ./...`, OpenSpec validation, and all eight fresh local shards; require no opaque harness I/O and preserve an exact 362-row residual ledger before spending another hosted run.
+- [x] 10.8 Rebaseline the first production-matched recovery slice across all eight local shards without changing row identity or denominator (362 total, 182 passed, 180 failed; up from 112 passed).
+- [x] 10.9 Generalize install-contract fixtures across the exact production `command-exists`, `file-exists`, and key-only `registry-key-exists` verifier families while preserving negative-before-positive verification and `catalog + engine-contract` proof only.
+- [ ] 10.10 Replace the singleton capture-contract fixture with hash-bound typed file/directory/registry-key targets, while rejecting flattened destination collisions, secret-shadowed captures, and unsafe whole-key secret scope.
+
+## 11. Merge Gate and Maintenance Closure
+
+- [x] 11.1 Remove the tracked `.superpowers/sdd/task-8b-report.md`, add the anchored `/.superpowers/` repository ignore, and verify no tracked `.superpowers` path remains without using broad clean or broad staging.
+- [x] 11.2 Add presence-aware validation-sidecar defaults for automatic fixture type, 120-second timeout, module-aware minimum assertions, and live reason/explanation; reject explicit empty/zero and partial assertion overrides.
+- [x] 11.3 Mechanically remove only fields covered by those defaults and prove all 359 expanded records, 362 logical rows, scenario/live digests, shard assignments, and row identities match the pre-rewrite golden inventory.
+- [x] 11.4 Add check-only `sync-revisions --repo <path>` plus explicit `--write`; preflight all records, replace exactly one revision token atomically, preserve unrelated bytes/EOLs, reload the catalog, and never edit debt authority.
+- [x] 11.5 Add the strict known-failure ledger keyed by logical row identity, binding the complete inventory and exact structured debt, with no proof inflation and no generic bootstrap behavior.
+- [x] 11.6 Make shards succeed only on complete canonical evidence and make `Verified Module Matrix` the sole regression gate; prove missing/malformed evidence, catalog/canary failure, new failure, stale debt, unauthorized row removal, and unreviewed fingerprint transition remain red.
+- [x] 11.7 Extract pull-request base authority from the validated two-parent merge commit with non-persistent checkout credentials; keep the cross-job evidence parser independent from harness parsing.
+- [x] 11.8 Apply only characterization-backed internal reductions, retaining independent oracles and all hosted-live foundations when equivalence is not proven.
+- [x] 11.9 Run deliberate regression pilots for a new failed row, changed known failure, missing row/shard, passing row with stale debt, and deleted passing scenario; require exact aggregate classifications.
+- [ ] 11.10 Independently review and verify targeted packages, full Go tests/vet, OpenSpec validation, all eight fresh local shards, exact hosted artifacts, and the stable summary before merge.
+- [ ] 11.11 Squash-merge PR #205 while the aggregate is non-required, inspect the exact protected-main evidence run, seed its reviewed ledger in a baseline-only change, then require one fresh green protected-main aggregate before enabling branch protection.
+- [ ] 11.12 Retire the residual debt by root-cause cluster; every repair must produce real passing evidence and delete the matching ledger entry until the known-failure count reaches zero.

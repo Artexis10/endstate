@@ -1,0 +1,20 @@
+{
+  "id": "apps.validation-restore-contract",
+  "displayName": "Endstate Validation Restore Contract",
+  "sensitivity": "low",
+  "matches": {
+    "winget": ["Endstate.ValidationRestoreContract"]
+  },
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\EndstateValidationRestore\\settings.ini" }
+  ],
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/validation-restore-contract/settings.ini",
+      "target": "%APPDATA%\\EndstateValidationRestore\\settings.ini",
+      "backup": true
+    }
+  ],
+  "notes": "Harness-only production-form restore contract fixture."
+}

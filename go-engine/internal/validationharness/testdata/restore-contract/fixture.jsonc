@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "path": "tests/fixtures/validation-restore-contract/payload/settings.ini",
+    "sha256": "41b3a9d6116cc7df3337f2e0ab065df4397d88804f1788ba9a9093020a0bcdee"
+  },
+  "restore": {
+    "coordinate": "restore[0]",
+    "source": "./payload/apps/validation-restore-contract/settings.ini",
+    "target": "%APPDATA%\\EndstateValidationRestore\\settings.ini"
+  },
+  "restoredContent": "[endstate]\nstate=restored\n",
+  "originalContent": "[endstate]\nstate=original\n"
+}

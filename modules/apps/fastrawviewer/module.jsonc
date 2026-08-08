@@ -54,5 +54,12 @@
     ]
   },
 
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    }
+  },
+
   "notes": "FastRawViewer stores all settings in the Windows Registry under HKCU\\Software\\LibRaw LLC\\FastRawViewer\\. Prefs contains preferences, Shortcuts contains keyboard shortcuts, LastUsed contains window geometry. Not available via winget; installs to C:\\Program Files\\LibRaw\\FastRawViewer\\."
 }

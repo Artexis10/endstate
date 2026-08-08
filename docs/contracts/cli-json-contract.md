@@ -44,6 +44,7 @@ Every JSON output includes this envelope:
 | `runId` | string | Yes | Unique run identifier (format: `yyyyMMdd-HHmmss`) |
 | `timestampUtc` | string | Yes | ISO 8601 UTC timestamp |
 | `success` | boolean | Yes | Whether the command succeeded |
+| `testMode` | object | No | Present only for the internal disposable CI validation mode. Contains exactly `active: true`, `scenarioId`, and `moduleId`; omitted for ordinary runs. |
 | `data` | object | Yes | Command-specific result data |
 | `error` | object | No | Error object if `success` is false |
 
@@ -85,6 +86,7 @@ When `success` is `false`, the `error` field contains:
 | `MANIFEST_WRITE_FAILED` | Manifest file could not be written or is empty |
 | `PLAN_NOT_FOUND` | Plan file does not exist |
 | `PLAN_PARSE_ERROR` | Plan file is invalid |
+| `CATALOG_PLAN_INVALID` | A tracked catalog bundle or its production module/validation catalog cannot be resolved; safe failure details identify affected module IDs and stable reasons without filesystem paths |
 | `WINGET_NOT_AVAILABLE` | winget is not installed or accessible |
 | `REALIZER_UNAVAILABLE` | The package realizer is unavailable (e.g. the Nix daemon/store is unreachable, or `nix` is not installed) |
 | `ENGINE_CLI_NOT_FOUND` | Engine CLI not found (repo root not configured) |
@@ -97,6 +99,9 @@ When `success` is `false`, the `error` field contains:
 | `PERMISSION_DENIED` | Insufficient permissions |
 | `INTERNAL_ERROR` | Unexpected internal error |
 | `SCHEMA_INCOMPATIBLE` | Schema version mismatch |
+| `TESTMODE_INVALID` | Internal validation-mode activation, disposable root, descriptor, or package state is invalid. No command handler or production backend is run. Additive in schema 1.x. |
+| `TESTMODE_ISOLATION_VIOLATION` | An internal validation run attempted a package identity or boundary operation outside its descriptor-bound disposable authority. Additive in schema 1.x. |
+| `TESTMODE_COMMAND_FORBIDDEN` | A command outside the validation-mode allowlist was rejected before dispatch. Additive in schema 1.x. |
 | `ROLLBACK_UNSUPPORTED` | None of the selected provisioning generations has a backend that can perform native rollback or best-effort package uninstall. Additive in schema 1.x. |
 | `GENERATION_NOT_FOUND` | The `rollback --to <n>` target generation does not exist, or records no backend-native rollback anchor. Additive in schema 1.x. |
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
@@ -104,6 +109,23 @@ When `success` is `false`, the `error` field contains:
 | `CONFIRMATION_REQUIRED` | `rebuild` was invoked for a live run (restore on, not `--dry-run`) without `--confirm`. Raised before any mutation, so the refusal has no side effects. Additive in schema 1.x. |
 | `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`, or `import --from <source>` for an unrecognised source). Additive in schema 1.x. |
 | `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
+
+### Internal disposable validation mode
+
+The workflow-only validation mode is activated by the exact environment pair
+`ENDSTATE_TESTMODE=1` and `ENDSTATE_ROOT=<validated disposable root>`. It is not
+an end-user CLI capability and has no public flag. The executable accepts only
+`capture`, `plan`, `apply`, `rebuild`, `restore`, `verify`, and `revert` while
+active. Help remains data-only; every other command is rejected before its
+handler or any production package/backend factory can run.
+
+Every valid active-mode success and failure envelope includes `testMode`
+immediately before `data`. The object exposes scenario identity only. It never
+contains the disposable root, nonce, package source, original environment
+values, or other authority-bearing data. Paths beneath the disposable root in
+ordinary command results are rendered as `$ENDSTATE_ROOT/...`. Invalid
+activation emits `TESTMODE_INVALID` without a `testMode` claim because trusted
+descriptor identity was not established.
 
 ### Command Warnings
 
@@ -202,6 +224,10 @@ endstate capabilities --json
         "supported": true,
         "flags": ["--manifest", "--json", "--events"]
       },
+      "catalog-plan": {
+        "supported": true,
+        "flags": ["--bundle", "--json", "--events"]
+      },
       "restore": {
         "supported": true,
         "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events"]
@@ -230,7 +256,8 @@ endstate capabilities --json
     "features": {
       "streaming": false,
       "parallelInstall": true,
-      "configModules": true
+      "configModules": true,
+      "profileInspection": true
     },
     "platform": {
       "os": "windows",
@@ -257,6 +284,99 @@ endstate capabilities --json
 | `bootstrapTimestamp` | string\|null | Yes | ISO 8601 UTC timestamp of last bootstrap, or `null` if not bootstrapped |
 
 > **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the supported package backends in deterministic registry order. Windows reports `{ "os": "windows", "drivers": ["winget", "chocolatey"] }`; Winget remains its default. Linux reports the Nix realizer, and macOS reports Nix plus the additive Brew driver. On a host with no implemented backend, `drivers` is an empty array (`[]`). Consumers MUST NOT infer that every advertised optional driver is currently installed.
+
+`features.profileInspection` is an additive boolean. When true, `profile inspect <manifest-path> --json` is supported. Consumers MUST use this feature flag rather than probing a generic subcommand shape.
+
+---
+
+## Command: `profile inspect`
+
+Inspects one extracted manifest without evaluating the current machine:
+
+```powershell
+endstate profile inspect ./manifest.jsonc --json
+```
+
+The standard envelope retains `command: "profile"` and schema 1.x. On success, `data` has this shape:
+
+```json
+{
+  "profile": {
+    "name": "workstation",
+    "capturedAt": "2026-07-30T12:00:00Z",
+    "manifestVersion": 2,
+    "manifestPath": "C:\\Profiles\\workstation\\manifest.jsonc"
+  },
+  "summary": {
+    "appCount": 1,
+    "settingsRowCount": 1,
+    "verifiedSettingsAppCount": 1,
+    "unidentifiedSettingsRowCount": 0
+  },
+  "apps": [
+    {
+      "id": "app:obsidian-obsidian:1",
+      "manifestAppId": "obsidian-obsidian",
+      "displayName": "Obsidian",
+      "packageRefs": ["Obsidian.Obsidian"],
+      "hasSettings": true
+    }
+  ],
+  "settingsApps": [
+    {
+      "id": "settings:app:obsidian-obsidian:1",
+      "displayName": "Obsidian",
+      "associationStatus": "included",
+      "ownerId": "app:obsidian-obsidian:1",
+      "appId": "app:obsidian-obsidian:1",
+      "appIncluded": true,
+      "packageRefs": ["Obsidian.Obsidian"],
+      "moduleIds": ["obsidian"],
+      "candidateAppIds": ["app:obsidian-obsidian:1"],
+      "capturedEntryCount": 3
+    }
+  ],
+  "warnings": []
+}
+```
+
+`profile.name` and `profile.capturedAt` are nullable strings; `manifestVersion` is an integer and `manifestPath` is a string. `capturedAt` uses non-empty manifest `captured`, then sibling metadata `capturedAt`, then null; a conflict can emit a diagnostic warning without changing precedence. All summary values and `capturedEntryCount` are non-negative integers. `apps`, `settingsApps`, `warnings`, `packageRefs`, `moduleIds`, and `candidateAppIds` are always present and non-null.
+
+`apps[]` entries include opaque unique `id` plus raw `manifestAppId`. Before presentation sorting, `id` is `app:<case-folded-manifest-app-id-or-unnamed>:<one-based-occurrence-among-that-case-folded-id-in-resolved-manifest-order>`. `associationStatus` is exactly `included`, `not_in_profile`, `ambiguous`, or `unresolved`. Each owned module selects one verified owner-ref tier: `configCaptures[].sourceInstance.evidence.ref`, successfully verified embedded snapshot refs, then trusted-catalog refs for that already-owned module. The first non-empty tier wins; lower tiers cannot add candidates or override it. Selected refs are trimmed, case-insensitively deduplicated, and sorted. An Apps candidate exactly case-insensitively intersects selected refs: one is included, multiple ambiguous, zero with refs not-in-profile, and no refs unresolved.
+
+`ownerId` is non-null only for included/not-in-profile; `appId` is non-null only for included; `appIncluded` is true iff included; and `candidateAppIds` is the single Apps row `id` for included, sorted Apps row IDs for ambiguous, and empty otherwise. Settings row IDs are `settings:<app-row-id>` for included, `settings:<absent-owner-key>` for not-in-profile, and `settings:module:<canonical-module-key>` for ambiguous/unresolved. An included `ownerId` is its Apps row `id`; an absent-owner key is `package:` plus the complete sorted case-folded selected-ref set joined by `|`, and modules group only when this whole key is identical. Only `included` can make `apps[].hasSettings` true. `included` and `not_in_profile` contribute to `verifiedSettingsAppCount`; `ambiguous` and `unresolved` contribute to `unidentifiedSettingsRowCount`.
+
+Ownership canonicalizes module IDs by trimming whitespace, lowercasing for comparison, and stripping one leading `apps.`; it unions and deduplicates all applicable saved-profile sources. V2 sources are `configCaptures[].moduleId` and `legacyConfigLanes[].moduleId`; v1 sources are `restore[].fromModule`, `configModules[]`, sibling `metadata.json.configModulesIncluded[]`, and the first segment after `configs/` in restore `source`. The trusted current catalog can enrich already-owned modules with labels and verified package refs but cannot create ownership or run matchers. Root-only exact `refs.windows` `exclude` applies to Apps and root-only `excludeConfigs` to ownership; included exclusions are ignored.
+
+Apps display names use captured app `displayName`, first sorted package ref, then humanized manifest app ID. Settings display names use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then humanized canonical module key. App package refs include all non-empty trimmed `refs` values, deduplicated and sorted; a settings row's package refs are the sorted union of its contributing modules' selected verified owner refs. For v2, `capturedEntryCount` sums `payloadManifest.length` once per distinct `captureId` (manifest validation guarantees uniqueness; counting deduplicates defensively) and counts restore entries bound to a legacy lane `legacyCaptureId`; for v1 it counts distinct restore entries attributed by `fromModule`, falling back per entry to `configs/<module>/...`. Metadata-only/configModules-only ownership is zero; grouped rows sum without double counting.
+
+Apps/settings rows sort by case-folded display name then row ID; package/module/candidate arrays by case-folded value then original value; warnings by code then message. Each warning has `code`, engine-authored `message`, and `impact`, where impact is exactly `diagnostic` or `inventory_incomplete`.
+
+The command accepts only an extracted manifest path and is read-only. Its includes must be relative `.json`, `.jsonc`, or `.json5` files within the root manifest directory; absolute, extensionless/profile-name, directory, bundle, and escaping includes fail with `MANIFEST_VALIDATION_ERROR` and are never extracted. A missing path is a structured usage failure, never a panic or human-only stdout result. Missing, malformed, and invalid manifests use the existing `MANIFEST_NOT_FOUND`, `MANIFEST_PARSE_ERROR`, and `MANIFEST_VALIDATION_ERROR` errors, respectively.
+
+---
+
+## Command: `catalog-plan`
+
+Resolves exactly one tracked immediate child of `bundles/` through the strict production module and validation-sidecar catalog. It is read-only and emits only `catalog` proof; it never chooses a package reference, creates an app declaration, or runs install, restore, or verification work.
+
+```powershell
+endstate catalog-plan --bundle bundles/dev-tools.jsonc --json --events jsonl
+```
+
+`data` has this stable shape:
+
+```json
+{
+  "proof": "catalog",
+  "bundle": {"id":"dev-tools","name":"Development Tools","path":"bundles/dev-tools.jsonc","hash":"<sha256>","version":1},
+  "membershipCount": 2,
+  "actionCount": 2,
+  "actions": [{"bundleId":"dev-tools","bundleHash":"<sha256>","moduleId":"apps.git","moduleRevision":"<sha256>","moduleSchemaVersion":1,"validationHash":"<sha256>","validationScenarioCount":1,"status":"resolved","skipped":false}]
+}
+```
+
+Actions are in authored membership order. `actionCount` equals `membershipCount` and both are nonzero on success. `bundle.path` is repository-relative; absolute host or repository paths are never serialized.
 
 ---
 

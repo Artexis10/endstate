@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.claude-desktop",
+  "moduleRevision": "a06b93b3b66ad8dd904f687f76c22ba054947f1d48f118edfcd9350c2d04a4f8",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/claude-desktop/validation-fixtures/capture-contract-v1.jsonc",
+          "sha256": "3c6f4fcde4819ea57498b0e4ec3aa9143922e1b0a3945c29d059b8d93a97e39e"
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "non-restorable-inventory",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "The authored module captures the Claude Desktop extensions installation inventory, which has no executable restore contract and is intentionally inventory-only."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

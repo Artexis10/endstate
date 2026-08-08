@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.nomacs",
+  "moduleRevision": "da43f80b1b2517f349848ff5cabf67304d440e8e5dc2b6aaf03e228adccf2d5c",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

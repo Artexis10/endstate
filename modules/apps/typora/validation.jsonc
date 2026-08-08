@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.typora",
+  "moduleRevision": "4744b1ad1faa1d4da660d0a4f5332613675d285c3a7954b07bc8ed1fd4ada2f8",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

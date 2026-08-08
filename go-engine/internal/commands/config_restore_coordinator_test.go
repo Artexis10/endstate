@@ -120,10 +120,22 @@ func TestConfigCatalogSnapshotPreservesCanonicalModuleBytes(t *testing.T) {
 	if first == nil || !bytes.Equal(first.CanonicalSnapshot(), want) {
 		t.Fatalf("canonical bytes were not retained: got=%q want=%q", first.CanonicalSnapshot(), want)
 	}
+	if !validationModuleAuthorityIsPinned(first) {
+		t.Fatal("defensive schema-v2 catalog clone no longer satisfies pinned module authority")
+	}
 	first.CanonicalSnapshot()[0] = '!'
 	second := snapshot.ModuleCatalog()[module.ID]
 	if !bytes.Equal(second.CanonicalSnapshot(), want) {
 		t.Fatalf("canonical bytes alias a caller-owned copy: got=%q want=%q", second.CanonicalSnapshot(), want)
+	}
+}
+
+func TestConfigCatalogSnapshotPreservesStudioOneCanonicalAuthority(t *testing.T) {
+	module := loadValidationProductionModule(t, "studio-one")
+	snapshot := newConfigCatalogSnapshot(map[string]*modules.Module{module.ID: module}, nil)
+	cloned := snapshot.ModuleCatalog()[module.ID]
+	if cloned == nil || !validationModuleAuthorityIsPinned(cloned) {
+		t.Fatal("Studio One defensive catalog clone no longer satisfies pinned module authority")
 	}
 }
 

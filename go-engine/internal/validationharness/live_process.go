@@ -1,0 +1,312 @@
+// Copyright 2026 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+package validationharness
+
+import (
+	"context"
+	"crypto/sha256"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+const (
+	maxLiveProcessOutputBytes = 1 << 20
+	maxLiveProcessValueBytes  = 4 * 1024
+)
+
+type LiveExecutionClass string
+
+const (
+	LiveExecutionProbe     LiveExecutionClass = "probe"
+	LiveExecutionEngine    LiveExecutionClass = "engine"
+	LiveExecutionSeed      LiveExecutionClass = "seed"
+	LiveExecutionWinget    LiveExecutionClass = "winget"
+	LiveExecutionUninstall LiveExecutionClass = "uninstaller"
+)
+
+type LiveExecutionFailureCode string
+
+const (
+	LiveExecutionInvalidRequest LiveExecutionFailureCode = "invalid-request"
+	LiveExecutionMutationDenied LiveExecutionFailureCode = "mutation-denied"
+	LiveExecutionUnsupported    LiveExecutionFailureCode = "unsupported"
+	LiveExecutionStartFailed    LiveExecutionFailureCode = "start-failed"
+	LiveExecutionContainment    LiveExecutionFailureCode = "containment-failed"
+	LiveExecutionTimeout        LiveExecutionFailureCode = "timeout"
+	LiveExecutionCanceled       LiveExecutionFailureCode = "canceled"
+	LiveExecutionOutputLimit    LiveExecutionFailureCode = "output-limit"
+	LiveExecutionProcessExit    LiveExecutionFailureCode = "process-exit"
+)
+
+// LiveExecutionError has stable failure categories. Its text deliberately
+// omits commands, arguments, paths, environment values, and child output.
+type LiveExecutionError struct {
+	Code  LiveExecutionFailureCode
+	cause error
+}
+
+func (err *LiveExecutionError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return "live process " + string(err.Code)
+}
+
+func (err *LiveExecutionError) Unwrap() error {
+	return nil
+}
+
+func liveExecutionError(code LiveExecutionFailureCode, cause error) *LiveExecutionError {
+	return &LiveExecutionError{Code: code, cause: cause}
+}
+
+// trustedLiveMutationPermit is intentionally unexported. A future trusted
+// workflow may construct it only after validating its external authority; a
+// catalog row or caller outside this package cannot turn candidate data into a
+// mutation permit.
+type trustedLiveMutationPermit struct{ capability *liveMutationCapability }
+
+type liveMutationCapability struct{ serial uint64 }
+
+// LiveProcessRequest is an internal execution request. It has no zero-value
+// behavior: probes are created only by a reviewed typed builder, and mutations
+// only by a permit-bearing typed builder.
+type LiveProcessRequest struct {
+	executable  string
+	args        []string
+	dir         string
+	environment map[string]string
+	outputLimit int
+	operation   liveOperation
+	admission   liveReceiptAdmission
+	expected    liveReceiptExpectedIdentity
+	permit      trustedLiveMutationPermit
+	appx        *liveTrustedAppXBinding
+}
+
+type liveAppXPackageMetadata struct {
+	familyName, fullName, packageRoot, executableName string
+	receipt                                           liveTrustedAppXReceipt
+}
+
+// liveTrustedAppXReceipt is populated only after AppModel selection, protected
+// binding, and Authenticode verification. The runner rechecks it immediately
+// before launch rather than treating a package-root spelling as authority.
+type liveTrustedAppXReceipt struct {
+	volume, indexHigh, indexLow uint32
+	sha256                      [32]byte
+	valid                       bool
+}
+
+// liveTrustedAppXBinding can only be constructed by the Windows AppModel
+// resolver after it has selected exact package metadata. It is not a generic
+// path exemption.
+type liveTrustedAppXBinding struct{ metadata liveAppXPackageMetadata }
+
+// liveProcessOutput is deliberately private and has no serialization tags:
+// callers must decode it before creating any public evidence object.
+type liveProcessOutput struct {
+	ExitCode int
+	Stdout   []byte
+	Stderr   []byte
+	launched bool
+	image    liveReceiptImageIdentity
+	pid      uint32
+	created  time.Time
+	started  time.Time
+	finished time.Time
+}
+
+func newLiveWingetListProbe(admission liveReceiptAdmission, executable, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
+	return LiveProcessRequest{
+		executable: executable, environment: cloneLiveEnvironment(environment), outputLimit: outputLimit, operation: liveOperationWingetExactList, admission: admission,
+		args: []string{"list", "--id", ref, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"},
+	}
+}
+
+func newLiveTrustedAppXWingetListProbe(admission liveReceiptAdmission, binding liveTrustedAppXBinding, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
+	request := newLiveWingetListProbe(admission, filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName), ref, environment, outputLimit)
+	request.appx = &binding
+	request.expected.packageRef = binding.metadata.receipt.sha256
+	return request
+}
+
+func newLiveEngineApply(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineApply, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveEngineVerify(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineVerify, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveEngineCapture(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineCapture, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveEngineRebuild(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineRebuild, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveEngineRevert(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineRevert, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveHashBoundSeed(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationHashBoundSeed, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveTypedMutation(admission liveReceiptAdmission, permit trustedLiveMutationPermit, operation liveOperation, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return LiveProcessRequest{executable: executable, args: append([]string(nil), args...), dir: dir, environment: cloneLiveEnvironment(environment), outputLimit: outputLimit, operation: operation, admission: admission, expected: expected, permit: permit}
+}
+
+func (request LiveProcessRequest) executionClass() LiveExecutionClass {
+	switch request.operation {
+	case liveOperationWingetExactList:
+		return LiveExecutionProbe
+	case liveOperationHashBoundSeed:
+		return LiveExecutionSeed
+	case liveOperationWingetExactInstall:
+		return LiveExecutionWinget
+	case liveOperationWingetExactUninstall:
+		return LiveExecutionUninstall
+	default:
+		return LiveExecutionEngine
+	}
+}
+
+func (request LiveProcessRequest) outputByteLimit() int {
+	if request.outputLimit == 0 {
+		return maxLiveProcessOutputBytes
+	}
+	return request.outputLimit
+}
+
+func (request LiveProcessRequest) mutates() bool {
+	return request.operation.mutation()
+}
+
+func validateLiveProcessRequest(request LiveProcessRequest) error {
+	if !validLiveProcessValue(request.executable) || !filepath.IsAbs(request.executable) || filepath.Clean(request.executable) != request.executable || !validLiveProcessValue(request.dir) && request.dir != "" {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	if !request.operation.valid() || !request.admission.valid() || request.admission.operation != request.operation {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	if len(request.args) > 64 || request.outputByteLimit() < 1 || request.outputByteLimit() > maxLiveProcessOutputBytes {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	for _, arg := range request.args {
+		if !validLiveProcessValue(arg) {
+			return liveExecutionError(LiveExecutionInvalidRequest, nil)
+		}
+	}
+	if _, err := liveProcessEnvironment(request.environment); err != nil {
+		return err
+	}
+	if request.operation == liveOperationWingetExactList && !validLiveProbe(request) {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	if request.mutates() && request.permit.capability == nil {
+		return liveExecutionError(LiveExecutionMutationDenied, nil)
+	}
+	if !request.expected.valid(request.operation) {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	return nil
+}
+
+func validLiveProbe(request LiveProcessRequest) bool {
+	_, ok := liveWingetListProbeReference(request.args)
+	return request.operation == liveOperationWingetExactList && ok
+}
+
+func liveWingetListProbeReference(args []string) (string, bool) {
+	if len(args) != 8 || args[0] != "list" || args[1] != "--id" || !validLiveProcessValue(args[2]) {
+		return "", false
+	}
+	return args[2], args[3] == "--exact" && args[4] == "--source" && args[5] == "winget" && args[6] == "--accept-source-agreements" && args[7] == "--disable-interactivity"
+}
+
+func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecutionReceipt, error) {
+	defer request.admission.complete()
+	if err := validateLiveProcessRequest(request); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, liveProcessContextError(err)
+	}
+	output, err := runLiveProcessPlatform(ctx, request)
+	if !output.launched {
+		return nil, err
+	}
+	if request.executionClass() == LiveExecutionEngine && request.expected.engine != output.image.sha256 {
+		err = liveExecutionError(LiveExecutionContainment, nil)
+	}
+	if request.appx != nil && request.appx.metadata.receipt.sha256 != output.image.sha256 {
+		err = liveExecutionError(LiveExecutionContainment, nil)
+	}
+	receipt := &liveExecutionReceipt{
+		issuerID: request.admission.issuer.id, operation: request.operation, sequence: request.admission.sequence, nonce: request.admission.nonce, admissionToken: request.admission.token,
+		executable: request.executable, args: append([]string(nil), request.args...), directory: request.dir, environment: cloneLiveEnvironment(request.environment), expected: request.expected,
+		image: output.image, pid: output.pid, created: output.created.UTC(), started: output.started.UTC(), finished: output.finished.UTC(), exitCode: output.ExitCode,
+		stdout: append([]byte(nil), output.Stdout...), stderr: append([]byte(nil), output.Stderr...),
+	}
+	if execution, ok := err.(*LiveExecutionError); ok {
+		receipt.failure = execution.Code
+	}
+	receipt.requestSHA256 = receipt.requestDigest()
+	receipt.stdoutSHA256 = sha256.Sum256(receipt.stdout)
+	receipt.stderrSHA256 = sha256.Sum256(receipt.stderr)
+	receipt.resultSHA256 = receipt.resultDigest()
+	if err := request.admission.issuer.sealFn(receipt); err != nil {
+		return nil, liveExecutionError(LiveExecutionContainment, err)
+	}
+	return receipt, err
+}
+
+func liveProcessContextError(err error) error {
+	if err == context.DeadlineExceeded {
+		return liveExecutionError(LiveExecutionTimeout, err)
+	}
+	return liveExecutionError(LiveExecutionCanceled, err)
+}
+
+func liveProcessEnvironment(overrides map[string]string) ([]string, error) {
+	if len(overrides) > len(liveProcessEnvironmentAllowlist) {
+		return nil, liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	values := make([]string, 0, len(overrides))
+	for name, value := range overrides {
+		if _, allowed := liveProcessEnvironmentAllowlist[strings.ToUpper(name)]; !allowed || name != strings.ToUpper(name) || !validLiveProcessEnvironmentValue(value) {
+			return nil, liveExecutionError(LiveExecutionInvalidRequest, nil)
+		}
+		values = append(values, name+"="+value)
+	}
+	sort.Strings(values)
+	return values, nil
+}
+
+var liveProcessEnvironmentAllowlist = map[string]struct{}{
+	"APPDATA": {}, "COMSPEC": {}, "LOCALAPPDATA": {}, "PATH": {}, "PATHEXT": {},
+	"SYSTEMROOT": {}, "TEMP": {}, "TMP": {}, "USERPROFILE": {}, "WINDIR": {},
+}
+
+func validLiveProcessValue(value string) bool {
+	return value != "" && len(value) <= maxLiveProcessValueBytes && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func validLiveProcessEnvironmentValue(value string) bool {
+	return len(value) <= maxLiveProcessOutputBytes && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func containsLiveEnvironment(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}

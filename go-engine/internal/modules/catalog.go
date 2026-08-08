@@ -158,6 +158,21 @@ func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []str
 		false
 }
 
+// ParseAndValidateModuleJSON applies the same parse and production validation
+// steps used by catalog loading to caller-supplied, already-safe module bytes.
+func ParseAndValidateModuleJSON(data []byte, filePath string) (*Module, error) {
+	mod, err := ParseModuleJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateModule(mod, filePath); err != nil {
+		return nil, err
+	}
+	mod.FilePath = filePath
+	mod.ModuleDir = filepath.Dir(filePath)
+	return mod, nil
+}
+
 func diagnosticInstanceDetectors(mod *Module) []InstanceDetectorDef {
 	if mod == nil || mod.Config == nil {
 		return nil

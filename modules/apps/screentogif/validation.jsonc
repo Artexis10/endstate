@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.screentogif",
+  "moduleRevision": "63e8ddaef0e84988fdc2a2130257f682355ed4e618df9eaaf49a5ba2a59caa85",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

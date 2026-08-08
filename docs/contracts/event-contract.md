@@ -69,6 +69,7 @@ Signals transition between engine phases.
 
 **Guarantees:**
 - First event in stream is always a phase event
+- `catalog-plan` uses the existing `plan` phase and emits one non-skipped `item` event per resolved catalog module followed by the standard summary event; it never emits install, restore, or verification events.
 - Phase events are monotonic (no backward transitions)
 
 ---

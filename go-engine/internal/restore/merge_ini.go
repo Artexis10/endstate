@@ -31,16 +31,17 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 		Source: source,
 		Target: target,
 	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 
 	// Check source exists.
-	if _, err := os.Stat(source); os.IsNotExist(err) {
+	if _, err := boundary.stat("source-stat", source); os.IsNotExist(err) {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("source not found: %s", source)
 		return result, nil
 	}
 
 	// Read source INI.
-	sourceData, err := os.ReadFile(source)
+	sourceData, err := boundary.readFile("source-read", source)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("cannot read source: %v", err)
@@ -50,14 +51,18 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 
 	// Read target INI (empty if doesn't exist).
 	var targetIni *IniFile
-	if _, statErr := os.Stat(target); statErr == nil {
-		targetData, readErr := os.ReadFile(target)
+	if _, statErr := boundary.stat("target-snapshot-stat", target); statErr == nil {
+		targetData, readErr := boundary.readFile("target-snapshot-read", target)
 		if readErr != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("cannot read target: %v", readErr)
 			return result, nil
 		}
 		targetIni = ParseIni(string(targetData))
+	} else if opts.ValidationContext != nil && !os.IsNotExist(statErr) {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("cannot inspect target: %v", statErr)
+		return result, nil
 	} else {
 		targetIni = &IniFile{}
 	}
@@ -67,8 +72,8 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 	mergedContent := FormatIni(merged)
 
 	// Check if up-to-date.
-	if _, statErr := os.Stat(target); statErr == nil {
-		existingData, readErr := os.ReadFile(target)
+	if _, statErr := boundary.stat("target-up-to-date-stat", target); statErr == nil {
+		existingData, readErr := boundary.readFile("target-up-to-date-read", target)
 		if readErr == nil {
 			existingIni := ParseIni(string(existingData))
 			existingContent := FormatIni(existingIni)
@@ -77,6 +82,10 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 				return result, nil
 			}
 		}
+	} else if opts.ValidationContext != nil && !os.IsNotExist(statErr) {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("cannot recheck target: %v", statErr)
+		return result, nil
 	}
 
 	// Dry-run.
@@ -84,15 +93,11 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 		result.Status = "restored"
 		return result, nil
 	}
-
 	// Backup target if exists and backup requested.
 	if entry.Backup {
-		if _, statErr := os.Stat(target); statErr == nil {
-			backupDir := opts.BackupDir
-			if backupDir == "" {
-				backupDir = defaultBackupDir(opts.RunID)
-			}
-			backupPath, backupErr := CreateBackup(target, backupDir)
+		if _, statErr := boundary.stat("target-backup-stat", target); statErr == nil {
+			backupDir := restoreBackupDirectory(opts)
+			backupPath, backupErr := CreateBackupWithValidation(target, backupDir, opts.ValidationContext)
 			if backupErr != nil {
 				result.Status = "failed"
 				result.Error = fmt.Sprintf("backup failed: %v", backupErr)
@@ -103,7 +108,7 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 		}
 	}
 
-	if err := atomicRestoreWrite(target, []byte(mergedContent), 0o644); err != nil {
+	if err := boundary.atomicWrite("target-atomic-write", target, []byte(mergedContent), 0o644); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("write failed: %v", err)
 		return result, nil

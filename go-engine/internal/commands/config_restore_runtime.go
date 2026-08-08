@@ -210,25 +210,36 @@ func cloneConfigModule(value *modules.Module) *modules.Module {
 	}
 	cloned := *value
 	cloned.Matches = cloneConfigModuleMatches(value.Matches)
-	cloned.Verify = append([]modules.VerifyDef(nil), value.Verify...)
+	cloned.Verify = cloneConfigSlice(value.Verify)
 	cloned.Restore = cloneConfigModuleRestoreDefs(value.Restore)
 	cloned.Capture = cloneConfigModuleCaptureDef(value.Capture)
 	if value.Secrets != nil {
 		secrets := *value.Secrets
-		secrets.Files = append([]string(nil), value.Secrets.Files...)
+		secrets.Files = cloneConfigSlice(value.Secrets.Files)
+		secrets.RegistryKeys = cloneConfigSlice(value.Secrets.RegistryKeys)
 		cloned.Secrets = &secrets
 	}
 	cloned.Config = cloneConfigModuleConfigDef(value.Config)
+	if value.Curation != nil {
+		curation := *value.Curation
+		curation.SnapshotRoots = cloneConfigSlice(value.Curation.SnapshotRoots)
+		curation.ExcludePatterns = cloneConfigSlice(value.Curation.ExcludePatterns)
+		if value.Curation.Seed != nil {
+			seed := *value.Curation.Seed
+			curation.Seed = &seed
+		}
+		cloned.Curation = &curation
+	}
 	return &cloned
 }
 
 func cloneConfigModuleMatches(value modules.MatchCriteria) modules.MatchCriteria {
 	return modules.MatchCriteria{
-		Winget:               append([]string(nil), value.Winget...),
-		Chocolatey:           append([]string(nil), value.Chocolatey...),
-		Exe:                  append([]string(nil), value.Exe...),
-		UninstallDisplayName: append([]string(nil), value.UninstallDisplayName...),
-		PathExists:           append([]string(nil), value.PathExists...),
+		Winget:               cloneConfigSlice(value.Winget),
+		Chocolatey:           cloneConfigSlice(value.Chocolatey),
+		Exe:                  cloneConfigSlice(value.Exe),
+		UninstallDisplayName: cloneConfigSlice(value.UninstallDisplayName),
+		PathExists:           cloneConfigSlice(value.PathExists),
 	}
 }
 
@@ -237,28 +248,37 @@ func cloneConfigModuleConfigDef(value *modules.ConfigDef) *modules.ConfigDef {
 		return nil
 	}
 	cloned := *value
-	cloned.InstanceDetectors = append([]modules.InstanceDetectorDef(nil), value.InstanceDetectors...)
-	cloned.Sets = make([]modules.ConfigSetDef, len(value.Sets))
+	cloned.InstanceDetectors = cloneConfigSlice(value.InstanceDetectors)
+	cloned.Sets = nil
+	if value.Sets != nil {
+		cloned.Sets = make([]modules.ConfigSetDef, len(value.Sets))
+	}
 	for setIndex := range value.Sets {
 		set := value.Sets[setIndex]
-		set.Generations = make([]modules.GenerationDef, len(value.Sets[setIndex].Generations))
+		set.Generations = nil
+		if value.Sets[setIndex].Generations != nil {
+			set.Generations = make([]modules.GenerationDef, len(value.Sets[setIndex].Generations))
+		}
 		for generationIndex := range value.Sets[setIndex].Generations {
 			generation := value.Sets[setIndex].Generations[generationIndex]
-			generation.Matches = append([]modules.VersionSelectorDef(nil), generation.Matches...)
-			generation.AcceptsSourceFingerprints = append([]string(nil), generation.AcceptsSourceFingerprints...)
+			generation.Matches = cloneConfigSlice(generation.Matches)
+			generation.AcceptsSourceFingerprints = cloneConfigSlice(generation.AcceptsSourceFingerprints)
 			generation.Capture = cloneConfigModuleCaptureDef(generation.Capture)
 			generation.Restore = cloneConfigModuleRestoreDefs(generation.Restore)
-			generation.Validate = append([]modules.ValidationDef(nil), generation.Validate...)
+			generation.Validate = cloneConfigSlice(generation.Validate)
 			set.Generations[generationIndex] = generation
 		}
-		set.Migrations = make([]modules.MigrationEdgeDef, len(value.Sets[setIndex].Migrations))
+		set.Migrations = nil
+		if value.Sets[setIndex].Migrations != nil {
+			set.Migrations = make([]modules.MigrationEdgeDef, len(value.Sets[setIndex].Migrations))
+		}
 		for edgeIndex := range value.Sets[setIndex].Migrations {
 			edge := value.Sets[setIndex].Migrations[edgeIndex]
-			edge.Operations = append([]modules.MigrationOperationDef(nil), edge.Operations...)
+			edge.Operations = cloneConfigSlice(edge.Operations)
 			for operationIndex := range edge.Operations {
 				edge.Operations[operationIndex].Value = cloneConfigModuleJSONValue(edge.Operations[operationIndex].Value)
 			}
-			edge.Validate = append([]modules.ValidationDef(nil), edge.Validate...)
+			edge.Validate = cloneConfigSlice(edge.Validate)
 			set.Migrations[edgeIndex] = edge
 		}
 		cloned.Sets[setIndex] = set
@@ -267,9 +287,9 @@ func cloneConfigModuleConfigDef(value *modules.ConfigDef) *modules.ConfigDef {
 }
 
 func cloneConfigModuleRestoreDefs(values []modules.RestoreDef) []modules.RestoreDef {
-	cloned := append([]modules.RestoreDef(nil), values...)
+	cloned := cloneConfigSlice(values)
 	for index := range cloned {
-		cloned[index].Exclude = append([]string(nil), values[index].Exclude...)
+		cloned[index].Exclude = cloneConfigSlice(values[index].Exclude)
 	}
 	return cloned
 }
@@ -279,11 +299,20 @@ func cloneConfigModuleCaptureDef(value *modules.CaptureDef) *modules.CaptureDef 
 		return nil
 	}
 	cloned := *value
-	cloned.Files = append([]modules.CaptureFile(nil), value.Files...)
-	cloned.RegistryKeys = append([]modules.CaptureRegistryKey(nil), value.RegistryKeys...)
-	cloned.RegistryValues = append([]modules.CaptureRegistryValue(nil), value.RegistryValues...)
-	cloned.ExcludeGlobs = append([]string(nil), value.ExcludeGlobs...)
+	cloned.Files = cloneConfigSlice(value.Files)
+	cloned.RegistryKeys = cloneConfigSlice(value.RegistryKeys)
+	cloned.RegistryValues = cloneConfigSlice(value.RegistryValues)
+	cloned.ExcludeGlobs = cloneConfigSlice(value.ExcludeGlobs)
 	return &cloned
+}
+
+func cloneConfigSlice[T any](values []T) []T {
+	if values == nil {
+		return nil
+	}
+	cloned := make([]T, len(values))
+	copy(cloned, values)
+	return cloned
 }
 
 func cloneConfigModuleJSONValue(value any) any {

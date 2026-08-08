@@ -4,11 +4,16 @@
 package safepath
 
 import (
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 )
+
+var ErrByteLimit = errors.New("regular file exceeds byte limit")
 
 var openAtomicCopySource = os.Open
 
@@ -34,19 +39,92 @@ func AtomicCopyFile(source, destination string, mode os.FileMode) error {
 }
 
 func ReadRegularFile(source string) ([]byte, os.FileMode, error) {
+	return readRegularFileBounded(source, math.MaxInt64)
+}
+
+// ReadRegularFileBounded returns race-checked regular-file bytes, rejecting a
+// file whose verified size exceeds maxBytes.
+func ReadRegularFileBounded(source string, maxBytes int64) ([]byte, os.FileMode, error) {
+	return readRegularFileBounded(source, maxBytes)
+}
+
+func readRegularFileBounded(source string, maxBytes int64) ([]byte, os.FileMode, error) {
 	input, openedInfo, err := openVerifiedRegularFile(source)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer input.Close()
-	data, err := io.ReadAll(input)
+	if maxBytes < 0 || openedInfo.Size() < 0 || openedInfo.Size() > maxBytes {
+		return nil, 0, ErrByteLimit
+	}
+	reader := io.Reader(input)
+	if maxBytes < math.MaxInt64 {
+		reader = io.LimitReader(input, maxBytes+1)
+	}
+	data, err := io.ReadAll(reader)
 	if err != nil {
+		return nil, 0, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, 0, ErrByteLimit
+	}
+	postReadInfo, err := input.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := verifyHashedFileRead(openedInfo, postReadInfo, int64(len(data))); err != nil {
 		return nil, 0, err
 	}
 	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
 		return nil, 0, err
 	}
 	return data, openedInfo.Mode(), nil
+}
+
+// HashRegularFile hashes a race-checked regular file without buffering its
+// contents. Files larger than maxBytes are rejected before any content read.
+func HashRegularFile(source string, maxBytes int64) ([sha256.Size]byte, int64, error) {
+	var zero [sha256.Size]byte
+	input, openedInfo, err := openVerifiedRegularFile(source)
+	if err != nil {
+		return zero, 0, err
+	}
+	defer input.Close()
+	if maxBytes < 0 || openedInfo.Size() < 0 || openedInfo.Size() > maxBytes {
+		return zero, 0, ErrByteLimit
+	}
+	hash := sha256.New()
+	reader := io.Reader(input)
+	if maxBytes < math.MaxInt64 {
+		reader = io.LimitReader(input, maxBytes+1)
+	}
+	written, err := io.Copy(hash, reader)
+	if err != nil {
+		return zero, 0, err
+	}
+	if written > maxBytes {
+		return zero, 0, ErrByteLimit
+	}
+	postReadInfo, err := input.Stat()
+	if err != nil {
+		return zero, 0, err
+	}
+	if err := verifyHashedFileRead(openedInfo, postReadInfo, written); err != nil {
+		return zero, 0, err
+	}
+	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
+		return zero, 0, err
+	}
+	var result [sha256.Size]byte
+	copy(result[:], hash.Sum(nil))
+	return result, written, nil
+}
+
+func verifyHashedFileRead(before, after os.FileInfo, bytesRead int64) error {
+	if before == nil || after == nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || before.Size() != after.Size() || bytesRead != before.Size() || !before.ModTime().Equal(after.ModTime()) {
+		return pathError(CodeSourceChanged, "", ErrSourceChanged)
+	}
+	return nil
 }
 
 func openVerifiedRegularFile(source string) (*os.File, os.FileInfo, error) {

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.poetry",
+  "moduleRevision": "0e65bbfb14b59bf6af128f660b247bd9ebed3dfd5a8f3fff57bf8fe68700bfac",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

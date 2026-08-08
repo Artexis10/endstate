@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.oh-my-posh",
+  "moduleRevision": "a1f023a09743c8142cf9a2b43eba84ae58f04e81fe3d5e2a522f06a6163a83b5",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

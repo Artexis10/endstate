@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.onlyoffice-desktop",
+  "moduleRevision": "381adcad6687003ee52dcfd0d1494b971935f3331569ea6e5c29706519a842bc",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

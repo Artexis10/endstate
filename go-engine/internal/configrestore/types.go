@@ -9,6 +9,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
@@ -25,12 +26,23 @@ func (f ProcessObserverFunc) RunningProcessBasenames(ctx context.Context) ([]str
 	return f(ctx)
 }
 
+// HostBoundary is the optional operating-system authority used by validation
+// runs. The core config-restore package deliberately knows nothing about the
+// validation-mode implementation that supplies it.
+type HostBoundary interface {
+	ResolveHostPath(authored string, instance modules.ConfigInstance) (string, error)
+	ResolveFilesystemIdentity(identity string) (string, error)
+	ProjectFilesystemIdentity(absolute string) (string, error)
+	ValidateFilesystemTarget(absolute string) error
+}
+
 // Request binds a successful disposable stage to the planner-pinned target
 // generation. ProcessPatterns must come from the same trusted catalog snapshot
 // as Plan; bundle data must never populate them.
 type Request struct {
-	Stage *migration.StageResult
-	Plan  planner.PlanSet
+	Stage    *migration.StageResult
+	Plan     planner.PlanSet
+	Boundary HostBoundary
 
 	ProcessPatterns []string
 	ProcessObserver ProcessObserver
@@ -69,12 +81,17 @@ type Action struct {
 	DesiredContent    []byte
 	RegistryValue     *RegistryValue
 	SnapshotRequired  bool
+	resolvedSource    string
+	resolvedTarget    string
 }
 
 // MaterializedSet is safe to pass to a future backup/journal/commit layer. Its
 // actions are ordered deterministically and contain no unresolved glob or
 // merge operation.
 type MaterializedSet struct {
-	Actions     []Action
-	Validations []configvalidate.ResolvedValidation
+	Actions           []Action
+	Validations       []configvalidate.ResolvedValidation
+	validationTargets []string
+	boundary          HostBoundary
+	instance          modules.ConfigInstance
 }

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.nuke",
+  "moduleRevision": "1cd0b9a0dcaa28691e1d5007d4bb38d04efd9c93a58ceb079670fbe76f33e635",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

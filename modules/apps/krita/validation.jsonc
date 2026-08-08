@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.krita",
+  "moduleRevision": "59abbe4c956b71222bcbaf4fa6f5ba2e6f7e4817fd927979e33b496f1a76bf80",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

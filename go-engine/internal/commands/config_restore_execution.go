@@ -25,6 +25,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 type liveConfigRestoreGuard interface {
@@ -34,15 +35,16 @@ type liveConfigRestoreGuard interface {
 	Close() error
 }
 
-type beginLiveConfigRestoreFunc func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error)
+type beginLiveConfigRestoreFunc func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error)
 
 var beginLiveConfigRestoreFn beginLiveConfigRestoreFunc = func(
 	ctx context.Context,
 	stateDir string,
 	runID string,
 	registry configrestore.RegistryMutator,
+	boundary configrestore.HostBoundary,
 ) (liveConfigRestoreGuard, error) {
-	return configrestore.BeginLive(ctx, stateDir, runID, registry)
+	return configrestore.BeginLiveWithBoundary(ctx, stateDir, runID, registry, boundary)
 }
 
 var stageConfigRestoreSetFn = func(ctx context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -61,18 +63,20 @@ type configRestoreDetectionFailureProvider interface {
 }
 
 type configRestoreExecutionOptions struct {
-	RestoreEnabled  bool
-	DryRun          bool
-	RunID           string
-	StateDir        string
-	ManifestPath    string
-	ManifestDir     string
-	ExportRoot      string
-	BackupDir       string
-	JournalLogsDir  string
-	Emitter         *events.Emitter
-	Registry        configrestore.RegistryMutator
-	ProcessObserver configrestore.ProcessObserver
+	RestoreEnabled    bool
+	DryRun            bool
+	RunID             string
+	StateDir          string
+	ManifestPath      string
+	ManifestDir       string
+	ExportRoot        string
+	BackupDir         string
+	JournalLogsDir    string
+	Emitter           *events.Emitter
+	Registry          configrestore.RegistryMutator
+	ProcessObserver   configrestore.ProcessObserver
+	ValidationContext *validationmode.Context
+	HostBoundary      configrestore.HostBoundary
 }
 
 type configRestoreExecutionResult struct {
@@ -154,7 +158,7 @@ func (session *configRestoreExecutionSession) Execute(
 		dryRunOutcomes := make(map[int]configRestoreSetOutcome, len(prepared))
 		dryRunItems := make(map[int][]restore.RestoreResult, len(prepared))
 		for _, item := range prepared {
-			outcome := inspectDryRunConfigRestoreSet(ctx, item.materialized, options.Registry)
+			outcome := inspectDryRunConfigRestoreSet(ctx, item.materialized, options.Registry, options.HostBoundary, options.StateDir)
 			applyConfigRestoreSetOutcome(&result.Plan.Sets[item.setIndex], outcome)
 			items := configRestoreResultsForSet(result.Plan.Sets[item.setIndex], item.materialized, outcome)
 			dryRunOutcomes[item.setIndex] = outcome
@@ -195,7 +199,7 @@ func (session *configRestoreExecutionSession) Execute(
 		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		return result, configRestoreInternalError("live configuration restore lock/recovery coordinator is unavailable")
 	}
-	guard, err := beginLiveConfigRestoreFn(ctx, options.StateDir, options.RunID, options.Registry)
+	guard, err := beginLiveConfigRestoreFn(ctx, options.StateDir, options.RunID, options.Registry, options.HostBoundary)
 	if err != nil {
 		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		if errors.Is(err, configrestore.ErrRecoveryRequired) {
@@ -223,6 +227,20 @@ func (session *configRestoreExecutionSession) Execute(
 	defer closePreparedConfigRestoreExecutions(prepared)
 	collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
 	applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
+	earlyItems := make(map[int][]restore.RestoreResult, len(prepared))
+	for index := range prepared {
+		item := &prepared[index]
+		set := &result.Plan.Sets[item.setIndex]
+		if !selectedConfigRestorePlanSet(*set) {
+			continue
+		}
+		outcome := inspectLiveConfigRestoreSetFn(ctx, item.materialized, options.Registry, options.HostBoundary, options.StateDir)
+		if outcome.Status == planner.StatusPlanned {
+			continue
+		}
+		applyConfigRestoreSetOutcome(set, outcome)
+		earlyItems[item.setIndex] = configRestoreResultsForSet(*set, item.materialized, outcome)
+	}
 	for index := range prepared {
 		item := &prepared[index]
 		set := &result.Plan.Sets[item.setIndex]
@@ -260,6 +278,15 @@ func (session *configRestoreExecutionSession) Execute(
 			emittedResolutions[index] = true
 		}
 	}
+	for index := range result.Plan.Sets {
+		items, ok := earlyItems[index]
+		if !ok {
+			continue
+		}
+		result.RestoreItems = append(result.RestoreItems, items...)
+		result.EventResults = append(result.EventResults, items...)
+		emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[index].Source.ModuleID)
+	}
 	for _, set := range legacyPreview.Sets {
 		if set.Resolution.Status != planner.StatusPlanned {
 			emitGenerationConfigResolution(options.Emitter, set)
@@ -280,6 +307,7 @@ func (session *configRestoreExecutionSession) Execute(
 			Materialized: item.materialized, TransactionRoot: item.transactionRoot,
 			Lineage: configRestoreJournalLineage(options.RunID, *set), Registry: options.Registry,
 			Observer: newConfigRestoreTransactionObserver(options.Emitter, set.Source.CaptureID, set.Source.ConfigSetID),
+			Boundary: options.HostBoundary,
 			Ready: func(prepared *configrestore.PreparedSet) {
 				emitGenerationConfigResolution(options.Emitter, *set)
 				emittedResolutions[item.setIndex] = true
@@ -349,7 +377,7 @@ func (session *configRestoreExecutionSession) Execute(
 		result.RestoreItems = append(result.RestoreItems, ordinary...)
 		result.EventResults = append(result.EventResults, eventResults...)
 		legacyItems := append(append([]restore.RestoreResult{}, legacy.RestoreItems...), ordinary...)
-		if len(legacyItems) > 0 {
+		if len(legacyItems) > 0 && !allLegacyConfigRestoreResultsUpToDate(legacyItems) {
 			journalPath, journalErr := writeLegacyConfigRestoreJournal(options, legacyItems)
 			if journalErr != nil {
 				return result, envelope.NewError(envelope.ErrRestoreFailed, "Failed to write the configuration restore journal.").
@@ -367,6 +395,15 @@ func (session *configRestoreExecutionSession) Execute(
 	result.Results = append(result.Results, result.RestoreItems...)
 	recomputeConfigPlanSummary(&result.Plan)
 	return result, nil
+}
+
+func allLegacyConfigRestoreResultsUpToDate(results []restore.RestoreResult) bool {
+	for _, result := range results {
+		if result.Status != "skipped_up_to_date" {
+			return false
+		}
+	}
+	return true
 }
 
 func emitGenerationConfigResolutions(emitter *events.Emitter, plan planner.ConfigPlan) {
@@ -539,9 +576,22 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 	options configRestoreExecutionOptions,
 ) []preparedConfigRestoreExecution {
 	prepared := make([]preparedConfigRestoreExecution, 0, len(plan.Sets))
+	stageParent := ""
+	stageParentReady := true
+	if options.ValidationContext != nil {
+		stageParent = filepath.Join(options.StateDir, "config-staging")
+		if options.ValidationContext.ValidateSandboxPath(stageParent) != nil || os.MkdirAll(stageParent, 0o700) != nil ||
+			options.ValidationContext.ValidateSandboxPath(stageParent) != nil {
+			stageParentReady = false
+		}
+	}
 	for index := range plan.Sets {
 		set := &plan.Sets[index]
 		if !selectedConfigRestorePlanSet(*set) {
+			continue
+		}
+		if !stageParentReady {
+			markConfigRestoreFailure(set, planner.ReasonStagingValidationFailed, planner.StatusFailed)
 			continue
 		}
 		source, ok := session.sourceForCapture(set.Source.CaptureID)
@@ -553,7 +603,8 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 			CaptureID: set.Source.CaptureID, PayloadRoot: source.payloadRoot,
 			PayloadManifest: source.payloadManifest, SourceGeneration: set.Source.Generation,
 			TargetGeneration: set.TargetGenerationDef, MigrationEdges: set.MigrationEdges,
-			Observer: events.NewMigrationStageObserver(options.Emitter, set.Source.ConfigSetID),
+			TempParent: stageParent,
+			Observer:   events.NewMigrationStageObserver(options.Emitter, set.Source.ConfigSetID),
 		})
 		if err != nil {
 			reason := planner.ReasonStagingValidationFailed
@@ -566,6 +617,7 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 		materialized, err := materializeConfigRestoreSetFn(ctx, configrestore.Request{
 			Stage: stage, Plan: *set,
 			ProcessPatterns: session.processPatterns(set.Source.ModuleID), ProcessObserver: options.ProcessObserver,
+			Boundary: options.HostBoundary,
 		})
 		if err != nil {
 			_ = stage.Close()
@@ -625,14 +677,35 @@ func inspectDryRunConfigRestoreSet(
 	ctx context.Context,
 	set *configrestore.MaterializedSet,
 	registry configrestore.RegistryMutator,
+	boundary configrestore.HostBoundary,
+	stateDir string,
 ) configRestoreSetOutcome {
-	root, err := os.MkdirTemp("", ".endstate-config-dry-run-")
+	parent := ""
+	if boundary != nil {
+		parent = stateDir
+		if err := boundary.ValidateFilesystemTarget(parent); err != nil {
+			return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
+		}
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
+		}
+	}
+	root, err := os.MkdirTemp(parent, ".endstate-config-dry-run-")
 	if err != nil {
 		return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
 	}
-	defer os.RemoveAll(root)
+	if boundary != nil {
+		if err := boundary.ValidateFilesystemTarget(root); err != nil {
+			return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
+		}
+	}
+	defer func() {
+		if boundary == nil || boundary.ValidateFilesystemTarget(root) == nil {
+			_ = os.RemoveAll(root)
+		}
+	}()
 	prepared, err := prepareConfigRestoreSnapshotsFn(ctx, configrestore.SnapshotRequest{
-		Set: set, TransactionRoot: root, RegistryReader: registry,
+		Set: set, TransactionRoot: root, RegistryReader: registry, Boundary: boundary,
 	})
 	if err != nil {
 		return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
@@ -706,8 +779,10 @@ func configRestoreResultsForSet(
 		if index < len(prepared) {
 			prior := prepared[index].Prior()
 			item.TargetExistedBefore = prior.Kind != configrestore.StateAbsent
-			item.BackupPath = prior.BackupPath
-			item.BackupCreated = prior.BackupPath != ""
+			if outcome.Status != planner.StatusSkipped {
+				item.BackupPath = prior.BackupPath
+				item.BackupCreated = prior.BackupPath != ""
+			}
 		}
 		results = append(results, item)
 	}
@@ -866,11 +941,7 @@ func concreteLegacyRestoreClaim(action restore.RestoreAction, options restore.Re
 		}
 		return "registry-value\x00" + normalizeConfigRestoreRegistryKey(action.Key) + "\x00" + strings.ToLower(action.ValueName), nil
 	case "registry-import":
-		descriptor := restore.DescribeAction(action, options)
-		if err := restore.ValidateRegistryTarget(action.Target); err != nil {
-			return "", err
-		}
-		if err := restore.ValidateRegistryImportScope(descriptor.Source, action.Target); err != nil {
+		if err := restore.ValidateRegistryImportActionScope(action, options); err != nil {
 			if !(action.Optional && os.IsNotExist(err)) {
 				return "", err
 			}
@@ -1039,7 +1110,7 @@ func executeLegacyAndOrdinaryConfigRestores(
 func configRestoreActionOptions(options configRestoreExecutionOptions) restore.RestoreOptions {
 	return restore.RestoreOptions{
 		DryRun: options.DryRun, BackupDir: options.BackupDir, ManifestDir: options.ManifestDir,
-		ExportRoot: options.ExportRoot, RunID: options.RunID,
+		ExportRoot: options.ExportRoot, RunID: options.RunID, ValidationContext: options.ValidationContext,
 	}
 }
 
@@ -1257,7 +1328,7 @@ func writeLegacyConfigRestoreJournal(
 		}
 	}
 	journalPath, err := publishLegacyConfigRestoreJournal(
-		logsDir, options.RunID, absManifest, options.ManifestDir, options.ExportRoot, results,
+		logsDir, options.RunID, absManifest, options.ManifestDir, options.ExportRoot, results, options.ValidationContext,
 	)
 	if err != nil {
 		return "", err
@@ -1279,6 +1350,7 @@ func publishLegacyConfigRestoreJournal(
 	manifestDir string,
 	exportRoot string,
 	results []restore.RestoreResult,
+	validationContext *validationmode.Context,
 ) (string, error) {
 	if _, err := ensureDurableConfigRestoreDirectory(logsDir, 0o755); err != nil {
 		return "", err
@@ -1288,7 +1360,7 @@ func publishLegacyConfigRestoreJournal(
 		return "", err
 	}
 	defer os.RemoveAll(stagingDir)
-	if err := restore.WriteJournal(stagingDir, runID, manifestPath, manifestDir, exportRoot, results); err != nil {
+	if err := restore.WriteJournalWithValidation(stagingDir, runID, manifestPath, manifestDir, exportRoot, results, validationContext); err != nil {
 		return "", err
 	}
 	staged := filepath.Join(stagingDir, fmt.Sprintf("restore-journal-%s.json", runID))
@@ -1319,7 +1391,7 @@ func publishLegacyConfigRestoreJournal(
 				return "", err
 			}
 			name = fmt.Sprintf(
-				"restore-journal-%s~%020d-%s.json",
+				"restore-journal-%s_collision_%020d-%s.json",
 				runID, sequence+int64(attempt-1), hex.EncodeToString(suffix[:]),
 			)
 		}
@@ -1408,17 +1480,29 @@ func ensureDurableConfigRestoreDirectory(path string, permissions os.FileMode) (
 
 func nextLegacyConfigRestoreJournalSequence(logsDir, runID string) (int64, error) {
 	sequence := time.Now().UTC().UnixNano()
-	prefix := fmt.Sprintf("restore-journal-%s~", runID)
+	prefixes := []string{
+		fmt.Sprintf("restore-journal-%s_collision_", runID),
+		fmt.Sprintf("restore-journal-%s~", runID),
+	}
 	entries, err := os.ReadDir(logsDir)
 	if err != nil {
 		return 0, err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, prefix) {
+		if entry.IsDir() {
 			continue
 		}
-		tail := strings.TrimPrefix(name, prefix)
+		tail := ""
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				tail = strings.TrimPrefix(name, prefix)
+				break
+			}
+		}
+		if tail == "" {
+			continue
+		}
 		separator := strings.IndexByte(tail, '-')
 		if separator <= 0 {
 			continue

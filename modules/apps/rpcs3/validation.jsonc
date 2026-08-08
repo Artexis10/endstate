@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.rpcs3",
+  "moduleRevision": "de93e487f8080ee132b32cb027394b596bb351c4a4bdc9eb3cf614be5dd81789",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

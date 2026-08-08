@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
 // Registry value type numbers match the Windows registry API. Keeping the raw
@@ -46,6 +47,7 @@ type SnapshotRequest struct {
 	Set             *MaterializedSet
 	TransactionRoot string
 	RegistryReader  RegistryReader
+	Boundary        HostBoundary
 }
 
 // StateKind is the canonical kind represented by a prior or desired digest.
@@ -103,9 +105,12 @@ func (a PreparedAction) MissingParents() []string {
 // PreparedSet is the only output accepted by later transaction phases. Its
 // accessors return copies so the verified plan cannot be changed in place.
 type PreparedSet struct {
-	snapshotRoot string
-	actions      []PreparedAction
-	validations  []configvalidate.ResolvedValidation
+	snapshotRoot      string
+	actions           []PreparedAction
+	validations       []configvalidate.ResolvedValidation
+	validationTargets []string
+	boundary          HostBoundary
+	instance          modules.ConfigInstance
 }
 
 func (s *PreparedSet) SnapshotRoot() string {

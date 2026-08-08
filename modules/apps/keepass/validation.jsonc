@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.keepass",
+  "moduleRevision": "a770703d3acfac1bd2e92fc9cd5e9d3890913d2e74fc7a08b368f6d5b4cc0827",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

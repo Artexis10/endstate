@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.anydesk",
+  "moduleRevision": "8a009e4cf7cb5d061af05803cacd9a0216ac75affc6f5ade04adfa2adfeb2a9e",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

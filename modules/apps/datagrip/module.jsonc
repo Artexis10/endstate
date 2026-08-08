@@ -97,10 +97,6 @@
   "notes": "Captures DataGrip IDE settings (options/*.xml including SQL dialect, formatting, and data source view preferences), keymaps, live templates, code styles, and color schemes from the version-specific config folder %APPDATA%\\JetBrains\\DataGrip<version>\\. Database connection passwords (Password Safe KeePass DB c.kdbx/pdb.pwd) and credential/token files (security.xml, github.xml) are explicitly excluded and never restored. Caches, index, logs, and workspace-specific files are excluded. Confidence: high - config layout, subfolder names, and password-storage location confirmed by official JetBrains DataGrip documentation.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%APPDATA%"
     ],

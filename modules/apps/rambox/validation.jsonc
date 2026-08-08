@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.rambox",
+  "moduleRevision": "472b6ae8f82405adca66254d529dae141edea781462bb8261d8e3306aa892178",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Rambox's config.json (workspace layout, app list, UI/theme preferences) from %APPDATA%\\Rambox. All Chromium browser state (Local Storage, Cookies, Session Storage) is excluded — it holds per-service auth tokens and is not portable. Confidence: medium — config.json path inferred from standard Electron userData layout and community reports; exact schema may vary between Rambox CE and Pro editions. Authored secret warning: Rambox's Chromium Local Storage and Cookies contain per-service session tokens and auth credentials for all integrated messaging apps (Slack, Gmail, WhatsApp, etc.). These MUST NOT be auto-restored — re-authenticate each service after restore. Authored excluded secret or machine-bound paths: %APPDATA%\\Rambox\\Local Storage, %APPDATA%\\Rambox\\Session Storage, %APPDATA%\\Rambox\\Cookies, %APPDATA%\\Rambox\\Network"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

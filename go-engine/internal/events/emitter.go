@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
@@ -23,9 +24,48 @@ type Emitter struct {
 	emittedPhases map[string]bool
 }
 
-// NewEmitter creates an Emitter that writes to os.Stderr.
+var (
+	defaultWriterSessionMu sync.Mutex
+	defaultWriterMu        sync.RWMutex
+	defaultWriter          io.Writer
+)
+
+// ActivateDefaultWriter routes emitters created by NewEmitter to w until the
+// returned restore function is called. Explicit NewEmitterWithWriter callers
+// are unaffected. Activations are serialized so concurrent CLI sessions cannot
+// restore another session's writer.
+func ActivateDefaultWriter(w io.Writer) func() {
+	defaultWriterSessionMu.Lock()
+	defaultWriterMu.Lock()
+	previous := defaultWriter
+	defaultWriter = w
+	defaultWriterMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			defaultWriterMu.Lock()
+			defaultWriter = previous
+			defaultWriterMu.Unlock()
+			defaultWriterSessionMu.Unlock()
+		})
+	}
+}
+
+func currentDefaultWriter() io.Writer {
+	defaultWriterMu.RLock()
+	w := defaultWriter
+	defaultWriterMu.RUnlock()
+	if w == nil {
+		return os.Stderr
+	}
+	return w
+}
+
+// NewEmitter creates an Emitter that writes to the active default writer,
+// which is os.Stderr outside a scoped ActivateDefaultWriter session.
 func NewEmitter(runID string, enabled bool) *Emitter {
-	return &Emitter{runID: runID, enabled: enabled, writer: os.Stderr}
+	return &Emitter{runID: runID, enabled: enabled, writer: currentDefaultWriter()}
 }
 
 // NewEmitterWithWriter creates an Emitter that writes to w. Intended for

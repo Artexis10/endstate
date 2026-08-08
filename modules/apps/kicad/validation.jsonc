@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.kicad",
+  "moduleRevision": "7b5c8f3ed9a9867d0e7edadcd72fe7b2c4df79f423a157f0e9664cbdbd02bb4f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

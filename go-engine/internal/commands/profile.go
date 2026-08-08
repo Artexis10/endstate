@@ -90,6 +90,12 @@ func RunProfile(flags ProfileFlags) (interface{}, *envelope.Error) {
 			return nil, envelope.NewError(envelope.ErrInternalError, "profile validate requires a path argument")
 		}
 		return runProfileValidate(flags.Args[0])
+	case "inspect":
+		if len(flags.Args) != 1 {
+			return nil, envelope.NewError(envelope.ErrManifestValidationError, "profile inspect requires exactly one manifest path").
+				WithRemediation("Provide one extracted .json, .jsonc, or .json5 manifest path.")
+		}
+		return runProfileInspect(flags.Args[0])
 	default:
 		return nil, envelope.NewError(envelope.ErrInternalError, "unknown profile subcommand: "+flags.Subcommand)
 	}

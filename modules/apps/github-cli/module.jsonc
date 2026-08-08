@@ -48,10 +48,6 @@
   "notes": "Captures GitHub CLI config.yml which contains git_protocol preference (ssh/https), default editor, aliases (e.g., co: pr checkout), pager settings, and prompt preferences. The hosts.yml file is blocked from capture as it contains OAuth tokens — users must re-authenticate with 'gh auth login' after restore. Config at %APPDATA%\\GitHub CLI\\.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%APPDATA%\\GitHub CLI"
     ],

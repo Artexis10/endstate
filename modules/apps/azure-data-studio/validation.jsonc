@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.azure-data-studio",
+  "moduleRevision": "7bdd9627cbe78c74b59f47700582ed7ed00c994cdd6038dff0eb22e5b9659045",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

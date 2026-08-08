@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.affinity-photo",
+  "moduleRevision": "dc67f2026c58da6207534113a2838cb4e08afe2132e2c1b6ea0e712b62cb5d85",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

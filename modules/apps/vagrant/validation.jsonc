@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.vagrant",
+  "moduleRevision": "81b177cac82debf4852bc6841bbb4faa7cbdbe50fd865f167f31b4ceb7e9c1b8",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

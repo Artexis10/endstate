@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.honeyview",
+  "moduleRevision": "d79cae63b94c71b2c1f2f2a9ef90f4d2a81621fff43e99b5d57a02cd86636eaa",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

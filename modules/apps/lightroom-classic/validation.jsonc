@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.lightroom-classic",
+  "moduleRevision": "237f15542ba8c312d855fd9e69943b6d025861dee0cb46bc6cee95f2f150d7f6",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

@@ -81,10 +81,6 @@
   "notes": "Captures DBeaver connection profiles (data-sources.json — host, port, database name, driver, connection type; no passwords), global settings (global-settings.ini), and saved SQL scripts. The credentials-config.json file is machine-encrypted and blocked from capture. After restore, users must re-enter database passwords in DBeaver's connection manager. DBeaver config lives at %APPDATA%\\DBeaverData\\. The install directory is at %LOCALAPPDATA%\\DBeaver\\ and contains the application binary, not user data.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%APPDATA%\\DBeaverData"
     ],

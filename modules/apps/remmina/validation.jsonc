@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.remmina",
+  "moduleRevision": "924feecaf90d319e0b7ce1e7dd6a394abeb9d0ba0d682cb8ad3546c2dccd0f8d",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "sourceVersion": "1.20.11781.0",
+  "entries": [
+    {
+      "captureCoordinate": "config.sets[0].generations[0].capture.files[0]",
+      "restoreCoordinate": "config.sets[0].generations[0].restore[0]",
+      "kind": "file",
+      "format": "json"
+    }
+  ]
+}

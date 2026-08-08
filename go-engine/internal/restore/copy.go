@@ -4,10 +4,14 @@
 package restore
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 )
 
 // RestoreCopy implements the copy restore strategy. It handles both file and
@@ -18,9 +22,10 @@ func RestoreCopy(entry RestoreAction, source, target string, opts RestoreOptions
 		Source: source,
 		Target: target,
 	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 
 	// Check source exists.
-	srcInfo, err := os.Stat(source)
+	srcInfo, err := boundary.stat("source-stat", source)
 	if err != nil {
 		if os.IsNotExist(err) {
 			result.Status = "failed"
@@ -42,11 +47,17 @@ func restoreCopyFile(entry RestoreAction, source, target string, opts RestoreOpt
 		Source: source,
 		Target: target,
 	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 
 	// Up-to-date detection via hash comparison.
-	upToDate, err := IsUpToDate(source, target)
+	upToDate, err := isUpToDateWithBoundary(source, target, boundary)
 	if err == nil && upToDate {
 		result.Status = "skipped_up_to_date"
+		return result, nil
+	}
+	if err != nil && opts.ValidationContext != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("target snapshot failed: %v", err)
 		return result, nil
 	}
 
@@ -55,15 +66,11 @@ func restoreCopyFile(entry RestoreAction, source, target string, opts RestoreOpt
 		result.Status = "restored"
 		return result, nil
 	}
-
 	// Backup target if it exists and backup is requested.
 	if entry.Backup {
-		if _, statErr := os.Stat(target); statErr == nil {
-			backupDir := opts.BackupDir
-			if backupDir == "" {
-				backupDir = defaultBackupDir(opts.RunID)
-			}
-			backupPath, backupErr := CreateBackup(target, backupDir)
+		if _, statErr := boundary.stat("target-backup-stat", target); statErr == nil {
+			backupDir := restoreBackupDirectory(opts)
+			backupPath, backupErr := CreateBackupWithValidation(target, backupDir, opts.ValidationContext)
 			if backupErr != nil {
 				result.Status = "failed"
 				result.Error = fmt.Sprintf("backup failed: %v", backupErr)
@@ -76,14 +83,14 @@ func restoreCopyFile(entry RestoreAction, source, target string, opts RestoreOpt
 
 	// Ensure target directory exists.
 	targetDir := filepath.Dir(target)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := boundary.mkdirAll("target-directory-mkdir", targetDir, 0755); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("cannot create target directory: %v", err)
 		return result, nil
 	}
 
 	// Copy file.
-	if err := copyFile(source, target); err != nil {
+	if err := boundary.atomicCopy("target-atomic-copy", source, target); err != nil {
 		// Check for sharing violation (locked file).
 		if isSharingViolation(err) {
 			result.Status = "restored"
@@ -106,13 +113,24 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		Source: source,
 		Target: target,
 	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 	excludePatterns := entry.Exclude
 	excludeFunc := func(relPath string) bool {
 		return isPathExcluded(relPath, excludePatterns)
 	}
-	if err := validateRestoreCopyTree(source, target, excludeFunc); err != nil {
+	if err := validateRestoreCopyTreeWithBoundary(source, target, excludeFunc, boundary); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("unsafe directory copy: %v", err)
+		return result, nil
+	}
+	upToDate, err := isCopyDirectoryUpToDate(source, target, excludeFunc, boundary)
+	if err == nil && upToDate {
+		result.Status = "skipped_up_to_date"
+		return result, nil
+	}
+	if err != nil && opts.ValidationContext != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("target snapshot failed: %v", err)
 		return result, nil
 	}
 
@@ -121,15 +139,11 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		result.Status = "restored"
 		return result, nil
 	}
-
 	// Backup target if it exists and backup is requested.
 	if entry.Backup {
-		if _, statErr := os.Stat(target); statErr == nil {
-			backupDir := opts.BackupDir
-			if backupDir == "" {
-				backupDir = defaultBackupDir(opts.RunID)
-			}
-			backupPath, backupErr := CreateBackup(target, backupDir)
+		if _, statErr := boundary.stat("target-backup-stat", target); statErr == nil {
+			backupDir := restoreBackupDirectory(opts)
+			backupPath, backupErr := CreateBackupWithValidation(target, backupDir, opts.ValidationContext)
 			if backupErr != nil {
 				result.Status = "failed"
 				result.Error = fmt.Sprintf("backup failed: %v", backupErr)
@@ -141,7 +155,7 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 	}
 
 	// Ensure target directory exists.
-	if err := os.MkdirAll(target, 0755); err != nil {
+	if err := boundary.mkdirAll("target-directory-mkdir", target, 0755); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("cannot create target directory: %v", err)
 		return result, nil
@@ -149,9 +163,15 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 
 	// Walk source and copy.
 	var warnings []string
-	err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
+	err = walkTreeWithBoundary(source, boundary, "copy", func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if err := boundary.authorizeIO("copy-source-member", path); err != nil {
+			return err
+		}
+		if isLinkOrReparse(info) {
+			return fmt.Errorf("source path member is a link or reparse point")
 		}
 
 		relPath, err := filepath.Rel(source, path)
@@ -177,11 +197,11 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		}
 
 		if info.IsDir() {
-			return os.MkdirAll(destPath, info.Mode())
+			return boundary.mkdirAll("copy-target-member-mkdir", destPath, info.Mode())
 		}
 
 		// Copy file, handle locked files.
-		copyErr := copyFile(path, destPath)
+		copyErr := boundary.atomicCopy("copy-target-member", path, destPath)
 		if copyErr != nil {
 			if isSharingViolation(copyErr) {
 				warnings = append(warnings, fmt.Sprintf("WARN: Skipped locked file (sharing violation): %s", relPath))
@@ -202,6 +222,83 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 	result.Status = "restored"
 	result.Warnings = warnings
 	return result, nil
+}
+
+var errCopyDirectoryNotUpToDate = errors.New("copy directory is not up to date")
+
+// isCopyDirectoryUpToDate compares the source projection copied by
+// restoreCopyDir with the target. Copy is an overlay operation, so target-only
+// members do not make the directory stale.
+func isCopyDirectoryUpToDate(source, target string, exclude func(string) bool, boundary legacyValidationBoundary) (bool, error) {
+	targetInfo, err := boundary.lstat("copy-up-to-date-target-root-lstat", target)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !targetInfo.IsDir() || isLinkOrReparse(targetInfo) {
+		return false, nil
+	}
+
+	err = walkTreeWithBoundary(source, boundary, "copy-up-to-date", func(sourcePath string, sourceInfo os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if isLinkOrReparse(sourceInfo) {
+			return fmt.Errorf("source path member is a link or reparse point")
+		}
+		relative, err := filepath.Rel(source, sourcePath)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		if exclude != nil && exclude(relative) {
+			if sourceInfo.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		targetPath := filepath.Join(target, relative)
+		targetInfo, err := boundary.lstat("copy-up-to-date-target-member-lstat", targetPath)
+		if os.IsNotExist(err) {
+			return errCopyDirectoryNotUpToDate
+		}
+		if err != nil {
+			return err
+		}
+		if isLinkOrReparse(targetInfo) || sourceInfo.IsDir() != targetInfo.IsDir() {
+			return errCopyDirectoryNotUpToDate
+		}
+		if sourceInfo.IsDir() {
+			return nil
+		}
+		if !sourceInfo.Mode().IsRegular() || !targetInfo.Mode().IsRegular() {
+			return errCopyDirectoryNotUpToDate
+		}
+		sourceData, _, err := boundary.readRegularFile("copy-up-to-date-source-member-read", sourcePath)
+		if err != nil {
+			return err
+		}
+		targetData, _, err := boundary.readRegularFile("copy-up-to-date-target-member-read", targetPath)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(sourceData, targetData) {
+			return errCopyDirectoryNotUpToDate
+		}
+		return nil
+	})
+	if errors.Is(err, errCopyDirectoryNotUpToDate) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func validateRestoreCopyTree(source, target string, exclude func(string) bool) error {
@@ -232,32 +329,49 @@ func validateRestoreCopyTree(source, target string, exclude func(string) bool) e
 	})
 }
 
-// isPathExcluded checks whether a relative path matches any of the exclude
-// patterns. Patterns use doublestar-style matching: ** matches any path
-// segment. The implementation strips leading/trailing ** and checks if the
-// remaining pattern is contained in the path.
-func isPathExcluded(relPath string, patterns []string) bool {
-	// Normalise to forward-slash for consistent matching.
-	normalizedPath := filepath.ToSlash(relPath)
-
-	for _, pattern := range patterns {
-		normalizedPattern := filepath.ToSlash(pattern)
-
-		// Strip leading and trailing ** segments.
-		searchPattern := normalizedPattern
-		searchPattern = strings.TrimPrefix(searchPattern, "**/")
-		searchPattern = strings.TrimPrefix(searchPattern, "**\\")
-		searchPattern = strings.TrimPrefix(searchPattern, "**")
-		searchPattern = strings.TrimSuffix(searchPattern, "/**")
-		searchPattern = strings.TrimSuffix(searchPattern, "\\**")
-		searchPattern = strings.TrimSuffix(searchPattern, "**")
-
-		if searchPattern == "" {
-			continue
+func validateRestoreCopyTreeWithBoundary(source, target string, exclude func(string) bool, boundary legacyValidationBoundary) error {
+	if boundary.context == nil {
+		return validateRestoreCopyTree(source, target, exclude)
+	}
+	if err := boundary.authorizeIO("copy-tree-target", target); err != nil {
+		return err
+	}
+	if err := boundary.authorizeIO("copy-tree-source-root", source); err != nil {
+		return err
+	}
+	return walkTreeWithBoundary(source, boundary, "copy-preflight", func(sourcePath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
+		if err := boundary.authorizeIO("copy-tree-source-member", sourcePath); err != nil {
+			return err
+		}
+		if isLinkOrReparse(info) {
+			return fmt.Errorf("source path component is a link or reparse point")
+		}
+		relative, err := filepath.Rel(source, sourcePath)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		if exclude != nil && exclude(relative) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return boundary.authorizeIO("copy-tree-target-member", filepath.Join(target, relative))
+	})
+}
 
-		// Check if the normalised path contains the search pattern.
-		if strings.Contains(normalizedPath, searchPattern) {
+// isPathExcluded checks a restore member with the exact production matcher
+// used by capture so wildcard directory semantics cannot drift by direction.
+func isPathExcluded(relPath string, patterns []string) bool {
+	for _, pattern := range patterns {
+		matched, err := bundle.ConfigPathMatchesExcludeGlob(relPath, pattern)
+		if err == nil && matched {
 			return true
 		}
 	}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.warp-terminal",
+  "moduleRevision": "298a06a081d6b48018f1b7eea8a01eeb479dc8b20cb1f56673393d3e38cc5cca",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

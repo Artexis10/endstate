@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.windows-terminal",
+  "moduleRevision": "d2c8cc4a364a389d8224de5aab6fea20937845291f41f104126f57d7cbb9f372",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "generation-preferences-g1-97631ba2d2e5",
+        "mode": "config-generation-v2",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/windows-terminal/validation-fixtures/generation-preferences-g1.jsonc",
+          "sha256": "e2dc58ece044edd9518c8e02d777ad68495cd309b154cdaca47e6d5ba4b6e678"
+        },
+        "expected": {
+          "identityMode": "derived-from-fixture",
+          "detectorId": "installed",
+          "configSetId": "preferences",
+          "generationId": "g1",
+          "fingerprint": "97631ba2d2e55f7c7c9e8fe94e03865c131be253f0a8e205580e85ebb13fb637"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

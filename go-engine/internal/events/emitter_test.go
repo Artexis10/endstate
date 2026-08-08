@@ -6,6 +6,8 @@ package events
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,54 @@ import (
 func captureEmitter(runID string) (*Emitter, *bytes.Buffer) {
 	buf := &bytes.Buffer{}
 	return NewEmitterWithWriter(runID, true, buf), buf
+}
+
+func TestActivateDefaultWriterRoutesOnlyDefaultEmittersAndRestoresIdempotently(t *testing.T) {
+	var defaultOutput, explicitOutput bytes.Buffer
+	if got := NewEmitter("inactive-run", true).writer; got != os.Stderr {
+		t.Fatalf("inactive default writer = %T, want os.Stderr", got)
+	}
+	restore := ActivateDefaultWriter(&defaultOutput)
+	NewEmitter("default-run", true).EmitArtifact("capture", "manifest", "default-path")
+	NewEmitterWithWriter("explicit-run", true, &explicitOutput).EmitArtifact("capture", "manifest", "explicit-path")
+
+	if !strings.Contains(defaultOutput.String(), `"path":"default-path"`) {
+		t.Fatalf("default output = %s", defaultOutput.String())
+	}
+	if strings.Contains(defaultOutput.String(), "explicit-path") || !strings.Contains(explicitOutput.String(), `"path":"explicit-path"`) {
+		t.Fatalf("explicit writer was affected: default=%s explicit=%s", defaultOutput.String(), explicitOutput.String())
+	}
+	restore()
+	restore()
+	if got := NewEmitter("restored-run", true).writer; got != os.Stderr {
+		t.Fatalf("restored default writer = %T, want os.Stderr", got)
+	}
+}
+
+func TestNewEmitterUsesRuntimeStderrWhenNoOverride(t *testing.T) {
+	originalStderr := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.Stderr = originalStderr
+		_ = writer.Close()
+		_ = reader.Close()
+	})
+	os.Stderr = writer
+
+	NewEmitter("runtime-stderr", true).EmitArtifact("capture", "manifest", "runtime-path")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), `"path":"runtime-path"`) {
+		t.Fatalf("runtime stderr output = %q", output)
+	}
 }
 
 // lastLine extracts the last non-empty line from buf. Events are always written

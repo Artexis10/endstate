@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.zbrush",
+  "moduleRevision": "39e8e77b55d1cd783ffa6f5798a59740007ae3d3f593b342e4ea5dc6cdf20194",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

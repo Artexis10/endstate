@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.remote-desktop-manager",
+  "moduleRevision": "55675252b37eb48cb7701a839c6d40887e5753901c31a6eccdda73f3e0d4e122",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

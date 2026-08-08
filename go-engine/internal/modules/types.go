@@ -273,9 +273,11 @@ type CaptureRegistryValue struct {
 	Optional  bool   `json:"optional,omitempty"`
 }
 
-// SecretsDef describes files that must never be bundled or auto-restored.
+// SecretsDef describes filesystem and registry data that must never be bundled
+// or auto-restored.
 type SecretsDef struct {
-	Files    []string `json:"files,omitempty"`
-	Warning  string   `json:"warning,omitempty"`
-	Restorer string   `json:"restorer,omitempty"`
+	Files        []string `json:"files,omitempty"`
+	RegistryKeys []string `json:"registryKeys,omitempty"`
+	Warning      string   `json:"warning,omitempty"`
+	Restorer     string   `json:"restorer,omitempty"`
 }

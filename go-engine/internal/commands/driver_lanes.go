@@ -235,7 +235,13 @@ func computeDriverLanePlanWithInventory(mf *manifest.Manifest, overrides map[str
 		if !route.isManual {
 			continue
 		}
-		expanded, exists := checkVerifyPath(route.app.Manual.VerifyPath)
+		expanded, exists, verifyPathErr := checkVerifyPathWithValidation(route.app.Manual.VerifyPath, currentValidationMode)
+		if verifyPathErr != nil {
+			if currentValidationMode != nil {
+				_ = validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
+			return nil, nil, verifyPathErr
+		}
 		action := planner.PlanAction{
 			Type:        "app",
 			ID:          route.app.ID,

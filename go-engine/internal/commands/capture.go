@@ -498,6 +498,11 @@ func enumerateWindowsCapturePackages(flags CaptureFlags) ([]enumeratedCapturePac
 	return packages, warnings, nil
 }
 
+// enumerateCapturePackagesFn is the narrow installed-package boundary used by
+// RunCapture. Production delegates to the platform enumerators above; internal
+// validation mode replaces only this boundary with its disposable inventory.
+var enumerateCapturePackagesFn = enumerateWindowsCapturePackages
+
 func countCapturePackages(packages []enumeratedCapturePackage, driverName string) int {
 	count := 0
 	for _, item := range packages {
@@ -666,6 +671,15 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	}
 	runID := buildRunID("capture")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
+	if currentValidationMode != nil {
+		targets := []validationProductionSandboxTarget{validationSandboxTarget("capture.output", resolveOutputPath(flags))}
+		if flags.Manifest != "" {
+			targets = append(targets, validationSandboxTarget("capture.update", flags.Manifest))
+		}
+		if validationErr := preflightActiveValidationSandboxPaths(targets...); validationErr != nil {
+			return nil, validationErr
+		}
+	}
 
 	// An explicit selection on a realizer host is authoritative. Resolve it
 	// before the legacy realizer-first dispatch so --driver brew can skip Nix
@@ -703,7 +717,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 
 	// --- 2. Enumerate selected package-manager ledgers ---
 	emitter.EmitProgress("capture", "inventory")
-	enumerated, warnings, enumErr := enumerateWindowsCapturePackages(flags)
+	enumerated, warnings, enumErr := enumerateCapturePackagesFn(flags)
 	if enumErr != nil {
 		return nil, enumErr
 	}
@@ -1005,6 +1019,46 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		)
 	}
 
+	var preparedCapture *captureConfigPreparation
+	if currentValidationMode != nil && flags.Sanitize {
+		if validationErr := gateActiveValidationMutation(); validationErr != nil {
+			return nil, validationErr
+		}
+	} else if currentValidationMode != nil {
+		absoluteManifest, absErr := filepath.Abs(outputPath)
+		if absErr != nil {
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "capture.output", "materialized-path")
+		}
+		preparationRequest := captureConfigFinalizeRequest{
+			Flags: flags, ManifestPath: absoluteManifest,
+			Apps: buildModuleMatchApps(captured), Selection: selection, ValidationContext: currentValidationMode,
+		}
+		var prepareErr error
+		preparedCapture, prepareErr = prepareCaptureConfig(preparationRequest)
+		if prepareErr != nil {
+			if selectionErr, ok := asCaptureSelectionError(prepareErr); ok {
+				return nil, selectionErr
+			}
+			return nil, envelope.NewError(envelope.ErrCaptureFailed, fmt.Sprintf("Failed to plan capture bundle: %v", prepareErr))
+		}
+		planningManifest, projectionErr := validationManifestFromCapturePreparation(preparedCapture, preparationRequest.Apps)
+		if projectionErr != nil {
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "planning.materialized", "capture-projection")
+		}
+		configPlans, instances := validationCapturePlanningFacts(preparedCapture)
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: preparedCapture.Catalog, Modules: preparedCapture.Planning.Modules, Manifest: planningManifest,
+			PortableRoot: validationManifestPortableRoot(absoluteManifest), ConfigPlans: configPlans, Instances: instances,
+			SandboxTargets: []validationProductionSandboxTarget{
+				validationSandboxTarget("capture.output", absoluteManifest),
+				validationSandboxTarget("capture.bundle", preparedCapture.OutputPath),
+			},
+		}); validationErr != nil {
+			return nil, validationErr
+		}
+		preparedCapture.ValidationPreflightComplete = true
+	}
+
 	// Ensure parent directory exists.
 	dir := filepath.Dir(outputPath)
 	if dir != "" && dir != "." {
@@ -1047,8 +1101,10 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 10. Plan config capture and publish one canonical artifact ---
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
-		Apps:      buildModuleMatchApps(captured),
-		Selection: selection,
+		Apps:              buildModuleMatchApps(captured),
+		Selection:         selection,
+		Prepared:          preparedCapture,
+		ValidationContext: currentValidationMode,
 		OnStage: func(stage bundle.Stage) {
 			emitter.EmitProgress("capture", string(stage))
 		},

@@ -26,7 +26,6 @@
   "secrets": {
     "files": [
       "%APPDATA%\\Apple Computer\\Preferences\\ByHost",
-      "HKCU\\Software\\Apple Computer, Inc.\\iTunes",
       "%USERPROFILE%\\Apple"
     ],
     "warning": "iTunes preferences are machine/account-bound (ByHost files keyed to the hardware UUID, registry entries, and account/DRM authorization tied to the Apple ID). They are not portable and MUST NOT be captured or restored. Re-sign in and re-authorize the computer after a rebuild.",

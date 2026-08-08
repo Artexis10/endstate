@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.openshot",
+  "moduleRevision": "82525e58e0c343a564825e9878b8328bf256bd3ebc28e2b15817cd9225e3aa0b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures OpenShot user preferences (openshot.settings) from %USERPROFILE%\\.openshot_qt\\. No credentials or license data stored in settings file; sensitivity is none. Confidence: high - settings path confirmed by OpenShot source (openshot-qt repo, classes/app.py)."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

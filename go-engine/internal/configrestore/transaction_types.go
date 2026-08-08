@@ -44,6 +44,7 @@ type TransactionRequest struct {
 	Intent   *JournalIntent
 	Registry RegistryMutator
 	Observer TransactionObserver
+	Boundary HostBoundary
 }
 
 // TransactionStage is the command-event-compatible execution stage.

@@ -1,0 +1,241 @@
+// Copyright 2025 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+// Package registryfile validates and semantically rewrites reg.exe documents
+// without executing operating-system registry commands.
+package registryfile
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
+
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
+)
+
+const registryHeader = "Windows Registry Editor Version 5.00"
+const registryFileCurrentUserHive = "HKEY_CURRENT_USER"
+
+var (
+	registryValueLinePattern  = regexp.MustCompile(`^(?:@|"(?:[^"\\\r\n]|\\["\\])*")=(.*)$`)
+	registryStringDataPattern = regexp.MustCompile(`^"(?:[^"\\\r\n]|\\["\\])*"$`)
+	registryDwordDataPattern  = regexp.MustCompile(`(?i)^dword:[0-9a-f]{8}$`)
+	registryHexDataPattern    = regexp.MustCompile(`(?i)^hex(?:\([0-9a-f]+\))?:(.*)$`)
+	registryHexBytesPattern   = regexp.MustCompile(`(?i)^[0-9a-f]{2}(?:,[0-9a-f]{2})*$`)
+)
+
+// RewriteSubtree validates that every section in data is the expected HKCU
+// root or one of its descendants, rewrites that root to replacementRoot, and
+// returns deterministic UTF-16LE-with-BOM bytes suitable for reg import.
+// Value lines and section order are preserved; only section roots and newline
+// encoding are changed.
+func RewriteSubtree(data []byte, expectedRoot, replacementRoot string) ([]byte, error) {
+	expected, err := validationmode.NormalizeHKCU(expectedRoot)
+	if err != nil {
+		return nil, fmt.Errorf("registry file expected root: %w", err)
+	}
+	replacement, err := validationmode.NormalizeHKCU(replacementRoot)
+	if err != nil {
+		return nil, fmt.Errorf("registry file replacement root: %w", err)
+	}
+	replacement = registryFileCurrentUserHive + replacement[len("HKCU"):]
+	text, err := decode(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateText(text); err != nil {
+		return nil, err
+	}
+
+	normalizedText := strings.ReplaceAll(text, "\r\n", "\n")
+	if strings.ContainsRune(normalizedText, '\r') {
+		return nil, fmt.Errorf("registry file contains ambiguous carriage returns")
+	}
+	lines := strings.Split(normalizedText, "\n")
+	if len(lines) == 0 || lines[0] != registryHeader {
+		return nil, fmt.Errorf("registry file has an invalid or misplaced header")
+	}
+	sections := 0
+	expectedFold := strings.ToLower(expected)
+	sectionActive := false
+	continuationPending := false
+	for index, line := range lines {
+		if index == 0 {
+			continue
+		}
+		if index > 0 && line == registryHeader {
+			return nil, fmt.Errorf("registry file contains multiple documents")
+		}
+		if continuationPending {
+			continued, continuationErr := validateRegistryContinuation(line)
+			if continuationErr != nil {
+				return nil, fmt.Errorf("registry file has malformed continuation on line %d", index+1)
+			}
+			continuationPending = continued
+			continue
+		}
+		if line == "" || isRegistryComment(line) {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "[") {
+			if !sectionActive {
+				return nil, fmt.Errorf("registry file has content before the first section on line %d", index+1)
+			}
+			continued, valueErr := validateRegistryValueLine(line)
+			if valueErr != nil {
+				return nil, fmt.Errorf("registry file has unsupported value syntax on line %d", index+1)
+			}
+			continuationPending = continued
+			continue
+		}
+		if !strings.HasSuffix(trimmed, "]") || strings.Count(trimmed, "[") != 1 || strings.Count(trimmed, "]") != 1 || trimmed != line {
+			return nil, fmt.Errorf("registry file has a malformed section on line %d", index+1)
+		}
+		key := trimmed[1 : len(trimmed)-1]
+		deletion := strings.HasPrefix(key, "-")
+		if deletion {
+			return nil, fmt.Errorf("registry file contains a deletion section on line %d", index+1)
+		}
+		normalized, normalizeErr := validationmode.NormalizeHKCU(key)
+		if normalizeErr != nil {
+			return nil, fmt.Errorf("registry file section on line %d: %w", index+1, normalizeErr)
+		}
+		normalizedFold := strings.ToLower(normalized)
+		if normalizedFold != expectedFold && !strings.HasPrefix(normalizedFold, expectedFold+`\`) {
+			return nil, fmt.Errorf("registry file section on line %d is outside the expected root", index+1)
+		}
+		suffix := normalized[len(expected):]
+		lines[index] = "[" + replacement + suffix + "]"
+		sections++
+		sectionActive = true
+	}
+	if continuationPending {
+		return nil, fmt.Errorf("registry file has an unterminated value continuation")
+	}
+	if sections == 0 {
+		return nil, fmt.Errorf("registry file contains no registry key sections")
+	}
+
+	// reg.exe exports end in a newline. Always emitting one removes input
+	// encoding/newline variance and makes capture hashes reproducible.
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return encodeUTF16LE(strings.Join(lines, "\r\n") + "\r\n"), nil
+}
+
+func isRegistryComment(line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+	return strings.HasPrefix(trimmed, ";") || strings.HasPrefix(trimmed, "#")
+}
+
+func validateRegistryValueLine(line string) (bool, error) {
+	match := registryValueLinePattern.FindStringSubmatch(line)
+	if match == nil {
+		return false, fmt.Errorf("unsupported registry value line")
+	}
+	data := match[1]
+	if registryStringDataPattern.MatchString(data) || registryDwordDataPattern.MatchString(data) {
+		return false, nil
+	}
+	hexMatch := registryHexDataPattern.FindStringSubmatch(data)
+	if hexMatch == nil {
+		return false, fmt.Errorf("unsupported registry value data")
+	}
+	return validateRegistryHexPayload(hexMatch[1], false)
+}
+
+func validateRegistryContinuation(line string) (bool, error) {
+	if line == "" || (line[0] != ' ' && line[0] != '\t') {
+		return false, fmt.Errorf("registry continuation must be indented")
+	}
+	payload := strings.TrimLeft(line, " \t")
+	return validateRegistryHexPayload(payload, true)
+}
+
+func validateRegistryHexPayload(payload string, continuation bool) (bool, error) {
+	if payload == "" {
+		if continuation {
+			return false, fmt.Errorf("registry continuation is empty")
+		}
+		return false, nil
+	}
+	continued := strings.HasSuffix(payload, `,\`)
+	if continued {
+		payload = strings.TrimSuffix(payload, `,\`)
+	}
+	if !registryHexBytesPattern.MatchString(payload) {
+		return false, fmt.Errorf("registry hex data is malformed")
+	}
+	return continued, nil
+}
+
+func decode(data []byte) (string, error) {
+	switch {
+	case bytes.HasPrefix(data, []byte{0xff, 0xfe}):
+		payload := data[2:]
+		if len(payload)%2 != 0 {
+			return "", fmt.Errorf("registry file has malformed UTF-16LE content")
+		}
+		words := make([]uint16, len(payload)/2)
+		for index := range words {
+			words[index] = binary.LittleEndian.Uint16(payload[index*2:])
+		}
+		if !validUTF16(words) {
+			return "", fmt.Errorf("registry file has malformed UTF-16LE content")
+		}
+		return string(utf16.Decode(words)), nil
+	case bytes.HasPrefix(data, []byte{0xfe, 0xff}):
+		return "", fmt.Errorf("registry file UTF-16BE encoding is unsupported")
+	case bytes.HasPrefix(data, []byte{0xef, 0xbb, 0xbf}):
+		data = data[3:]
+	}
+	if !utf8.Valid(data) {
+		return "", fmt.Errorf("registry file is not canonical UTF-8 or UTF-16LE")
+	}
+	return string(data), nil
+}
+
+func validUTF16(words []uint16) bool {
+	for index := 0; index < len(words); index++ {
+		word := words[index]
+		switch {
+		case 0xd800 <= word && word <= 0xdbff:
+			if index+1 >= len(words) || words[index+1] < 0xdc00 || words[index+1] > 0xdfff {
+				return false
+			}
+			index++
+		case 0xdc00 <= word && word <= 0xdfff:
+			return false
+		}
+	}
+	return true
+}
+
+func validateText(value string) error {
+	for _, character := range value {
+		if character == '\r' || character == '\n' || character == '\t' {
+			continue
+		}
+		if character == 0 || unicode.IsControl(character) {
+			return fmt.Errorf("registry file contains ambiguous control content")
+		}
+	}
+	return nil
+}
+
+func encodeUTF16LE(value string) []byte {
+	words := utf16.Encode([]rune(value))
+	result := make([]byte, 2+len(words)*2)
+	result[0], result[1] = 0xff, 0xfe
+	for index, word := range words {
+		binary.LittleEndian.PutUint16(result[2+index*2:], word)
+	}
+	return result
+}

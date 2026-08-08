@@ -15,7 +15,6 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
-	"github.com/Artexis10/endstate/go-engine/internal/verifier"
 )
 
 // runVerifyRealizer is the verify path for a realizer backend (Nix). It reads
@@ -53,7 +52,10 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 			}
 			results = append(results, item)
 		case app.Manual != nil && app.Manual.VerifyPath != "":
-			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
+			expanded, exists, verifyPathErr := checkVerifyPathWithValidation(app.Manual.VerifyPath, currentValidationMode)
+			if verifyPathErr != nil {
+				return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
 			item := VerifyItem{Type: "app", ID: app.ID, Name: name}
 			if exists {
 				item.Status, item.Message = "pass", fmt.Sprintf("Verified at %s", expanded)
@@ -70,7 +72,11 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 
 	// Manifest verify entries run through the same verifier dispatcher.
 	if len(mf.Verify) > 0 {
-		for _, vr := range verifier.RunVerify(mf.Verify) {
+		verifyResults, verifyErr := runVerifierFn(mf.Verify, currentValidationMode)
+		if verifyErr != nil {
+			return nil, validationRuntimeIsolationFailure("verify.execution", "verifier", verifyErr)
+		}
+		for _, vr := range verifyResults {
 			item := VerifyItem{Type: vr.Type, Status: "fail", Message: vr.Message}
 			if vr.Pass {
 				item.Status = "pass"

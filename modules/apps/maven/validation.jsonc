@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.maven",
+  "moduleRevision": "93fcc1e27954480596cdf586fea737c282b24e93f1cd93a73c65ac95a084dc0a",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures %USERPROFILE%\\.m2\\settings.xml (mirrors, proxies, profiles, server auth references) and settings-security.xml (master password encryption key). The local repository (~/.m2/repository) is excluded as a build cache. settings-security.xml is flagged as a secret and must not be auto-restored. Medium sensitivity because settings.xml server blocks commonly reference or inline credentials. Confidence: high - default user settings paths are documented by the official Maven Settings Reference. Authored secret warning: settings-security.xml contains the Maven master password used to decrypt server credentials stored in settings.xml. MUST NOT be auto-restored. Re-create with `mvn --encrypt-master-password` after restore. Also review settings.xml for plaintext \u003cpassword\u003e entries inside \u003cserver\u003e blocks before sharing. Authored excluded secret or machine-bound paths: %USERPROFILE%\\.m2\\settings-security.xml"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

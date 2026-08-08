@@ -20,46 +20,116 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
-var durableRegistryImportFile = func(path string) error {
-	if err := exec.Command("reg", "import", path).Run(); err != nil {
-		return fmt.Errorf("cannot import registry file %s: %w", path, err)
+var (
+	durableRegistryImportFile = func(path string) error {
+		if err := exec.Command("reg", "import", path).Run(); err != nil {
+			return fmt.Errorf("cannot import registry file %s: %w", path, err)
+		}
+		return nil
 	}
-	return nil
+	durableRegistryKeyExistsNative = func(target string) (bool, error) {
+		hive, subkey, err := splitHKCUKey(target)
+		if err != nil {
+			return false, err
+		}
+		key, err := registry.OpenKey(hive, subkey, registry.QUERY_VALUE|registry.ENUMERATE_SUB_KEYS)
+		if err == registry.ErrNotExist {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		_ = key.Close()
+		return true, nil
+	}
+	durableRegistryExportNative = func(target, path string) error {
+		return exec.Command("reg", "export", target, path, "/y").Run()
+	}
+	durableRegistryDeleteNative = func(target string) error {
+		if err := exec.Command("reg", "delete", target, "/f").Run(); err != nil {
+			exists, queryErr := durableRegistryKeyExistsNative(target)
+			if queryErr != nil {
+				return fmt.Errorf("verify registry key deletion %s: %w", target, queryErr)
+			}
+			if exists {
+				return fmt.Errorf("cannot delete registry key %s: %w", target, err)
+			}
+		}
+		return nil
+	}
+	durableRegistryRenameNative = renameDurableRegistryKeyNative
+)
+
+func durableRegistryNativeKey(semantic string, boundary legacyValidationBoundary) (string, error) {
+	if boundary.context == nil {
+		if err := ValidateRegistryTarget(semantic); err != nil {
+			return "", err
+		}
+		return semantic, nil
+	}
+	canonical, err := validationmode.NormalizeHKCU(semantic)
+	if err != nil {
+		return "", err
+	}
+	return boundary.context.MapHKCU(canonical)
 }
 
 var regRenameKeyProc = windows.NewLazySystemDLL("advapi32.dll").NewProc("RegRenameKey")
 
-func durableLegacyRegistryStates(entry JournalEntry, workRoot string) (durableLegacyRevertState, durableLegacyRevertState, error) {
+func durableLegacyRegistryStates(entry JournalEntry, workRoot string, boundary legacyValidationBoundary) (durableLegacyRevertState, durableLegacyRevertState, error) {
 	switch entry.RestoreType {
 	case "registry-set":
-		backup, err := readRegistrySetBackup(entry.BackupPath)
+		backupPath, err := boundary.resolveBackup(entry.BackupPath)
 		if err != nil {
 			return durableLegacyRevertState{}, durableLegacyRevertState{}, err
 		}
-		hive, subkey, err := splitHKCUKey(backup.Key)
+		backup, err := readRegistrySetBackup(backupPath)
 		if err != nil {
 			return durableLegacyRevertState{}, durableLegacyRevertState{}, err
 		}
-		existed, valueType, data, _ := readRegistryValue(hive, subkey, backup.ValueName)
+		nativeKey, err := durableRegistryNativeKey(backup.Key, boundary)
+		if err != nil {
+			return durableLegacyRevertState{}, durableLegacyRevertState{}, err
+		}
+		if boundary.context != nil && !strings.EqualFold(entry.TargetPath, registrySetTarget(RestoreAction{Key: backup.Key, ValueName: backup.ValueName})) {
+			return durableLegacyRevertState{}, durableLegacyRevertState{}, fmt.Errorf("registry-set journal target differs from semantic backup identity")
+		}
+		existed, valueType, data, _ := registrySetReadNative(nativeKey, backup.ValueName)
 		before := digestDurableRegistryValue(backup.Key, backup.ValueName, existed, valueType, data)
 		desired := digestDurableRegistryValue(
 			backup.Key, backup.ValueName, backup.Existed, backup.PriorType, backup.PriorData,
 		)
 		return before, desired, nil
 	case "registry-import":
-		before, err := captureDurableRegistryKey(entry.TargetPath, workRoot)
+		before, err := captureDurableRegistryKey(entry.TargetPath, workRoot, boundary)
 		if err != nil {
 			return durableLegacyRevertState{}, durableLegacyRevertState{}, err
 		}
 		if entry.BackupCreated && entry.BackupPath != "" {
-			data, _, err := safepath.ReadRegularFile(entry.BackupPath)
+			backupPath, resolveErr := boundary.resolveBackup(entry.BackupPath)
+			if resolveErr != nil {
+				return durableLegacyRevertState{}, durableLegacyRevertState{}, resolveErr
+			}
+			data, _, err := safepath.ReadRegularFile(backupPath)
 			if err != nil {
 				return durableLegacyRevertState{}, durableLegacyRevertState{}, err
+			}
+			if boundary.context != nil {
+				semanticKey, normalizeErr := validationmode.NormalizeHKCU(entry.TargetPath)
+				if normalizeErr != nil {
+					return durableLegacyRevertState{}, durableLegacyRevertState{}, normalizeErr
+				}
+				data, err = registryfile.RewriteSubtree(data, semanticKey, semanticKey)
+				if err != nil {
+					return durableLegacyRevertState{}, durableLegacyRevertState{}, err
+				}
 			}
 			return before, digestDurableRegistryExport(data), nil
 		}
@@ -69,26 +139,55 @@ func durableLegacyRegistryStates(entry JournalEntry, workRoot string) (durableLe
 	}
 }
 
-func applyDurableLegacyRegistryRevert(entry JournalEntry, index int) error {
+func applyDurableLegacyRegistryRevert(entry JournalEntry, index int, boundary legacyValidationBoundary) error {
+	_ = index
 	switch entry.RestoreType {
 	case "registry-set":
-		backup, err := readRegistrySetBackup(entry.BackupPath)
+		backupPath, err := boundary.resolveBackup(entry.BackupPath)
 		if err != nil {
 			return err
 		}
-		return revertRegistrySet(backup)
+		backup, err := readRegistrySetBackup(backupPath)
+		if err != nil {
+			return err
+		}
+		if boundary.context == nil {
+			return revertRegistrySet(backup)
+		}
+		if !strings.EqualFold(entry.TargetPath, registrySetTarget(RestoreAction{Key: backup.Key, ValueName: backup.ValueName})) {
+			return fmt.Errorf("registry-set journal target differs from semantic backup identity")
+		}
+		nativeKey, err := durableRegistryNativeKey(backup.Key, boundary)
+		if err != nil {
+			return err
+		}
+		if !backup.Existed {
+			return registrySetDeleteNative(nativeKey, backup.ValueName)
+		}
+		if backup.PriorType == "" {
+			return fmt.Errorf("registry-set revert prior value had an unsupported type; left in place")
+		}
+		return registrySetWriteNative(nativeKey, backup.ValueName, backup.PriorType, backup.PriorData)
 	case "registry-import":
-		return deleteDurableLegacyRegistryKey(entry.TargetPath)
+		return deleteDurableLegacyRegistryKey(entry.TargetPath, boundary)
 	default:
 		return fmt.Errorf("unsupported durable registry revert type %q", entry.RestoreType)
 	}
 }
 
-func durableLegacyRegistryScratchTargets(entry JournalEntry, entryDigest string) (string, string, error) {
+func durableLegacyRegistryScratchTargets(entry JournalEntry, entryDigest string, boundary legacyValidationBoundary) (string, string, error) {
 	if entry.RestoreType != "registry-import" || !entry.BackupCreated || entry.BackupPath == "" {
 		return "", "", nil
 	}
-	_, subkey, err := splitHKCUKey(entry.TargetPath)
+	semanticTarget := entry.TargetPath
+	if boundary.context != nil {
+		canonical, err := validationmode.NormalizeHKCU(entry.TargetPath)
+		if err != nil {
+			return "", "", err
+		}
+		semanticTarget = canonical
+	}
+	_, subkey, err := splitHKCUKey(semanticTarget)
 	if err != nil {
 		return "", "", err
 	}
@@ -109,13 +208,12 @@ func durableLegacyRegistryScratchTargets(entry JournalEntry, entryDigest string)
 		prefix + "." + name + ".endstate-revert-" + suffix + "-held", nil
 }
 
-func validateDurableLegacyRegistryScratchAvailable(stage, held, workRoot string) error {
-	_ = workRoot
+func validateDurableLegacyRegistryScratchAvailable(stage, held, workRoot string, boundary legacyValidationBoundary) error {
 	for _, target := range []string{stage, held} {
 		if target == "" {
 			continue
 		}
-		state, err := captureDurableRegistryKey(target, workRoot)
+		state, err := captureDurableRegistryKey(target, workRoot, boundary)
 		if err != nil {
 			return err
 		}
@@ -127,17 +225,17 @@ func validateDurableLegacyRegistryScratchAvailable(stage, held, workRoot string)
 }
 
 func applyDurableLegacyRegistryImportSwap(
-	entry JournalEntry, prepared durableLegacyRevertPrepared, index int, workRoot string,
+	entry JournalEntry, prepared durableLegacyRevertPrepared, index int, workRoot string, boundary legacyValidationBoundary,
 ) error {
-	targetState, err := captureDurableRegistryKey(entry.TargetPath, workRoot)
+	targetState, err := captureDurableRegistryKey(entry.TargetPath, workRoot, boundary)
 	if err != nil {
 		return err
 	}
-	stageState, err := captureDurableRegistryKeyAs(prepared.StagePath, entry.TargetPath, workRoot)
+	stageState, err := captureDurableRegistryKeyAs(prepared.StagePath, entry.TargetPath, workRoot, boundary)
 	if err != nil {
 		return err
 	}
-	heldState, err := captureDurableRegistryKeyAs(prepared.HeldPath, entry.TargetPath, workRoot)
+	heldState, err := captureDurableRegistryKeyAs(prepared.HeldPath, entry.TargetPath, workRoot, boundary)
 	if err != nil {
 		return err
 	}
@@ -147,7 +245,7 @@ func applyDurableLegacyRegistryImportSwap(
 			if stageState != prepared.Desired {
 				return fmt.Errorf("legacy registry revert stage changed after target replacement")
 			}
-			if err := deleteDurableLegacyRegistryKey(prepared.StagePath); err != nil {
+			if err := deleteDurableLegacyRegistryKey(prepared.StagePath, boundary); err != nil {
 				return err
 			}
 		}
@@ -155,7 +253,7 @@ func applyDurableLegacyRegistryImportSwap(
 			if heldState != prepared.Before {
 				return fmt.Errorf("legacy registry revert held key changed after target replacement")
 			}
-			if err := deleteDurableLegacyRegistryKey(prepared.HeldPath); err != nil {
+			if err := deleteDurableLegacyRegistryKey(prepared.HeldPath, boundary); err != nil {
 				return err
 			}
 		}
@@ -175,16 +273,16 @@ func applyDurableLegacyRegistryImportSwap(
 		if targetState != prepared.Before || heldExists {
 			return fmt.Errorf("legacy registry revert stage differs from recorded desired state")
 		}
-		if err := deleteDurableLegacyRegistryKey(prepared.StagePath); err != nil {
+		if err := deleteDurableLegacyRegistryKey(prepared.StagePath, boundary); err != nil {
 			return err
 		}
 		stageState = absentDurableRegistryState("registry-key")
 	}
 	if stageState.Kind == "absent" {
-		if err := stageDurableLegacyRegistryImport(entry, prepared, workRoot); err != nil {
+		if err := stageDurableLegacyRegistryImport(entry, prepared, workRoot, boundary); err != nil {
 			return err
 		}
-		stageState, err = captureDurableRegistryKeyAs(prepared.StagePath, entry.TargetPath, workRoot)
+		stageState, err = captureDurableRegistryKeyAs(prepared.StagePath, entry.TargetPath, workRoot, boundary)
 		if err != nil {
 			return err
 		}
@@ -193,7 +291,7 @@ func applyDurableLegacyRegistryImportSwap(
 		return fmt.Errorf("legacy registry revert stage differs from recorded desired state")
 	}
 	if !heldExists && targetState.Kind != "absent" {
-		if err := renameDurableRegistryKey(entry.TargetPath, prepared.HeldPath); err != nil {
+		if err := renameDurableRegistryKey(entry.TargetPath, prepared.HeldPath, boundary); err != nil {
 			return err
 		}
 		if err := durableRevertCheckpoint("after_registry_target_held", index); err != nil {
@@ -201,16 +299,16 @@ func applyDurableLegacyRegistryImportSwap(
 		}
 		heldExists = true
 	}
-	targetState, err = captureDurableRegistryKey(entry.TargetPath, workRoot)
+	targetState, err = captureDurableRegistryKey(entry.TargetPath, workRoot, boundary)
 	if err != nil {
 		return err
 	}
 	if targetState.Kind == "absent" {
-		if err := renameDurableRegistryKey(prepared.StagePath, entry.TargetPath); err != nil {
+		if err := renameDurableRegistryKey(prepared.StagePath, entry.TargetPath, boundary); err != nil {
 			return err
 		}
 	}
-	actual, err := captureDurableRegistryKey(entry.TargetPath, workRoot)
+	actual, err := captureDurableRegistryKey(entry.TargetPath, workRoot, boundary)
 	if err != nil {
 		return err
 	}
@@ -218,19 +316,33 @@ func applyDurableLegacyRegistryImportSwap(
 		return fmt.Errorf("legacy registry revert target does not match staged desired state")
 	}
 	if heldExists {
-		if err := deleteDurableLegacyRegistryKey(prepared.HeldPath); err != nil {
+		if err := deleteDurableLegacyRegistryKey(prepared.HeldPath, boundary); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func stageDurableLegacyRegistryImport(entry JournalEntry, prepared durableLegacyRevertPrepared, workRoot string) error {
-	data, _, err := safepath.ReadRegularFile(entry.BackupPath)
+func stageDurableLegacyRegistryImport(entry JournalEntry, prepared durableLegacyRevertPrepared, workRoot string, boundary legacyValidationBoundary) error {
+	backupPath, err := boundary.resolveBackup(entry.BackupPath)
 	if err != nil {
 		return err
 	}
-	rewritten, err := rewriteDurableRegistryExport(data, entry.TargetPath, prepared.StagePath)
+	data, _, err := safepath.ReadRegularFile(backupPath)
+	if err != nil {
+		return err
+	}
+	var rewritten []byte
+	stageIdentity := prepared.StagePath
+	if boundary.context != nil {
+		stageIdentity, err = durableRegistryNativeKey(prepared.StagePath, boundary)
+		if err != nil {
+			return err
+		}
+		rewritten, err = registryfile.RewriteSubtree(data, entry.TargetPath, stageIdentity)
+	} else {
+		rewritten, err = rewriteDurableRegistryExport(data, entry.TargetPath, prepared.StagePath)
+	}
 	if err != nil {
 		return err
 	}
@@ -240,25 +352,30 @@ func stageDurableLegacyRegistryImport(entry JournalEntry, prepared durableLegacy
 	}
 	defer os.Remove(path)
 	if err := durableRegistryImportFile(path); err != nil {
-		return errors.Join(err, deleteDurableLegacyRegistryKey(prepared.StagePath))
+		return errors.Join(err, deleteDurableLegacyRegistryKey(prepared.StagePath, boundary))
 	}
-	state, err := captureDurableRegistryKeyAs(prepared.StagePath, entry.TargetPath, workRoot)
+	state, err := captureDurableRegistryKeyAs(prepared.StagePath, entry.TargetPath, workRoot, boundary)
 	if err != nil {
 		return err
 	}
 	if state != prepared.Desired {
-		_ = deleteDurableLegacyRegistryKey(prepared.StagePath)
+		_ = deleteDurableLegacyRegistryKey(prepared.StagePath, boundary)
 		return fmt.Errorf("staged registry import does not match recorded desired state")
 	}
 	return nil
 }
 
-func captureDurableRegistryKeyAs(actual, semantic, workRoot string) (durableLegacyRevertState, error) {
-	state, data, err := exportDurableRegistryKey(actual, workRoot)
+func captureDurableRegistryKeyAs(actual, semantic, workRoot string, boundary legacyValidationBoundary) (durableLegacyRevertState, error) {
+	state, data, err := exportDurableRegistryKey(actual, workRoot, boundary)
 	if err != nil || state.Kind == "absent" {
 		return state, err
 	}
-	rewritten, err := rewriteDurableRegistryExport(data, actual, semantic)
+	var rewritten []byte
+	if boundary.context != nil {
+		rewritten, err = registryfile.RewriteSubtree(data, actual, semantic)
+	} else {
+		rewritten, err = rewriteDurableRegistryExport(data, actual, semantic)
+	}
 	if err != nil {
 		return durableLegacyRevertState{}, err
 	}
@@ -313,7 +430,19 @@ func canonicalDurableRegistryKey(target string) (string, error) {
 	return `HKEY_CURRENT_USER\` + subkey, nil
 }
 
-func renameDurableRegistryKey(source, destination string) error {
+func renameDurableRegistryKey(source, destination string, boundary legacyValidationBoundary) error {
+	nativeSource, err := durableRegistryNativeKey(source, boundary)
+	if err != nil {
+		return err
+	}
+	nativeDestination, err := durableRegistryNativeKey(destination, boundary)
+	if err != nil {
+		return err
+	}
+	return durableRegistryRenameNative(nativeSource, nativeDestination)
+}
+
+func renameDurableRegistryKeyNative(source, destination string) error {
 	_, sourceSubkey, err := splitHKCUKey(source)
 	if err != nil {
 		return err
@@ -350,48 +479,34 @@ func renameDurableRegistryKey(source, destination string) error {
 	return nil
 }
 
-func deleteDurableLegacyRegistryKey(target string) error {
-	if err := exec.Command("reg", "delete", target, "/f").Run(); err != nil {
-		hive, subkey, splitErr := splitHKCUKey(target)
-		if splitErr != nil {
-			return splitErr
-		}
-		key, queryErr := registry.OpenKey(hive, subkey, registry.QUERY_VALUE)
-		if queryErr == nil {
-			_ = key.Close()
-			return fmt.Errorf("cannot delete registry key %s: %w", target, err)
-		}
-		if queryErr != registry.ErrNotExist {
-			return fmt.Errorf("verify registry key deletion %s: %w", target, queryErr)
-		}
+func deleteDurableLegacyRegistryKey(target string, boundary legacyValidationBoundary) error {
+	nativeTarget, err := durableRegistryNativeKey(target, boundary)
+	if err != nil {
+		return err
 	}
-	return nil
+	return durableRegistryDeleteNative(nativeTarget)
 }
 
-func captureDurableRegistryKey(target, workRoot string) (durableLegacyRevertState, error) {
-	state, data, err := exportDurableRegistryKey(target, workRoot)
+func captureDurableRegistryKey(target, workRoot string, boundary legacyValidationBoundary) (durableLegacyRevertState, error) {
+	state, data, err := exportDurableRegistryKey(target, workRoot, boundary)
 	if err != nil || state.Kind == "absent" {
 		return state, err
 	}
 	return digestDurableRegistryExport(data), nil
 }
 
-func exportDurableRegistryKey(target, workRoot string) (durableLegacyRevertState, []byte, error) {
-	if err := ValidateRegistryTarget(target); err != nil {
-		return durableLegacyRevertState{}, nil, err
-	}
-	hive, subkey, err := splitHKCUKey(target)
+func exportDurableRegistryKey(target, workRoot string, boundary legacyValidationBoundary) (durableLegacyRevertState, []byte, error) {
+	nativeTarget, err := durableRegistryNativeKey(target, boundary)
 	if err != nil {
 		return durableLegacyRevertState{}, nil, err
 	}
-	key, err := registry.OpenKey(hive, subkey, registry.QUERY_VALUE|registry.ENUMERATE_SUB_KEYS)
-	if err == registry.ErrNotExist {
-		return absentDurableRegistryState("registry-key"), nil, nil
-	}
+	exists, err := durableRegistryKeyExistsNative(nativeTarget)
 	if err != nil {
 		return durableLegacyRevertState{}, nil, fmt.Errorf("inspect registry key %s: %w", target, err)
 	}
-	_ = key.Close()
+	if !exists {
+		return absentDurableRegistryState("registry-key"), nil, nil
+	}
 	temporary, err := os.CreateTemp(workRoot, ".registry-state-*.reg")
 	if err != nil {
 		return durableLegacyRevertState{}, nil, err
@@ -402,12 +517,27 @@ func exportDurableRegistryKey(target, workRoot string) (durableLegacyRevertState
 		return durableLegacyRevertState{}, nil, err
 	}
 	defer os.Remove(path)
-	if err := exec.Command("reg", "export", target, path, "/y").Run(); err != nil {
+	if boundary.context != nil {
+		if err := boundary.context.ValidateSandboxPath(filepath.Clean(path)); err != nil {
+			return durableLegacyRevertState{}, nil, err
+		}
+	}
+	if err := durableRegistryExportNative(nativeTarget, path); err != nil {
 		return durableLegacyRevertState{}, nil, fmt.Errorf("capture registry key %s: %w", target, err)
 	}
 	data, _, err := safepath.ReadRegularFile(filepath.Clean(path))
 	if err != nil {
 		return durableLegacyRevertState{}, nil, err
+	}
+	if boundary.context != nil {
+		semanticTarget, normalizeErr := validationmode.NormalizeHKCU(target)
+		if normalizeErr != nil {
+			return durableLegacyRevertState{}, nil, normalizeErr
+		}
+		data, err = registryfile.RewriteSubtree(data, nativeTarget, semanticTarget)
+		if err != nil {
+			return durableLegacyRevertState{}, nil, err
+		}
 	}
 	return durableLegacyRevertState{Kind: "registry-key"}, data, nil
 }

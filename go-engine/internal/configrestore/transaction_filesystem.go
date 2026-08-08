@@ -138,6 +138,12 @@ func commitDirectoryCopy(
 		}
 		sourcePath := filepath.Join(action.Source, filepath.FromSlash(relative))
 		targetPath := filepath.Join(action.Target, filepath.FromSlash(relative))
+		if err := validateHostIO(ctx, sourcePath); err != nil {
+			return err
+		}
+		if err := validateHostIO(ctx, targetPath); err != nil {
+			return err
+		}
 		switch sourceEntry.Kind {
 		case StateDirectory:
 			if err := ensureTransactionDirectory(ctx, targetPath, desiredEntry.Mode, touch, afterMutation); err != nil {
@@ -171,6 +177,9 @@ func prepareTransactionFileDestination(
 	afterMutation func() error,
 ) error {
 	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, target); err != nil {
 		return err
 	}
 	if err := rejectExistingTargetLinks(target); err != nil {
@@ -217,7 +226,13 @@ func atomicWriteTransactionFile(
 	if err := checkSnapshotContext(ctx); err != nil {
 		return err
 	}
+	if err := validateHostIO(ctx, destination); err != nil {
+		return err
+	}
 	parent := filepath.Dir(destination)
+	if err := validateHostIO(ctx, parent); err != nil {
+		return err
+	}
 	if err := rejectExistingTargetLinks(parent); err != nil {
 		return err
 	}
@@ -225,14 +240,28 @@ func atomicWriteTransactionFile(
 	if err != nil || !parentInfo.IsDir() || isLinkOrReparse(parentInfo) {
 		return fmt.Errorf("transaction target parent is not a safe existing directory")
 	}
-	temporary, err := os.CreateTemp(parent, ".endstate-transaction-*")
+	boundary := hostBoundaryFromContext(ctx)
+	temporary, err := createBoundaryTempFile(parent, ".endstate-transaction-*", boundary)
 	if err != nil {
 		return err
 	}
 	temporaryPath := temporary.Name()
+	if err := validateHostIO(ctx, temporaryPath); err != nil {
+		_ = temporary.Close()
+		if boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(context.WithoutCancel(ctx), temporaryPath)
+		}
+		return err
+	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(context.WithoutCancel(ctx), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(mode.Perm()); err != nil {
 		return err
@@ -247,6 +276,9 @@ func atomicWriteTransactionFile(
 		return err
 	}
 	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, destination); err != nil {
 		return err
 	}
 	if err := rejectExistingTargetLinks(destination); err != nil {
@@ -271,12 +303,18 @@ func ensureTransactionDirectory(
 	if err := checkSnapshotContext(ctx); err != nil {
 		return err
 	}
+	if err := validateHostIO(ctx, path); err != nil {
+		return err
+	}
 	if err := rejectExistingTargetLinks(path); err != nil {
 		return err
 	}
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		parent := filepath.Dir(path)
+		if err := validateHostIO(ctx, parent); err != nil {
+			return err
+		}
 		if parentInfo, parentErr := os.Lstat(parent); parentErr != nil || !parentInfo.IsDir() || isLinkOrReparse(parentInfo) {
 			return fmt.Errorf("transaction directory parent is not safe")
 		}
@@ -335,6 +373,9 @@ func ensureTransactionDirectory(
 
 func removeTransactionFile(ctx context.Context, target string, touch func(), afterMutation func() error) error {
 	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, target); err != nil {
 		return err
 	}
 	if err := rejectExistingTargetLinks(target); err != nil {
@@ -412,6 +453,9 @@ func restoreFilesystemPrior(
 				return err
 			}
 		}
+		if err := validateHostIO(ctx, backupPath); err != nil {
+			return err
+		}
 		data, _, err := safepath.ReadRegularFile(backupPath)
 		if err != nil {
 			return err
@@ -459,6 +503,9 @@ func removeDesiredOnlyFilesystemEntries(
 			continue
 		}
 		path := filepath.Join(target, filepath.FromSlash(relative))
+		if err := validateHostIO(ctx, path); err != nil {
+			return err
+		}
 		if err := removeSafeTransactionPath(ctx, path); err != nil {
 			return err
 		}
@@ -480,6 +527,12 @@ func restoreRecordedDirectory(
 		if relative != "." {
 			target = filepath.Join(targetRoot, filepath.FromSlash(relative))
 			backup = filepath.Join(backupRoot, filepath.FromSlash(relative))
+		}
+		if err := validateHostIO(ctx, target); err != nil {
+			return err
+		}
+		if err := validateHostIO(ctx, backup); err != nil {
+			return err
 		}
 		switch entry.Kind {
 		case StateDirectory:
@@ -511,6 +564,9 @@ func removeSafeTransactionPath(ctx context.Context, target string) error {
 	if err := checkSnapshotContext(ctx); err != nil {
 		return err
 	}
+	if err := validateHostIO(ctx, target); err != nil {
+		return err
+	}
 	if err := rejectExistingTargetLinks(target); err != nil {
 		return err
 	}
@@ -530,7 +586,11 @@ func removeSafeTransactionPath(ctx context.Context, target string) error {
 			return err
 		}
 		for _, entry := range entries {
-			if err := removeSafeTransactionPath(ctx, filepath.Join(target, entry.Name())); err != nil {
+			child := filepath.Join(target, entry.Name())
+			if err := validateHostIO(ctx, child); err != nil {
+				return err
+			}
+			if err := removeSafeTransactionPath(ctx, child); err != nil {
 				return err
 			}
 		}

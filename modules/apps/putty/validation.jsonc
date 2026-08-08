@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.putty",
+  "moduleRevision": "c7681d976ea63a9cd6a1adb2c0ff264fd6d8fac2f8feeb33cebf1f886aef4681",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -129,6 +129,29 @@ func TestRunCapabilities_MultiDriverCLIFlags(t *testing.T) {
 	}
 }
 
+func TestRunCapabilities_AdvertisesCatalogPlan(t *testing.T) {
+	result, err := RunCapabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := result.(CapabilitiesData)
+	command, ok := data.Commands["catalog-plan"]
+	if !ok || !command.Supported {
+		t.Fatalf("catalog-plan capability = %+v", command)
+	}
+	for _, flag := range []string{"--bundle", "--json", "--events"} {
+		found := false
+		for _, actual := range command.Flags {
+			if actual == flag {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("catalog-plan flags = %v, missing %q", command.Flags, flag)
+		}
+	}
+}
+
 // TestRunCapabilities_HostedBackupShape verifies the full shape of the
 // hostedBackup features block so regressions in existing fields are caught.
 func TestRunCapabilities_HostedBackupShape(t *testing.T) {
@@ -155,5 +178,25 @@ func TestRunCapabilities_HostedBackupShape(t *testing.T) {
 	}
 	if !hb.IfChanged {
 		t.Error("hostedBackup.ifChanged = false, want true")
+	}
+}
+
+func TestRunCapabilities_AdvertisesProfileInspection(t *testing.T) {
+	data, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities() returned error: %v", err)
+	}
+
+	raw, jsonErr := json.Marshal(data)
+	if jsonErr != nil {
+		t.Fatal(jsonErr)
+	}
+	var got map[string]interface{}
+	if jsonErr := json.Unmarshal(raw, &got); jsonErr != nil {
+		t.Fatal(jsonErr)
+	}
+	features := got["features"].(map[string]interface{})
+	if value, ok := features["profileInspection"].(bool); !ok || !value {
+		t.Fatalf("features.profileInspection = %#v, want true", features["profileInspection"])
 	}
 }

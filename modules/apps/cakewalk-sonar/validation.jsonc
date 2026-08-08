@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.cakewalk-sonar",
+  "moduleRevision": "18236638f7cc0d79bc844888e196638a2eb0c2f9ac294e8067fde6e0e866a0df",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

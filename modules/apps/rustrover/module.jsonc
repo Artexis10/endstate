@@ -91,10 +91,6 @@
   "notes": "Captures RustRover settings (options/*.xml), keymaps, live templates, code styles, and color schemes. Config folder is version-specific (%APPDATA%\\JetBrains\\RustRover<version>\\); the system/caches directory under %LOCALAPPDATA%\\JetBrains\\RustRover<version>\\ is not captured. Workspace-specific files (workspace.xml, tasks.xml), usage stats, caches, and index are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. Confidence: high - config layout confirmed by official JetBrains RustRover documentation and consistent with sibling JetBrains modules in this repo.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%APPDATA%"
     ],

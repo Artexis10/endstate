@@ -77,6 +77,9 @@ func (w *JournalWriter) persistMarker(
 	}
 	path := journalMarkerPath(journalDirectory, state, verifiedIntent.digest)
 	if existing, err := readJournalMarkerFile(root, path, verifiedIntent); err == nil {
+		if err := validateBoundaryHostIO(verifiedIntent.boundary, path); err != nil {
+			return nil, journalCompletionError(path, err)
+		}
 		existingBytes, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return nil, journalCompletionError(path, readErr)
@@ -93,14 +96,22 @@ func (w *JournalWriter) persistMarker(
 		return nil, journalCompletionError(path, err)
 	}
 
-	temporary, err := os.CreateTemp(journalDirectory, ".marker-*.tmp")
+	temporary, err := createBoundaryTempFile(journalDirectory, ".marker-*.tmp", verifiedIntent.boundary)
 	if err != nil {
 		return nil, journalCompletionError(journalDirectory, err)
 	}
 	temporaryPath := temporary.Name()
+	if err := validateBoundaryHostIO(verifiedIntent.boundary, temporaryPath); err != nil {
+		_ = temporary.Close()
+		return nil, journalCompletionError(temporaryPath, err)
+	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if verifiedIntent.boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(withHostBoundary(context.Background(), verifiedIntent.boundary), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		return nil, journalCompletionError(temporaryPath, err)
@@ -150,6 +161,9 @@ func (w *JournalWriter) reconcileMarker(
 		if err != nil {
 			return nil, err
 		}
+		if err := validateBoundaryHostIO(intent.boundary, path); err != nil {
+			return nil, err
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -182,7 +196,7 @@ func verifyIntentForMarker(ctx context.Context, intent *JournalIntent) (*Journal
 	if intent.path != expectedPath {
 		return nil, fmt.Errorf("journal intent path differs from its verified transaction root")
 	}
-	verified, err := ReadJournalIntent(ctx, intent.transactionRoot)
+	verified, err := ReadJournalIntentWithBoundary(ctx, intent.transactionRoot, intent.boundary)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +209,12 @@ func verifyIntentForMarker(ctx context.Context, intent *JournalIntent) (*Journal
 func readJournalMarkerFile(root, path string, intent *JournalIntent) (*JournalMarker, error) {
 	if intent == nil || intent.transactionRoot != root || intent.digest == "" {
 		return nil, fmt.Errorf("verified journal intent is required")
+	}
+	if err := validateBoundaryHostIO(intent.boundary, filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	if err := validateBoundaryHostIO(intent.boundary, path); err != nil {
+		return nil, err
 	}
 	if err := rejectExistingTargetLinks(filepath.Dir(path)); err != nil {
 		return nil, err

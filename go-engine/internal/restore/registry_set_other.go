@@ -16,6 +16,7 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 		Target:      registrySetTarget(entry),
 		RestoreType: "registry-set",
 	}
+	defer projectValidationRestoreResult(result, entry, opts)
 	if err := validateRegistrySet(entry); err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()

@@ -9,10 +9,12 @@ package bundle
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -20,7 +22,18 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
+
+var runRegistryExport = func(key, destination string) error {
+	return exec.Command("reg", "export", key, destination, "/y").Run()
+}
+
+var runRegistryQuery = func(key, valueName string) ([]byte, error) {
+	return exec.Command("reg", "query", key, "/v", valueName).Output()
+}
 
 // CollectConfigFiles copies config files from system paths to stagingDir
 // according to the module's capture.files mapping. Environment variables in
@@ -34,6 +47,15 @@ import (
 // Returns the list of relative paths (under stagingDir) that were collected and
 // the number of files excluded because they matched the module's secrets.files.
 func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, int, error) {
+	return CollectConfigFilesWithValidation(module, stagingDir, nil)
+}
+
+// CollectConfigFilesWithValidation preserves the legacy collector contract and
+// virtualizes only host reads and portable staging writes when context is set.
+func CollectConfigFilesWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, int, error) {
+	if err := validateRegistryCaptureBoundary(module); err != nil {
+		return nil, 0, registryCaptureBoundaryFailure(module, context, err)
+	}
 	if module.Capture == nil || len(module.Capture.Files) == 0 {
 		return nil, 0, nil
 	}
@@ -49,24 +71,45 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, in
 	if module.Secrets != nil {
 		secretsFiles = module.Secrets.Files
 	}
+	resolvedSecrets, err := resolveCaptureSecretPatterns(context, module.ID, secretsFiles, validationmode.HostPathPolicy{})
+	if err != nil {
+		return nil, 0, err
+	}
 	var collected []string
 	secretsExcluded := 0
 
-	for _, fileEntry := range module.Capture.Files {
+	for index, fileEntry := range module.Capture.Files {
 		sourcePath := expandPath(fileEntry.Source)
+		if context != nil {
+			var err error
+			sourcePath, err = resolveCaptureHost(context, module.ID, fmt.Sprintf("capture.files[%d].source", index), fileEntry.Source, validationmode.HostPathPolicy{})
+			if err != nil {
+				return collected, secretsExcluded, err
+			}
+		}
 
-		destFileName := filepath.Base(fileEntry.Dest)
-		destPath := filepath.Join(stagingDir, "configs", moduleDirName, destFileName)
+		destFileName := path.Base(catalogPath(fileEntry.Dest))
 		relativePath := filepath.ToSlash(filepath.Join("configs", moduleDirName, destFileName))
+		destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
+		if context != nil {
+			var err error
+			destPath, err = resolveCapturePortable(context, module.ID, fmt.Sprintf("capture.files[%d].dest", index), stagingDir, relativePath)
+			if err != nil {
+				return collected, secretsExcluded, err
+			}
+		}
 
 		// Secret files declared in the module's secrets block are never bundled.
-		if matchesSecrets(sourcePath, secretsFiles) {
+		if captureMatchesSecrets(sourcePath, secretsFiles, resolvedSecrets, context != nil) {
 			secretsExcluded++
 			continue
 		}
 
 		// Check if source matches exclude globs.
-		if matchesExcludeGlobs(sourcePath, excludeGlobs) {
+		// Exclusions describe content within this declared capture entry. Never
+		// match them against unrelated absolute ancestors (for example the OS
+		// Temp directory that happens to contain a validation sandbox).
+		if matchesExcludeGlobs(filepath.Base(sourcePath), excludeGlobs) {
 			continue
 		}
 
@@ -75,6 +118,12 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, in
 		if err != nil {
 			if fileEntry.Optional {
 				continue
+			}
+			if context != nil {
+				if os.IsNotExist(err) {
+					return collected, secretsExcluded, fmt.Errorf("missing required file at capture.files[%d].source (module: %s)", index, module.ID)
+				}
+				return collected, secretsExcluded, captureIsolation(module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", fileEntry.Source, validationmode.ErrUnsafePath)
 			}
 			return collected, secretsExcluded, fmt.Errorf("missing required file: %s (module: %s)", sourcePath, module.ID)
 		}
@@ -88,19 +137,32 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, in
 		// Ensure destination directory exists.
 		destDir := filepath.Dir(destPath)
 		if err := os.MkdirAll(destDir, 0755); err != nil {
+			if context != nil {
+				return collected, secretsExcluded, captureIsolation(module.ID, fmt.Sprintf("capture.files[%d].dest", index), "portable", fileEntry.Dest, validationmode.ErrUnsafePath)
+			}
 			return collected, secretsExcluded, fmt.Errorf("failed to create directory %s: %w", destDir, err)
 		}
 
 		if info.IsDir() {
 			// Copy directory recursively, excluding secret files within.
-			n, err := copyDir(sourcePath, destPath, excludeGlobs, secretsFiles)
+			n, err := copyDirWithValidation(sourcePath, destPath, excludeGlobs, secretsFiles, resolvedSecrets, context, module.ID, fmt.Sprintf("capture.files[%d].source", index), fileEntry.Source)
 			if err != nil {
+				if context != nil {
+					var isolation *CaptureIsolationError
+					if errors.As(err, &isolation) {
+						return collected, secretsExcluded, err
+					}
+					return collected, secretsExcluded, captureIsolation(module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", fileEntry.Source, validationmode.ErrUnsafePath)
+				}
 				return collected, secretsExcluded, fmt.Errorf("failed to copy directory %s: %w", sourcePath, err)
 			}
 			secretsExcluded += n
 		} else {
 			// Copy single file.
 			if err := copyFile(sourcePath, destPath); err != nil {
+				if context != nil {
+					return collected, secretsExcluded, captureIsolation(module.ID, fmt.Sprintf("capture.files[%d].source", index), "path", fileEntry.Source, validationmode.ErrUnsafePath)
+				}
 				return collected, secretsExcluded, fmt.Errorf("failed to copy file %s: %w", sourcePath, err)
 			}
 		}
@@ -116,6 +178,16 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, in
 // Returns the list of relative paths (under stagingDir) that were collected.
 // On non-Windows platforms this is a no-op that returns nil.
 func CollectRegistryKeys(module *modules.Module, stagingDir string) ([]string, error) {
+	return CollectRegistryKeysWithValidation(module, stagingDir, nil)
+}
+
+// CollectRegistryKeysWithValidation maps only the native reg export argument,
+// then rewrites the disposable physical namespace back to semantic HKCU bytes
+// before publication. A nil context is the established production path.
+func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, error) {
+	if err := validateRegistryCaptureBoundary(module); err != nil {
+		return nil, registryCaptureBoundaryFailure(module, context, err)
+	}
 	if runtime.GOOS != "windows" {
 		return nil, nil
 	}
@@ -131,31 +203,214 @@ func CollectRegistryKeys(module *modules.Module, stagingDir string) ([]string, e
 
 	var collected []string
 
-	for _, keyEntry := range module.Capture.RegistryKeys {
+	for index, keyEntry := range module.Capture.RegistryKeys {
+		exportKey := keyEntry.Key
+		semanticKey := keyEntry.Key
+		if context != nil {
+			var err error
+			semanticKey, err = validationmode.NormalizeHKCU(keyEntry.Key)
+			if err != nil {
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, err)
+			}
+			exportKey, err = context.MapHKCU(semanticKey)
+			if err != nil {
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, err)
+			}
+		}
 		// Dest is relative to the configs/<module>/ staging area.
-		destFileName := filepath.Base(keyEntry.Dest)
-		destPath := filepath.Join(stagingDir, "configs", moduleDirName, destFileName)
+		destFileName := path.Base(catalogPath(keyEntry.Dest))
 		relativePath := filepath.ToSlash(filepath.Join("configs", moduleDirName, destFileName))
+		destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
+		if context != nil {
+			var err error
+			destPath, err = resolveCapturePortable(context, module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), stagingDir, relativePath)
+			if err != nil {
+				return collected, err
+			}
+		}
 
 		// Ensure destination directory exists.
 		destDir := filepath.Dir(destPath)
 		if err := os.MkdirAll(destDir, 0755); err != nil {
+			if context != nil {
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+			}
 			return collected, fmt.Errorf("failed to create directory %s: %w", destDir, err)
 		}
 
-		// Export via reg.exe.
-		cmd := exec.Command("reg", "export", keyEntry.Key, destPath, "/y")
-		if err := cmd.Run(); err != nil {
+		exportDestination := destPath
+		cleanup := func() {}
+		if context != nil {
+			temporary, err := os.CreateTemp(destDir, ".registry-export-*")
+			if err != nil {
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+			}
+			exportDestination = temporary.Name()
+			if err := temporary.Close(); err != nil {
+				_ = os.Remove(exportDestination)
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+			}
+			cleanup = func() { _ = os.Remove(exportDestination) }
+		}
+
+		// Export via reg.exe only after semantic mapping and destination preflight.
+		if err := runRegistryExport(exportKey, exportDestination); err != nil {
+			cleanup()
 			if keyEntry.Optional {
 				continue
 			}
+			if context != nil {
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+			}
 			return collected, fmt.Errorf("reg export failed for key %s: %w", keyEntry.Key, err)
+		}
+		if context != nil {
+			raw, _, err := safepath.ReadRegularFile(exportDestination)
+			if err != nil {
+				cleanup()
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+			}
+			rewritten, err := registryfile.RewriteSubtree(raw, exportKey, semanticKey)
+			cleanup()
+			if err != nil {
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+			}
+			if err := os.WriteFile(destPath, rewritten, 0o644); err != nil {
+				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+			}
 		}
 
 		collected = append(collected, relativePath)
 	}
 
 	return collected, nil
+}
+
+type registrySecretBoundaryError struct {
+	coordinate string
+	authored   string
+}
+
+func (err *registrySecretBoundaryError) Error() string {
+	return "registry secret boundary rejects capture"
+}
+
+func (err *registrySecretBoundaryError) Unwrap() error {
+	return validationmode.ErrUnsafeRegistry
+}
+
+func validateRegistryCaptureBoundary(module *modules.Module) error {
+	if module == nil {
+		return nil
+	}
+	secrets, err := registryCaptureSecrets(module)
+	if err != nil {
+		return err
+	}
+	if module.Capture == nil {
+		return nil
+	}
+	for index, capture := range module.Capture.RegistryKeys {
+		key, err := normalizeRegistryCaptureKey(capture.Key)
+		if err != nil {
+			return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryKeys[%d].key", index), authored: capture.Key}
+		}
+		for _, secret := range secrets {
+			if registrySubtreesOverlap(key, secret) {
+				return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryKeys[%d].key", index), authored: capture.Key}
+			}
+		}
+	}
+	for index, capture := range module.Capture.RegistryValues {
+		key, err := normalizeRegistryCaptureKey(capture.Key)
+		if err != nil {
+			return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryValues[%d].key", index), authored: capture.Key}
+		}
+		for _, secret := range secrets {
+			if registryKeyContains(secret, key) {
+				return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryValues[%d].key", index), authored: capture.Key}
+			}
+		}
+	}
+	return nil
+}
+
+func registryCaptureSecrets(module *modules.Module) ([]string, error) {
+	if module == nil || module.Secrets == nil {
+		return nil, nil
+	}
+	var secrets []string
+	for _, declaration := range []struct {
+		coordinate string
+		values     []string
+	}{
+		{coordinate: "secrets.files", values: module.Secrets.Files},
+		{coordinate: "secrets.registryKeys", values: module.Secrets.RegistryKeys},
+	} {
+		for index, authored := range declaration.values {
+			kind, normalizedSecret := modules.ClassifySecretCoordinate(authored)
+			coordinate := fmt.Sprintf("%s[%d]", declaration.coordinate, index)
+			if kind == modules.SecretCoordinateFilesystem {
+				continue
+			}
+			if kind == modules.SecretCoordinateRegistryInvalid {
+				return nil, &registrySecretBoundaryError{coordinate: coordinate, authored: authored}
+			}
+			secrets = append(secrets, normalizedSecret)
+		}
+	}
+	return secrets, nil
+}
+
+func normalizeRegistryCaptureKey(authored string) (string, error) {
+	kind, normalized := modules.ClassifySecretCoordinate(authored)
+	if kind != modules.SecretCoordinateRegistry {
+		return "", validationmode.ErrUnsafeRegistry
+	}
+	return validationmode.NormalizeHKCU(normalized)
+}
+
+func registryCaptureBoundaryFailure(module *modules.Module, context *validationmode.Context, err error) error {
+	if context == nil {
+		return err
+	}
+	coordinate, authored := "capture.registry", ""
+	var boundary *registrySecretBoundaryError
+	if errors.As(err, &boundary) {
+		coordinate, authored = boundary.coordinate, boundary.authored
+	}
+	moduleID := ""
+	if module != nil {
+		moduleID = module.ID
+	}
+	return captureIsolation(moduleID, coordinate, "registry", authored, validationmode.ErrUnsafeRegistry)
+}
+
+func preflightRegistryCaptureBoundaries(selected []*modules.Module, context *validationmode.Context) error {
+	seen := make(map[*modules.Module]struct{}, len(selected))
+	for _, module := range selected {
+		if module == nil {
+			continue
+		}
+		if _, duplicate := seen[module]; duplicate {
+			continue
+		}
+		seen[module] = struct{}{}
+		if err := validateRegistryCaptureBoundary(module); err != nil {
+			return registryCaptureBoundaryFailure(module, context, err)
+		}
+	}
+	return nil
+}
+
+func registrySubtreesOverlap(first, second string) bool {
+	first, second = strings.ToLower(first), strings.ToLower(second)
+	return first == second || strings.HasPrefix(first, second+`\`) || strings.HasPrefix(second, first+`\`)
+}
+
+func registryKeyContains(root, key string) bool {
+	root, key = strings.ToLower(root), strings.ToLower(key)
+	return root == key || strings.HasPrefix(key, root+`\`)
 }
 
 // CapturedRegistryValue is a single named value captured at value-level (its
@@ -178,6 +433,15 @@ type CapturedRegistryValue struct {
 // Returns the list of relative paths (under stagingDir) that were written.
 // On non-Windows platforms this is a no-op that returns nil.
 func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string, error) {
+	return CollectRegistryValuesWithValidation(module, stagingDir, nil)
+}
+
+// CollectRegistryValuesWithValidation reads the mapped physical key but keeps
+// the module-authored semantic key in registry-values.json.
+func CollectRegistryValuesWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, error) {
+	if err := validateRegistryCaptureBoundary(module); err != nil {
+		return nil, registryCaptureBoundaryFailure(module, context, err)
+	}
 	if runtime.GOOS != "windows" {
 		return nil, nil
 	}
@@ -191,8 +455,19 @@ func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string,
 	}
 
 	var captured []CapturedRegistryValue
-	for _, ve := range module.Capture.RegistryValues {
-		valType, data, ok := readRegistryNamedValue(ve.Key, ve.ValueName)
+	for index, ve := range module.Capture.RegistryValues {
+		readKey := ve.Key
+		if context != nil {
+			semantic, err := validationmode.NormalizeHKCU(ve.Key)
+			if err != nil {
+				return nil, captureIsolation(module.ID, fmt.Sprintf("capture.registryValues[%d].key", index), "registry", ve.Key, err)
+			}
+			readKey, err = context.MapHKCU(semantic)
+			if err != nil {
+				return nil, captureIsolation(module.ID, fmt.Sprintf("capture.registryValues[%d].key", index), "registry", ve.Key, err)
+			}
+		}
+		valType, data, ok := readRegistryNamedValue(readKey, ve.ValueName)
 		if !ok {
 			if ve.Optional {
 				captured = append(captured, CapturedRegistryValue{
@@ -219,7 +494,17 @@ func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string,
 
 	destPath := filepath.Join(stagingDir, "configs", moduleDirName, "registry-values.json")
 	relativePath := filepath.ToSlash(filepath.Join("configs", moduleDirName, "registry-values.json"))
+	if context != nil {
+		var err error
+		destPath, err = resolveCapturePortable(context, module.ID, "capture.registryValues", stagingDir, relativePath)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		if context != nil {
+			return nil, captureIsolation(module.ID, "capture.registryValues", "portable", relativePath, validationmode.ErrUnsafePath)
+		}
 		return nil, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(destPath), err)
 	}
 	data, err := json.MarshalIndent(captured, "", "  ")
@@ -227,6 +512,9 @@ func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string,
 		return nil, fmt.Errorf("failed to marshal captured registry values: %w", err)
 	}
 	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		if context != nil {
+			return nil, captureIsolation(module.ID, "capture.registryValues", "portable", relativePath, validationmode.ErrUnsafePath)
+		}
 		return nil, fmt.Errorf("failed to write %s: %w", destPath, err)
 	}
 
@@ -237,11 +525,11 @@ func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string,
 // <name>` and returns its REG_* type string and string-form data. ok is false
 // when the key or value is missing. Output format from reg.exe is:
 //
-//	    <ValueName>    <REG_TYPE>    <data>
+//	<ValueName>    <REG_TYPE>    <data>
 //
 // (whitespace-separated, with the data being the remainder of the line).
 func readRegistryNamedValue(key, valueName string) (regType, data string, ok bool) {
-	out, err := exec.Command("reg", "query", key, "/v", valueName).Output()
+	out, err := runRegistryQuery(key, valueName)
 	if err != nil {
 		return "", "", false
 	}
@@ -285,33 +573,70 @@ func matchesExcludeGlobs(path string, excludeGlobs []string) bool {
 		return false
 	}
 
-	normalizedPath := filepath.ToSlash(path)
+	normalizedPath := catalogPath(path)
 
 	for _, glob := range excludeGlobs {
-		pattern := filepath.ToSlash(glob)
-
-		// Strip leading **/ — means "anywhere in tree".
-		stripped := strings.TrimPrefix(pattern, "**/")
-
-		if strings.HasSuffix(stripped, "/**") {
-			// Pattern like "**/Cache/**" — exclude if directory segment appears in path.
-			dirName := strings.TrimSuffix(stripped, "/**")
-			if strings.Contains(normalizedPath, "/"+dirName+"/") {
-				return true
-			}
-		} else {
-			// Pattern like "*.log" or "state.vscdb*" — match against any path segment.
-			segments := strings.Split(normalizedPath, "/")
-			for _, seg := range segments {
-				matched, _ := filepath.Match(stripped, seg)
-				if matched {
-					return true
-				}
-			}
+		matched, err := ConfigPathMatchesExcludeGlob(normalizedPath, glob)
+		if err == nil && matched {
+			return true
 		}
 	}
 
 	return false
+}
+
+// ConfigPathMatchesExcludeGlob exposes the exact production capture matcher
+// with strict malformed-pattern reporting for validation fixture proof. The
+// collector preserves authored compatibility by treating malformed patterns
+// as non-matches through matchesExcludeGlobs.
+func ConfigPathMatchesExcludeGlob(value, glob string) (bool, error) {
+	normalizedPath := catalogPath(value)
+	pattern := catalogPath(glob)
+	stripped := strings.TrimPrefix(pattern, "**/")
+	if strings.HasSuffix(stripped, "/**") {
+		directoryPattern := strings.Trim(strings.TrimSuffix(stripped, "/**"), "/")
+		if directoryPattern == "" {
+			return false, fmt.Errorf("exclude glob %q has no directory segment", glob)
+		}
+		directorySegments := strings.Split(directoryPattern, "/")
+		for _, segment := range directorySegments {
+			if _, err := path.Match(segment, ""); err != nil {
+				return false, err
+			}
+		}
+		trimmedPath := strings.Trim(normalizedPath, "/")
+		if trimmedPath == "" {
+			return false, nil
+		}
+		pathSegments := strings.Split(trimmedPath, "/")
+		for start := 0; start+len(directorySegments) <= len(pathSegments); start++ {
+			allMatched := true
+			for index, segment := range directorySegments {
+				matched, err := path.Match(segment, pathSegments[start+index])
+				if err != nil {
+					return false, err
+				}
+				if !matched {
+					allMatched = false
+					break
+				}
+			}
+			if allMatched {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	for _, segment := range strings.Split(normalizedPath, "/") {
+		matched, err := path.Match(stripped, segment)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // captureBloatDirs are directory names (matched case-insensitively, any depth)
@@ -354,7 +679,7 @@ const captureBloatBinaryMaxBytes = 10 * 1024 * 1024 // 10 MiB
 // so only dirs WITHIN a recursively-captured subtree are matched — never a
 // coincidentally-named ancestor of the source itself.
 func isBloatDirSegment(relPath string) bool {
-	for _, seg := range strings.Split(filepath.ToSlash(relPath), "/") {
+	for _, seg := range strings.Split(catalogPath(relPath), "/") {
 		if captureBloatDirs[strings.ToLower(seg)] {
 			return true
 		}
@@ -395,6 +720,10 @@ func copyFile(src, dst string) error {
 // module's secrets.files patterns. Returns the number of entries skipped
 // because they matched a secrets pattern.
 func copyDir(src, dst string, excludeGlobs, secretsFiles []string) (int, error) {
+	return copyDirWithValidation(src, dst, excludeGlobs, secretsFiles, secretsFiles, nil, "", "", "")
+}
+
+func copyDirWithValidation(src, dst string, excludeGlobs, secretsFiles, resolvedSecrets []string, context *validationmode.Context, moduleID, coordinate, authored string) (int, error) {
 	// Remove existing destination to prevent nesting (matches PS behaviour).
 	if _, err := os.Stat(dst); err == nil {
 		if err := os.RemoveAll(dst); err != nil {
@@ -407,18 +736,18 @@ func copyDir(src, dst string, excludeGlobs, secretsFiles []string) (int, error) 
 		if err != nil {
 			return err
 		}
-
-		// Secret files/dirs declared in the module's secrets block are never bundled.
-		if matchesSecrets(path, secretsFiles) {
-			secretsExcluded++
-			if info.IsDir() {
-				return filepath.SkipDir
+		if context != nil {
+			if validationErr := context.ValidateSandboxPath(filepath.Clean(path)); validationErr != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationErr)
 			}
-			return nil
+			if isLinkOrReparse(info) {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
 		}
 
-		// Check exclude globs.
-		if matchesExcludeGlobs(path, excludeGlobs) {
+		// Secret files/dirs declared in the module's secrets block are never bundled.
+		if captureMatchesSecrets(path, secretsFiles, resolvedSecrets, context != nil) {
+			secretsExcluded++
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -428,6 +757,15 @@ func copyDir(src, dst string, excludeGlobs, secretsFiles []string) (int, error) 
 		relPath, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
+		}
+
+		// Exclusions are scoped to descendants of the declared directory, not
+		// absolute host ancestors outside that capture entry.
+		if matchesExcludeGlobs(relPath, excludeGlobs) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		// Defense-in-depth: never bundle known bloat dirs (caches, update/installer
@@ -469,13 +807,13 @@ func expandPath(p string) string {
 // patterns. Patterns may be absolute (env- or ~-rooted) file/dir paths, single-
 // glob patterns (*, ?, []), or contain "**" wildcards. Matching is
 // case-insensitive (Windows paths are case-insensitive).
-func matchesSecrets(path string, patterns []string) bool {
+func matchesSecrets(filePath string, patterns []string) bool {
 	if len(patterns) == 0 {
 		return false
 	}
-	target := strings.ToLower(filepath.ToSlash(path))
+	target := strings.ToLower(catalogPath(filePath))
 	for _, raw := range patterns {
-		p := strings.ToLower(filepath.ToSlash(expandPath(raw)))
+		p := strings.ToLower(catalogPath(expandPath(raw)))
 		if p == "" {
 			continue
 		}
@@ -486,11 +824,13 @@ func matchesSecrets(path string, patterns []string) bool {
 				return true
 			}
 		case strings.ContainsAny(p, "*?["):
-			if m, _ := filepath.Match(p, target); m {
+			if m, _ := path.Match(p, target); m {
 				return true
 			}
-			if m, _ := filepath.Match(filepath.Base(p), filepath.Base(target)); m {
-				return true
+			if !strings.Contains(strings.Trim(p, "/"), "/") {
+				if m, _ := path.Match(path.Base(p), path.Base(target)); m {
+					return true
+				}
 			}
 		default:
 			// Literal file, or directory prefix (path lives under the secret dir).
@@ -500,6 +840,33 @@ func matchesSecrets(path string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+// CapturePathMatchesSecrets applies the same production secret matcher used by
+// direct capture declarations without granting filesystem authority.
+func CapturePathMatchesSecrets(filePath string, patterns []string) bool {
+	return matchesSecrets(expandPath(filePath), filesystemSecretPatterns(patterns))
+}
+
+func catalogPath(value string) string {
+	return strings.ReplaceAll(value, `\`, "/")
+}
+
+func captureMatchesSecrets(path string, authored, resolved []string, validation bool) bool {
+	if validation {
+		return matchesSecrets(path, resolved)
+	}
+	return matchesSecrets(path, filesystemSecretPatterns(authored))
+}
+
+func filesystemSecretPatterns(patterns []string) []string {
+	filtered := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		if kind, _ := modules.ClassifySecretCoordinate(pattern); kind == modules.SecretCoordinateFilesystem {
+			filtered = append(filtered, pattern)
+		}
+	}
+	return filtered
 }
 
 // containsOrdered reports whether target contains each trimmed, non-empty part

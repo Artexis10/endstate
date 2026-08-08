@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.motrix",
+  "moduleRevision": "cab6e51bad305ec413d675d1fd2923b22abd9d795faaefb018fb1597354cb6e8",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Motrix user preferences (preferences.json) from %APPDATA%\\Motrix\\. Excludes Electron runtime caches, logs, session/resume state, and crash reports. Confidence: high - Motrix uses electron-store which defaults to app.getPath('userData') = %APPDATA%\\Motrix\\ on Windows. Authored secret warning: Motrix relays downloads through aria2c; if a proxy with credentials or tracker auth tokens are embedded in preferences.json, review the file before sharing. No standalone credential store is written to %APPDATA%\\Motrix\\."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mobaxterm",
+  "moduleRevision": "450c5d2ddfa4f36ec4af5d8694e64d34f9ff573e43d394992ca543cb0ba952c2",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

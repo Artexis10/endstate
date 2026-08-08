@@ -4,14 +4,21 @@
 package configrestore
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
@@ -46,6 +53,10 @@ type storedPendingTransaction struct {
 }
 
 func (g *Guard) recoverPending(ctx context.Context) error {
+	ctx = withHostBoundary(ctx, g.boundary)
+	if err := g.reconcileLegacyRevertWork(ctx); err != nil {
+		return err
+	}
 	pending, err := g.scanPending(ctx)
 	if err != nil {
 		return err
@@ -58,8 +69,492 @@ func (g *Guard) recoverPending(ctx context.Context) error {
 	return nil
 }
 
+// reconcileLegacyRevertWork retires only legacy work roots backed by an exact
+// durable consumption marker. Unmarked registered roots are resumable; every
+// other shape is recovery-required rather than ignored.
+func (g *Guard) reconcileLegacyRevertWork(ctx context.Context) error {
+	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, g.legacyRevertWork); err != nil {
+		return &RecoveryError{TransactionID: "legacy-revert-work", Err: err}
+	}
+	if err := rejectExistingTargetLinks(g.legacyRevertWork); err != nil {
+		return &RecoveryError{TransactionID: "legacy-revert-work", Err: err}
+	}
+	entries, err := os.ReadDir(g.legacyRevertWork)
+	if err != nil {
+		return &RecoveryError{TransactionID: "legacy-revert-work", Err: fmt.Errorf("read legacy revert work store: %w", err)}
+	}
+	for _, entry := range entries {
+		if err := checkSnapshotContext(ctx); err != nil {
+			return err
+		}
+		memberID := entry.Name()
+		root := filepath.Join(g.legacyRevertWork, memberID)
+		if err := validateHostIO(ctx, root); err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+		}
+		if !isOpaqueStoreID(memberID) || !entry.IsDir() {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: fmt.Errorf("unexpected legacy revert work entry")}
+		}
+		info, err := os.Lstat(root)
+		if err != nil || !info.IsDir() || isLinkOrReparse(info) {
+			if err == nil {
+				err = fmt.Errorf("legacy revert work root is not a safe directory")
+			}
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+		}
+		disk, err := g.loadLegacyMemberByID(memberID)
+		if err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: fmt.Errorf("read matching legacy member: %w", err)}
+		}
+		journal, err := g.readLegacyRevertJournal(disk)
+		if err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: fmt.Errorf("read registered legacy journal: %w", err)}
+		}
+		if err := validateLegacyRevertWorkTree(ctx, root, journal); err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+		}
+		reverted, err := memberReverted(
+			filepath.Join(g.legacyReverts, memberID+".json"), StoreMemberLegacy, memberID, disk.MemberDigest, g.boundary,
+		)
+		if err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: fmt.Errorf("read matching legacy revert marker: %w", err)}
+		}
+		if reverted {
+			if err := g.retireLegacyMemberRevertWork(ctx, memberID); err != nil {
+				return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Guard) readLegacyRevertJournal(disk legacyMemberDisk) (*restore.Journal, error) {
+	path, err := resolveLegacyJournalIdentity(disk.JournalPath, g.boundary)
+	if err != nil {
+		return nil, err
+	}
+	data, _, err := safepath.ReadRegularFile(path)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(data)
+	if hex.EncodeToString(digest[:]) != disk.JournalDigest {
+		return nil, fmt.Errorf("registered legacy journal changed")
+	}
+	return restore.ParseJournal(data)
+}
+
+func validateLegacyRevertWorkTree(ctx context.Context, root string, journal *restore.Journal) error {
+	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, root); err != nil {
+		return err
+	}
+	if err := rejectExistingTargetLinks(root); err != nil {
+		return err
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
+		if err == nil {
+			err = fmt.Errorf("legacy revert work path is not a safe directory")
+		}
+		return err
+	}
+	if journal == nil {
+		return fmt.Errorf("legacy revert work journal is required")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	removedRegistryScratch := false
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+		if err := validateHostIO(ctx, path); err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if isLinkOrReparse(info) {
+			return fmt.Errorf("legacy revert work entry %q is a link or reparse point", path)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("legacy revert work entry %q has unsupported special type", path)
+		}
+		if isLegacyRevertRecordTemp(entry.Name()) {
+			// RunRevertDurable owns reconciliation of its no-replace publication
+			// residue before it writes the next durable record.
+			continue
+		}
+		if isLegacyRegistryStateTemp(entry.Name()) {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			removedRegistryScratch = true
+			continue
+		}
+		if isLegacyRegistryImportStageName(entry.Name()) {
+			if err := validateLegacyRegistryImportStage(path, entry.Name(), journal); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := validateLegacyRevertWorkRecord(path, entry.Name(), journal); err != nil {
+			return err
+		}
+	}
+	if removedRegistryScratch {
+		return syncDurableDirectory(root)
+	}
+	return nil
+}
+
+func isLegacyRevertRecordTemp(name string) bool {
+	return isLegacyRevertWorkScratch(name, ".legacy-revert-record-", ".tmp")
+}
+
+func isLegacyRegistryStateTemp(name string) bool {
+	return isLegacyRevertWorkScratch(name, ".registry-state-", ".reg")
+}
+
+func isLegacyRevertWorkScratch(name, prefix, suffix string) bool {
+	if len(name) <= len(prefix)+len(suffix) || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+		return false
+	}
+	for _, character := range name[len(prefix) : len(name)-len(suffix)] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+type legacyRevertWorkState struct {
+	Kind   string `json:"kind"`
+	Digest string `json:"digest"`
+}
+
+type legacyRevertWorkPrepared struct {
+	Version       int                   `json:"version"`
+	EntryIndex    int                   `json:"entryIndex"`
+	EntryDigest   string                `json:"entryDigest"`
+	Target        string                `json:"target"`
+	Before        legacyRevertWorkState `json:"before"`
+	Desired       legacyRevertWorkState `json:"desired"`
+	DesiredSource string                `json:"desiredSource,omitempty"`
+	StagePath     string                `json:"stagePath,omitempty"`
+	HeldPath      string                `json:"heldPath,omitempty"`
+}
+
+type legacyRevertWorkCompleted struct {
+	Version     int    `json:"version"`
+	EntryIndex  int    `json:"entryIndex"`
+	EntryDigest string `json:"entryDigest"`
+	Action      string `json:"action"`
+}
+
+func validateLegacyRevertWorkRecord(path, name string, journal *restore.Journal) error {
+	index, completed, ok := parseLegacyRevertWorkRecordName(name)
+	if !ok || index < 0 || index >= len(journal.Entries) {
+		return fmt.Errorf("legacy revert work entry %q is not a valid durable record name", path)
+	}
+	entry := journal.Entries[index]
+	if entry.Action != "restored" {
+		return fmt.Errorf("legacy revert work entry %q binds a non-restored journal entry", path)
+	}
+	digest, err := legacyRevertJournalEntryDigest(entry)
+	if err != nil {
+		return err
+	}
+	data, _, err := safepath.ReadRegularFile(path)
+	if err != nil {
+		return err
+	}
+	if completed {
+		var record legacyRevertWorkCompleted
+		if err := decodeCanonicalLegacyRevertWorkRecord(data, &record); err != nil {
+			return err
+		}
+		if record.Version != 1 || record.EntryIndex != index || record.EntryDigest != digest ||
+			(record.Action != "reverted" && record.Action != "deleted") {
+			return fmt.Errorf("legacy revert completion record %q differs from its journal entry", path)
+		}
+		prepared, err := readLegacyRevertWorkPrepared(filepath.Join(filepath.Dir(path), fmt.Sprintf("entry-%06d.json", index)), index, entry, digest)
+		if err != nil {
+			return fmt.Errorf("legacy revert completion record %q has no matching prepared state: %w", path, err)
+		}
+		if (record.Action == "deleted") != (prepared.Desired.Kind == "absent") {
+			return fmt.Errorf("legacy revert completion record %q action differs from its prepared desired state", path)
+		}
+		return nil
+	}
+	_, err = readLegacyRevertWorkPrepared(path, index, entry, digest)
+	return err
+}
+
+func readLegacyRevertWorkPrepared(path string, index int, entry restore.JournalEntry, digest string) (legacyRevertWorkPrepared, error) {
+	var record legacyRevertWorkPrepared
+	data, _, err := safepath.ReadRegularFile(path)
+	if err != nil {
+		return record, err
+	}
+	if err := decodeCanonicalLegacyRevertWorkRecord(data, &record); err != nil {
+		return record, err
+	}
+	if record.Version != 1 || record.EntryIndex != index || record.EntryDigest != digest ||
+		!validLegacyRevertWorkState(record.Before) || !validLegacyRevertWorkState(record.Desired) {
+		return record, fmt.Errorf("legacy revert prepared record %q is invalid", path)
+	}
+	if !validLegacyRevertWorkStateForJournalEntry(record.Before, entry) ||
+		!validLegacyRevertWorkStateForJournalEntry(record.Desired, entry) ||
+		!validLegacyRevertWorkDesiredState(record.Desired, entry) {
+		return record, fmt.Errorf("legacy revert prepared record %q state kinds differ from its journal entry", path)
+	}
+	expectedTarget := entry.TargetPath
+	if entry.RestoreType != "registry-import" && entry.RestoreType != "registry-set" {
+		expectedTarget = filepath.Clean(expectedTarget)
+	}
+	if record.Target != expectedTarget {
+		return record, fmt.Errorf("legacy revert prepared record %q target differs from its journal entry", path)
+	}
+	expectedSource := entry.BackupPath
+	if entry.RestoreType != "registry-import" && entry.RestoreType != "registry-set" {
+		if entry.BackupCreated && entry.BackupPath != "" {
+			expectedSource = filepath.Clean(entry.BackupPath)
+		} else {
+			expectedSource = ""
+		}
+	}
+	if record.DesiredSource != expectedSource {
+		return record, fmt.Errorf("legacy revert prepared record %q desired source differs from its journal entry", path)
+	}
+	if entry.RestoreType == "registry-import" {
+		stage, held, err := legacyRevertRegistryImportScratch(entry.TargetPath, digest)
+		if err != nil {
+			return record, err
+		}
+		if entry.BackupCreated && entry.BackupPath != "" {
+			if record.StagePath != stage || record.HeldPath != held {
+				return record, fmt.Errorf("legacy revert prepared record %q scratch paths differ from its journal entry", path)
+			}
+		} else if record.StagePath != "" || record.HeldPath != "" {
+			return record, fmt.Errorf("legacy revert prepared record %q has unexpected registry scratch paths", path)
+		}
+	} else if entry.RestoreType == "registry-set" {
+		if record.StagePath != "" || record.HeldPath != "" {
+			return record, fmt.Errorf("legacy revert prepared record %q has unexpected registry scratch paths", path)
+		}
+	} else {
+		suffix := digest[:16]
+		if record.StagePath != legacyRevertFilesystemScratch(entry.TargetPath, suffix, "stage") ||
+			record.HeldPath != legacyRevertFilesystemScratch(entry.TargetPath, suffix, "held") {
+			return record, fmt.Errorf("legacy revert prepared record %q scratch paths differ from its journal entry", path)
+		}
+	}
+	return record, nil
+}
+
+func validLegacyRevertWorkStateForJournalEntry(state legacyRevertWorkState, entry restore.JournalEntry) bool {
+	switch entry.RestoreType {
+	case "registry-import":
+		return state.Kind == "registry-key" || state.Kind == "absent"
+	case "registry-set":
+		return state.Kind == "registry-value" || state.Kind == "absent"
+	default:
+		return state.Kind == "file" || state.Kind == "directory" || state.Kind == "absent"
+	}
+}
+
+func validLegacyRevertWorkDesiredState(state legacyRevertWorkState, entry restore.JournalEntry) bool {
+	switch entry.RestoreType {
+	case "registry-import":
+		if entry.TargetExistedBefore {
+			return entry.BackupCreated && entry.BackupPath != "" && state.Kind == "registry-key"
+		}
+		return !entry.BackupCreated && entry.BackupPath == "" && state.Kind == "absent"
+	case "registry-set":
+		if !entry.BackupCreated || entry.BackupPath == "" {
+			return false
+		}
+		if entry.TargetExistedBefore {
+			return state.Kind == "registry-value"
+		}
+		return state.Kind == "absent"
+	default:
+		if entry.TargetExistedBefore {
+			return entry.BackupCreated && entry.BackupPath != "" &&
+				(state.Kind == "file" || state.Kind == "directory")
+		}
+		return !entry.BackupCreated && entry.BackupPath == "" && state.Kind == "absent"
+	}
+}
+
+func validateLegacyRegistryImportStage(path, name string, journal *restore.Journal) error {
+	index, ok := parseLegacyRegistryImportStageName(name)
+	if !ok {
+		return fmt.Errorf("not a registry-import stage")
+	}
+	if index < 0 || index >= len(journal.Entries) {
+		return fmt.Errorf("legacy registry-import stage %q has an invalid journal entry", path)
+	}
+	entry := journal.Entries[index]
+	if entry.Action != "restored" || entry.RestoreType != "registry-import" || !entry.BackupCreated || entry.BackupPath == "" {
+		return fmt.Errorf("legacy registry-import stage %q differs from its journal entry", path)
+	}
+	digest, err := legacyRevertJournalEntryDigest(entry)
+	if err != nil {
+		return err
+	}
+	prepared, err := readLegacyRevertWorkPrepared(filepath.Join(filepath.Dir(path), fmt.Sprintf("entry-%06d.json", index)), index, entry, digest)
+	if err != nil {
+		return fmt.Errorf("legacy registry-import stage %q has no matching prepared state: %w", path, err)
+	}
+	if prepared.StagePath == "" || prepared.HeldPath == "" {
+		return fmt.Errorf("legacy registry-import stage %q has no bound scratch identities", path)
+	}
+	return nil
+}
+
+func isLegacyRegistryImportStageName(name string) bool {
+	_, ok := parseLegacyRegistryImportStageName(name)
+	return ok
+}
+
+func parseLegacyRegistryImportStageName(name string) (int, bool) {
+	const prefix = "entry-"
+	const suffix = "-registry-stage.reg"
+	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+		return 0, false
+	}
+	digits := strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffix)
+	if len(digits) != 6 {
+		return 0, false
+	}
+	for _, character := range digits {
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+	}
+	index, err := strconv.Atoi(digits)
+	return index, err == nil
+}
+
+func legacyRevertRegistryImportScratch(target, digest string) (string, string, error) {
+	if len(digest) < 16 {
+		return "", "", fmt.Errorf("legacy registry-import entry digest is invalid")
+	}
+	normalized := strings.ReplaceAll(target, "/", "\\")
+	firstSeparator := strings.Index(normalized, "\\")
+	if firstSeparator < 0 {
+		return "", "", fmt.Errorf("legacy registry-import target has no subkey")
+	}
+	subkey := normalized[firstSeparator+1:]
+	separator := strings.LastIndex(subkey, "\\")
+	parent, name := "", subkey
+	if separator >= 0 {
+		parent, name = subkey[:separator], subkey[separator+1:]
+	}
+	if name == "" {
+		return "", "", fmt.Errorf("legacy registry-import target must name a subkey")
+	}
+	prefix := `HKCU\`
+	if parent != "" {
+		prefix += parent + `\`
+	}
+	suffix := digest[:16]
+	return prefix + "." + name + ".endstate-revert-" + suffix + "-stage",
+		prefix + "." + name + ".endstate-revert-" + suffix + "-held", nil
+}
+
+func legacyRevertFilesystemScratch(target, suffix, kind string) string {
+	clean := filepath.Clean(target)
+	return filepath.Join(filepath.Dir(clean), "."+filepath.Base(clean)+".endstate-revert-"+suffix+"-"+kind)
+}
+
+func parseLegacyRevertWorkRecordName(name string) (int, bool, bool) {
+	const prefix = "entry-"
+	const preparedSuffix = ".json"
+	const completedSuffix = "-completed.json"
+	if !strings.HasPrefix(name, prefix) {
+		return 0, false, false
+	}
+	rest := strings.TrimPrefix(name, prefix)
+	completed := strings.HasSuffix(rest, completedSuffix)
+	suffix := preparedSuffix
+	if completed {
+		suffix = completedSuffix
+	}
+	if !strings.HasSuffix(rest, suffix) {
+		return 0, false, false
+	}
+	digits := strings.TrimSuffix(rest, suffix)
+	if len(digits) != 6 {
+		return 0, false, false
+	}
+	for _, character := range digits {
+		if character < '0' || character > '9' {
+			return 0, false, false
+		}
+	}
+	index, err := strconv.Atoi(digits)
+	if err != nil {
+		return 0, false, false
+	}
+	return index, completed, true
+}
+
+func decodeCanonicalLegacyRevertWorkRecord(data []byte, value any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return err
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	canonical = append(canonical, '\n')
+	if !bytes.Equal(data, canonical) {
+		return fmt.Errorf("legacy revert work record is not canonical")
+	}
+	return nil
+}
+
+func validLegacyRevertWorkState(state legacyRevertWorkState) bool {
+	if !isLowerHexDigest(state.Digest) {
+		return false
+	}
+	switch state.Kind {
+	case "file", "directory", "absent", "registry-key", "registry-value":
+		return true
+	default:
+		return false
+	}
+}
+
+func legacyRevertJournalEntryDigest(entry restore.JournalEntry) (string, error) {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, error) {
 	if err := checkSnapshotContext(ctx); err != nil {
+		return nil, err
+	}
+	if err := validateHostIO(ctx, g.transactions); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(g.transactions)
@@ -73,6 +568,9 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 			return nil, err
 		}
 		root := filepath.Join(g.transactions, entry.Name())
+		if err := validateHostIO(ctx, root); err != nil {
+			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
+		}
 		if !entry.IsDir() || !isOpaqueStoreID(entry.Name()) {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: fmt.Errorf("unexpected transaction-store entry")}
 		}
@@ -80,6 +578,9 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
 		intentPath := filepath.Join(root, "journal", "intent.json")
+		if err := validateHostIO(ctx, intentPath); err != nil {
+			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
+		}
 		if _, err := os.Lstat(intentPath); os.IsNotExist(err) {
 			// No durable intent means no mutation was authorized. The root may be
 			// a normal unused preallocation or a crash residue from descriptor/
@@ -91,11 +592,11 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 		} else if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
-		descriptor, started, err := readStoredTransactionDescriptor(root)
+		descriptor, started, err := readStoredTransactionDescriptorWithBoundary(root, g.boundary)
 		if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
-		intent, err := readJournalIntentMetadataFile(ctx, root, intentPath)
+		intent, err := readJournalIntentMetadataFileWithBoundary(ctx, root, intentPath, g.boundary)
 		if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
@@ -120,7 +621,7 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 		if !os.IsNotExist(markerErr) {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: fmt.Errorf("invalid terminal record: %w", markerErr)}
 		}
-		intent, err = ReadJournalIntent(ctx, root)
+		intent, err = ReadJournalIntentWithBoundary(ctx, root, g.boundary)
 		if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
@@ -139,7 +640,14 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 }
 
 func readStoredTransactionDescriptor(root string) (transactionDescriptorDisk, time.Time, error) {
+	return readStoredTransactionDescriptorWithBoundary(root, nil)
+}
+
+func readStoredTransactionDescriptorWithBoundary(root string, boundary HostBoundary) (transactionDescriptorDisk, time.Time, error) {
 	path := filepath.Join(root, "transaction.json")
+	if err := validateBoundaryHostIO(boundary, path); err != nil {
+		return transactionDescriptorDisk{}, time.Time{}, err
+	}
 	data, _, err := safepath.ReadRegularFile(path)
 	if err != nil {
 		return transactionDescriptorDisk{}, time.Time{}, err
@@ -159,7 +667,11 @@ func readStoredTransactionDescriptor(root string) (transactionDescriptorDisk, ti
 }
 
 func (g *Guard) recoverOne(ctx context.Context, transaction storedPendingTransaction) error {
-	actions := transaction.intent.Actions()
+	ctx = withHostBoundary(ctx, g.boundary)
+	actions, err := resolveJournalActionsForHostIO(transaction.intent.Actions(), g.boundary)
+	if err != nil {
+		return err
+	}
 	var rollbackErrors []error
 	for index := len(actions) - 1; index >= 0; index-- {
 		if err := rollbackTransactionAction(ctx, actions[index], g.registry); err != nil {
@@ -172,7 +684,7 @@ func (g *Guard) recoverOne(ctx context.Context, transaction storedPendingTransac
 	if err := errors.Join(rollbackErrors...); err != nil {
 		return err
 	}
-	_, err := PersistRolledBackMarker(ctx, transaction.intent, ValidationNotRun)
+	_, err = PersistRolledBackMarker(ctx, transaction.intent, ValidationNotRun)
 	if err != nil {
 		return fmt.Errorf("persist recovered terminal record: %w", err)
 	}

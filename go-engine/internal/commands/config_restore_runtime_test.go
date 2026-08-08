@@ -6,6 +6,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +15,18 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
+
+func TestCloneConfigModuleCopiesTypedRegistrySecrets(t *testing.T) {
+	original := &modules.Module{ID: "apps.example", Secrets: &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Example\Secret`}}}
+	cloned := cloneConfigModule(original)
+	if cloned == original || cloned.Secrets == original.Secrets || !reflect.DeepEqual(cloned.Secrets.RegistryKeys, original.Secrets.RegistryKeys) {
+		t.Fatalf("cloned registry secrets = %+v", cloned)
+	}
+	cloned.Secrets.RegistryKeys[0] = `HKCU\Software\Changed`
+	if original.Secrets.RegistryKeys[0] != `HKCU\Software\Example\Secret` {
+		t.Fatalf("registry secret clone aliases original: %+v", original.Secrets.RegistryKeys)
+	}
+}
 
 func TestNewConfigRestoreRuntimeLoadsAndPinsCatalogExactlyOnce(t *testing.T) {
 	manifestDir := t.TempDir()

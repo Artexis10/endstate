@@ -13,6 +13,7 @@ import (
 var prepareConfigRestoreSnapshotsFn = configrestore.PrepareSnapshots
 var persistConfigRestoreJournalIntentFn = configrestore.PersistJournalIntent
 var executeConfigRestoreTransactionFn = configrestore.ExecuteConfigSetTransaction
+var inspectLiveConfigRestoreSetFn = inspectDryRunConfigRestoreSet
 
 type configRestoreLiveSetRequest struct {
 	Materialized    *configrestore.MaterializedSet
@@ -21,6 +22,7 @@ type configRestoreLiveSetRequest struct {
 	Registry        configrestore.RegistryMutator
 	Observer        configrestore.TransactionObserver
 	Ready           func(*configrestore.PreparedSet)
+	Boundary        configrestore.HostBoundary
 }
 
 type configRestoreSetOutcome struct {
@@ -34,6 +36,7 @@ type configRestoreSetOutcome struct {
 func executeLiveConfigRestoreSet(ctx context.Context, request configRestoreLiveSetRequest) configRestoreSetOutcome {
 	prepared, err := prepareConfigRestoreSnapshotsFn(ctx, configrestore.SnapshotRequest{
 		Set: request.Materialized, TransactionRoot: request.TransactionRoot, RegistryReader: request.Registry,
+		Boundary: request.Boundary,
 	})
 	if err != nil {
 		return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
@@ -56,6 +59,7 @@ func executeLiveConfigRestoreSet(ctx context.Context, request configRestoreLiveS
 	}
 	transaction, transactionErr := executeConfigRestoreTransactionFn(ctx, configrestore.TransactionRequest{
 		Prepared: prepared, Intent: intent, Registry: request.Registry, Observer: request.Observer,
+		Boundary: request.Boundary,
 	})
 	if transaction == nil {
 		return failedConfigRestoreSet(planner.ReasonCommitFailed, transactionErr, false, prepared)

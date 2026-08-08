@@ -194,6 +194,7 @@ endstate capabilities --json
       "streaming": false,
       "parallelInstall": true,
       "configModules": true,
+      "profileInspection": true,
       "jsonOutput": true,
       "manualApps": true,
       "hostedBackup": {
@@ -223,6 +224,8 @@ endstate capabilities --json
 > this field rather than probing `commands.backup.flags` for `--if-changed`.
 
 For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, and `commands.rebuild.flags` advertise repeatable `--restore-target`. The GUI must capability-gate target selection rather than assuming a CLI version supports it.
+
+`features.profileInspection` is the canonical gate for `profile inspect <manifest-path> --json`. When it is true, the GUI can inspect only an extracted manifest path. When it is absent or false, the GUI MUST show an update-required state and MUST NOT parse manifests, catalog metadata, snapshots, or current-machine state to infer settings ownership. The engine alone resolves restricted includes, root-only exclusions, saved-profile ownership, catalog enrichment, association, grouping, labels, counts, and ordering.
 
 ### GUI Responsibilities
 
@@ -267,6 +270,16 @@ The GUI reads only fields the CLI JSON contract defines **for the command it inv
 - Reconciliation must not discard engine-supplied fields. An item's engine-supplied `name` survives into the reconciled record; the GUI never falls back to the raw package ref for an item the engine named.
 - Test doubles are bound by this contract too. A mock engine MUST emit the same envelope shape as the real engine, and mock-backed suites MUST NOT be the only verification of envelope handling — a mock written to satisfy the GUI's own types verifies only that the GUI agrees with itself.
 
+### Profile Inspection Presentation
+
+The GUI renders the `profile inspect` envelope as engine-authored semantics: `apps[]`, `settingsApps[]`, `warnings[]`, and summary counts. It MUST preserve engine labels, association statuses, Apps row and manifest IDs, row/owner/app/candidate IDs, package refs, module IDs, captured-entry counts, warning impacts, nullability, and order. It MUST NOT group rows, mark Apps rows, recalculate counts, infer warning impact from message text, use a catalog entry as ownership evidence, or derive a different timestamp/label/order.
+
+Only `included` settings rows are shown as settings for an included Apps row. `not_in_profile` remains a verified absent owner; `ambiguous` and `unresolved` remain unidentified settings rows. For the fixed status matrix, `ownerId` is non-null only for included/not-in-profile, `appId` only for included, `appIncluded` is true iff included, and `candidateAppIds` is one Apps row identity for included, sorted Apps row identities for ambiguous, and empty otherwise. The GUI presents all arrays in engine order and treats raw provenance identifiers as progressive technical detail rather than default labels.
+
+Each Apps entry has opaque `id` and separate `manifestAppId`; its identity is assigned before sorting as `app:<case-folded-manifest-app-id-or-unnamed>:<occurrence>`. `settingsApps[].appId` and `candidateAppIds[]` reference that Apps `id`, never the manifest ID. Included settings IDs are `settings:<app-row-id>`; absent IDs are `settings:<absent-owner-key>`; ambiguous/unresolved IDs are `settings:module:<canonical-module-key>`. Duplicate Apps rows therefore remain distinct candidates and produce ambiguity rather than a marked duplicate.
+
+The engine selects one verified owner-ref tier per owned module—v2 evidence ref, successfully verified snapshot ref, then trusted-catalog ref—and lower tiers never add candidates after a higher tier exists. It groups all included modules with the same unique Apps row and all not-in-profile modules with the same complete absent-owner key (`package:` plus sorted case-folded refs); it never groups ambiguous/unresolved modules. The GUI treats all IDs and the selected/ref-union `packageRefs[]` as opaque engine values. It does not reconstruct canonicalization, selected-ref association, captured-entry counting, package-ref association, or root-only exclusion semantics.
+
 ---
 
 ## Supported Commands
@@ -280,6 +293,7 @@ The GUI reads only fields the CLI JSON contract defines **for the command it inv
 | `rebuild` | `--json` | Install, restore, and verify from a capture artifact; propagates backend-bootstrap flags |
 | `verify` | `--json` | Verify machine state |
 | `report` | `--json` | Retrieve run history |
+| `profile inspect <manifest-path>` | `--json` | Read an extracted saved-profile inventory without machine evaluation |
 
 ---
 

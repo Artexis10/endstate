@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.pdf-xchange-editor",
+  "moduleRevision": "86cf6f54eda665f3b27574673cf22a13f6b8524fdfd017a6dc8b67812fb2e8d8",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

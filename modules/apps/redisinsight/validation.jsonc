@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.redisinsight",
+  "moduleRevision": "3de4f32b1eb23598fd5ea4470e81ee0bfc7d7d9cde60006cefac7c82e53f8a42",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Capture-only module for RedisInsight. Settings and connections live in a single SQLite file (%APPDATA%\\RedisInsight\\redisinsight.db); no separate portable config file exists. The database is credential-bearing (AUTH passwords, TLS keys, cloud API tokens) and blocked from auto-restore. Confidence: medium — path confirmed via RedisInsight v2 docs; SQLite-only storage model means there is nothing safe to ship as a payload. Authored secret warning: redisinsight.db is a SQLite database that stores Redis connection definitions including AUTH passwords, TLS private keys, and Redis Cloud API credentials. It MUST NOT be auto-restored; re-create connections on the target machine after install. Authored excluded secret or machine-bound paths: %APPDATA%\\RedisInsight\\redisinsight.db"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

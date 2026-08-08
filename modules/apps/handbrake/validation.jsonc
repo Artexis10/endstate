@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.handbrake",
+  "moduleRevision": "9812e94379e60b3e9de36d2675f1060bb7ed2bd56ebefdaf9c33ac13104bbeb6",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

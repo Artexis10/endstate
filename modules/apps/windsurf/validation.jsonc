@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.windsurf",
+  "moduleRevision": "c1902300efc2c7566244fd3a5e5401432bbb7cf74f5a41febec1469e7d374ad0",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "non-restorable-inventory",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "The authored module captures the Windsurf extension inventory, which has no executable extension-install restore contract and is intentionally inventory-only."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

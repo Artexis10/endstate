@@ -26,7 +26,78 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
+
+func TestRestoreConfigRestoreExecutionOptionsBindsActiveValidationBoundary(t *testing.T) {
+	validation := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	originalValidation := currentValidationMode
+	currentValidationMode = validation
+	t.Cleanup(func() { currentValidationMode = originalValidation })
+
+	manifestPath := filepath.Join(validation.Root(), "manifests", "restore.jsonc")
+	options := restoreConfigRestoreExecutionOptions(
+		RestoreFlags{Manifest: manifestPath}, "restore-options-validation", validation.Root(), nil,
+	)
+	if options.ValidationContext != validation || options.HostBoundary == nil {
+		t.Fatalf("restore options lost active validation authority: context=%p boundary=%#v", options.ValidationContext, options.HostBoundary)
+	}
+	appData, ok := validation.VirtualRoot("APPDATA")
+	if !ok {
+		t.Fatal("validation APPDATA root is unavailable")
+	}
+	if err := os.MkdirAll(filepath.Join(appData, "Vendor"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := options.HostBoundary.ResolveHostPath(`%APPDATA%\Vendor\settings.json`, modules.ConfigInstance{})
+	if err != nil {
+		t.Fatalf("bound restore authority could not resolve host path: %v", err)
+	}
+	if err := options.HostBoundary.ValidateFilesystemTarget(resolved); err != nil {
+		t.Fatalf("bound restore authority rejected its resolved path %q: %v", resolved, err)
+	}
+	if !strings.HasPrefix(strings.ToLower(resolved), strings.ToLower(validation.Root()+string(filepath.Separator))) {
+		t.Fatalf("restore path %q escaped validation root %q", resolved, validation.Root())
+	}
+}
+
+func TestLegacyRestoreExecutionThreadsValidationContextAndSemanticJournal(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	logsDir := filepath.Join(context.Root(), "logs")
+	manifestDir := filepath.Join(context.Root(), "manifests", "legacy")
+	if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	options := configRestoreExecutionOptions{
+		RunID: "legacy-context", JournalLogsDir: logsDir,
+		ManifestPath: filepath.Join(manifestDir, "manifest.jsonc"), ManifestDir: manifestDir,
+		ValidationContext: context,
+	}
+	restoreOptions := configRestoreActionOptions(options)
+	if restoreOptions.ValidationContext != context {
+		t.Fatal("legacy restore options dropped validation context")
+	}
+	journalPath, err := writeLegacyConfigRestoreJournal(options, []restore.RestoreResult{{
+		Source: "payload/settings.json", Target: `%APPDATA%\Vendor\settings.json`, Status: "restored", RestoreType: "copy",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(data)), strings.ToLower(context.Root())) ||
+		strings.Contains(strings.ToLower(string(data)), strings.ToLower(context.Descriptor().Nonce)) {
+		t.Fatalf("validation identity leaked in journal: %s", data)
+	}
+}
 
 func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T) {
 	manifestDir := t.TempDir()
@@ -34,6 +105,9 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(target, []byte(`{"theme":"light"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	inputs := emptyConfigRestoreInputs()
 	inputs.hasConfigPayloads = true
 	inputs.legacyLanes = []configRestoreLegacyLane{{
@@ -63,8 +137,8 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 		result.RestoreItems[0].SourceGeneration != "" || result.RestoreItems[0].TargetGeneration != "" {
 		t.Fatalf("legacy items = %+v", result.RestoreItems)
 	}
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		t.Fatalf("dry-run changed target: %v", err)
+	if data, err := os.ReadFile(target); err != nil || string(data) != `{"theme":"light"}` {
+		t.Fatalf("dry-run changed target: %q, %v", data, err)
 	}
 	lines := strings.Split(strings.TrimSpace(buffer.String()), "\n")
 	if len(lines) < 2 {
@@ -90,6 +164,9 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 	if len(restoreEvents) != 2 || restoreEvents[0]["id"] != restoreEvents[1]["id"] ||
 		restoreEvents[0]["status"] != "restoring" || restoreEvents[1]["status"] == "restoring" {
 		t.Fatalf("restore-item lifecycle = %#v", restoreEvents)
+	}
+	if restoreEvents[0]["targetExisted"] != true || restoreEvents[1]["targetExisted"] != true {
+		t.Fatalf("restore-item target existence diverged: %#v", restoreEvents)
 	}
 }
 
@@ -487,9 +564,11 @@ func (coordinator *staticConfigRestoreCoordinator) ExecutionPlan() (planner.Conf
 }
 
 type recordingLiveConfigRestoreGuard struct {
-	base       string
-	created    []string
-	closeCount int
+	base        string
+	created     []string
+	registered  []string
+	registerErr error
+	closeCount  int
 }
 
 func (guard *recordingLiveConfigRestoreGuard) CreateTransactionRoot(captureID string) (string, error) {
@@ -502,7 +581,11 @@ func (guard *recordingLiveConfigRestoreGuard) DiscardTransactionRoot(root string
 	return os.RemoveAll(root)
 }
 
-func (guard *recordingLiveConfigRestoreGuard) RegisterLegacyJournal(string) (*configrestore.StoreMember, error) {
+func (guard *recordingLiveConfigRestoreGuard) RegisterLegacyJournal(path string) (*configrestore.StoreMember, error) {
+	guard.registered = append(guard.registered, path)
+	if guard.registerErr != nil {
+		return nil, guard.registerErr
+	}
 	return nil, nil
 }
 
@@ -511,12 +594,193 @@ func (guard *recordingLiveConfigRestoreGuard) Close() error {
 	return nil
 }
 
+func TestConfigRestoreExecutionBeginsLiveRecoveryBeforeLegacyRestoreExecution(t *testing.T) {
+	manifestDir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "settings.json")
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+		restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "settings.json", Target: target, FromModule: "apps.legacy"}},
+	}}}
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			if err := os.WriteFile(filepath.Join(manifestDir, "settings.json"), []byte("restored"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return guard, nil
+		},
+		stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+	)
+
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "recovery-before-legacy", StateDir: t.TempDir(),
+		ManifestDir: manifestDir, JournalLogsDir: filepath.Join(t.TempDir(), "logs"),
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "restored" {
+		t.Fatalf("legacy restore did not run after BeginLive: data=%q err=%v", data, err)
+	}
+	if len(result.RestoreItems) != 1 || result.RestoreItems[0].Status != "restored" ||
+		len(guard.registered) != 1 || guard.closeCount != 1 {
+		t.Fatalf("result=%+v registered=%v closeCount=%d", result, guard.registered, guard.closeCount)
+	}
+}
+
+func TestConfigRestoreExecutionSkipsLegacyJournalOnlyForAllUpToDateResults(t *testing.T) {
+	manifestDir := t.TempDir()
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	source := filepath.Join(manifestDir, "settings.json")
+	target := filepath.Join(t.TempDir(), "settings.json")
+	for _, path := range []string{source, target} {
+		if err := os.WriteFile(path, []byte("current"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+		restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "settings.json", Target: target, FromModule: "apps.legacy"}},
+	}}}
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			return guard, nil
+		},
+		stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+	)
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "all-current", StateDir: t.TempDir(), ManifestDir: manifestDir, JournalLogsDir: logsDir,
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if len(result.RestoreItems) != 1 || result.RestoreItems[0].Status != "skipped_up_to_date" ||
+		result.JournalPath != "" || len(guard.registered) != 0 || guard.closeCount != 1 {
+		t.Fatalf("result=%+v registered=%v closeCount=%d", result, guard.registered, guard.closeCount)
+	}
+	if _, err := os.Stat(logsDir); !os.IsNotExist(err) {
+		t.Fatalf("all-current restore created journal state: %v", err)
+	}
+}
+
+func TestConfigRestoreExecutionWritesLegacyJournalForMixedResults(t *testing.T) {
+	manifestDir := t.TempDir()
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	if err := os.WriteFile(filepath.Join(manifestDir, "current.json"), []byte("current"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "restore.json"), []byte("restored"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	currentTarget := filepath.Join(t.TempDir(), "current.json")
+	if err := os.WriteFile(currentTarget, []byte("current"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+		restoreEntries: []manifest.RestoreEntry{
+			{Type: "copy", Source: "current.json", Target: currentTarget, FromModule: "apps.legacy"},
+			{Type: "copy", Source: "restore.json", Target: filepath.Join(t.TempDir(), "restore.json"), FromModule: "apps.legacy"},
+		},
+	}}}
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			return guard, nil
+		},
+		stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+	)
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "mixed-current", StateDir: t.TempDir(), ManifestDir: manifestDir, JournalLogsDir: logsDir,
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if len(result.RestoreItems) != 2 || result.RestoreItems[0].Status != "skipped_up_to_date" ||
+		result.RestoreItems[1].Status != "restored" || result.JournalPath == "" || len(guard.registered) != 1 ||
+		guard.registered[0] != result.JournalPath {
+		t.Fatalf("result=%+v registered=%v", result, guard.registered)
+	}
+	if _, err := os.Stat(result.JournalPath); err != nil {
+		t.Fatalf("mixed restore journal was not written: %v", err)
+	}
+}
+
+func TestConfigRestoreExecutionRetainsFatalLegacyJournalFailures(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		configure      func(t *testing.T, guard *recordingLiveConfigRestoreGuard) string
+		wantRegistered int
+		wantJournal    bool
+	}{
+		{
+			name: "write", configure: func(t *testing.T, _ *recordingLiveConfigRestoreGuard) string {
+				path := filepath.Join(t.TempDir(), "journal-file")
+				if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+		},
+		{
+			name: "registration", configure: func(t *testing.T, guard *recordingLiveConfigRestoreGuard) string {
+				guard.registerErr = errors.New("store unavailable")
+				return filepath.Join(t.TempDir(), "logs")
+			}, wantRegistered: 1, wantJournal: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manifestDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(manifestDir, "settings.json"), []byte("restored"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+			logsDir := test.configure(t, guard)
+			inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+				captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+				restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "settings.json", Target: filepath.Join(t.TempDir(), "settings.json"), FromModule: "apps.legacy"}},
+			}}}
+			restoreExecutionSeams(t,
+				func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+					return guard, nil
+				},
+				stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+			)
+			session := &configRestoreExecutionSession{
+				runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+				coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+			}
+			result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+				RestoreEnabled: true, RunID: "fatal-journal-" + test.name, StateDir: t.TempDir(),
+				ManifestDir: manifestDir, JournalLogsDir: logsDir,
+			})
+			if envErr == nil || len(guard.registered) != test.wantRegistered || (result.JournalPath != "") != test.wantJournal {
+				t.Fatalf("result=%+v error=%+v registered=%v", result, envErr, guard.registered)
+			}
+		})
+	}
+}
+
 func TestConfigRestoreExecutionContinuesAfterRolledBackSet(t *testing.T) {
 	runtime, final := configRestoreExecutionFixture(t, "capture-a", "capture-b")
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
 	var executed []string
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -565,7 +829,7 @@ func TestConfigRestoreExecutionRecoversBeforeLiveMaterialization(t *testing.T) {
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
 	order := []string{}
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			order = append(order, "begin-live")
 			return guard, nil
 		},
@@ -599,6 +863,44 @@ func TestConfigRestoreExecutionRecoversBeforeLiveMaterialization(t *testing.T) {
 	}
 }
 
+func TestConfigRestoreExecutionSkipsCurrentSetBeforeTransactionAllocation(t *testing.T) {
+	runtime, final := configRestoreExecutionFixture(t, "capture-current")
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	executed := false
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			return guard, nil
+		},
+		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+			return &migration.StageResult{Root: t.TempDir(), TargetGeneration: request.TargetGeneration.ID}, nil
+		},
+		func(_ context.Context, request configrestore.Request) (*configrestore.MaterializedSet, error) {
+			return &configrestore.MaterializedSet{Actions: []configrestore.Action{{Kind: configrestore.ActionCopy, Strategy: "copy", Source: filepath.Join(t.TempDir(), "source"), Target: filepath.Join(t.TempDir(), "target"), SnapshotRequired: true}}}, nil
+		},
+		func(context.Context, configRestoreLiveSetRequest) configRestoreSetOutcome {
+			executed = true
+			return configRestoreSetOutcome{Status: planner.StatusRestored, CanContinue: true}
+		},
+	)
+	originalInspect := inspectLiveConfigRestoreSetFn
+	inspectLiveConfigRestoreSetFn = func(context.Context, *configrestore.MaterializedSet, configrestore.RegistryMutator, configrestore.HostBoundary, string) configRestoreSetOutcome {
+		reason := planner.ReasonAlreadyUpToDate
+		return configRestoreSetOutcome{Status: planner.StatusSkipped, Reason: &reason, CanContinue: true}
+	}
+	t.Cleanup(func() { inspectLiveConfigRestoreSetFn = originalInspect })
+	session := &configRestoreExecutionSession{runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final}}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{RestoreEnabled: true, RunID: "apply-current", StateDir: t.TempDir()})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if executed || len(guard.created) != 0 {
+		t.Fatalf("current set executed=%t transactions=%v", executed, guard.created)
+	}
+	if len(result.RestoreItems) != 1 || result.RestoreItems[0].Status != "skipped_up_to_date" || result.RestoreItems[0].BackupCreated || result.RestoreItems[0].BackupPath != "" || result.Plan.Sets[0].Resolution.Status != planner.StatusSkipped {
+		t.Fatalf("current result = %+v plan=%+v", result.RestoreItems, result.Plan.Sets[0].Resolution)
+	}
+}
+
 func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEvents(t *testing.T) {
 	runtime, final := configRestoreExecutionFixture(t, "capture-a")
 	hostRoot := final.Sets[0].TargetInstances[0].Root
@@ -606,7 +908,7 @@ func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEv
 	buffer := &bytes.Buffer{}
 	emitter := events.NewEmitterWithWriter("ordered-events", true, buffer)
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -930,6 +1232,89 @@ func TestConfigRestoreExecutionUnifiedCollisionPreflightCoversLegacyOrdinaryAndR
 	})
 }
 
+func TestConcreteLegacyRestoreClaimValidationRegistryImportResolvesPortableSource(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	action := restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKCU\Software\7-Zip`,
+	}
+	path := filepath.Join(manifestDir, "configs", "7zip", "7-Zip.reg")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\7-Zip]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options := restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context}
+	if descriptor := restore.DescribeAction(action, options); descriptor.Source != action.Source {
+		t.Fatalf("DescribeAction source = %q, want portable %q", descriptor.Source, action.Source)
+	}
+	claim, err := concreteLegacyRestoreClaim(action, options)
+	if err != nil {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v", err)
+	}
+	if want := "registry-key\x00software\\7-zip"; claim != want {
+		t.Fatalf("concreteLegacyRestoreClaim() = %q, want %q", claim, want)
+	}
+}
+
+func TestConcreteLegacyRestoreClaimValidationRegistryImportRejectsOutOfSubtree(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	path := filepath.Join(manifestDir, "configs", "7zip", "7-Zip.reg")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Sibling]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := concreteLegacyRestoreClaim(restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKCU\Software\7-Zip`,
+	}, restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context})
+	if err == nil || !strings.Contains(err.Error(), "outside declared target") {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v, want outside declared target", err)
+	}
+}
+
+func TestConcreteLegacyRestoreClaimValidationRegistryImportAllowsOptionalMissingSource(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := concreteLegacyRestoreClaim(restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKCU\Software\7-Zip`, Optional: true,
+	}, restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context})
+	if err != nil {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v", err)
+	}
+	if want := "registry-key\x00software\\7-zip"; claim != want {
+		t.Fatalf("concreteLegacyRestoreClaim() = %q, want %q", claim, want)
+	}
+}
+
+func TestConcreteLegacyRestoreClaimValidationRegistryImportRejectsOptionalMissingNonHKCU(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := concreteLegacyRestoreClaim(restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKLM\Software\7-Zip`, Optional: true,
+	}, restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context})
+	if err == nil || !strings.Contains(err.Error(), "only supports HKCU") {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v, want non-HKCU rejection", err)
+	}
+}
+
 func TestConfigRestoreExecutionRejectsLegacyScopeEscapesDuringUnifiedPreflight(t *testing.T) {
 	t.Run("registry import outside declared subtree", func(t *testing.T) {
 		manifestDir := t.TempDir()
@@ -1043,7 +1428,7 @@ func TestConfigRestoreExecutionReturnsStableRecoveryRequiredReason(t *testing.T)
 	runtime, final := configRestoreExecutionFixture(t, "capture-a")
 	staged := false
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return nil, fmt.Errorf("pending restore: %w", configrestore.ErrRecoveryRequired)
 		},
 		func(context.Context, migration.StageRequest) (*migration.StageResult, error) {
@@ -1068,6 +1453,69 @@ func TestConfigRestoreExecutionReturnsStableRecoveryRequiredReason(t *testing.T)
 	}
 }
 
+func TestValidationConfigRestoreExecutionThreadsHostBoundaryAcrossGenerationPipeline(t *testing.T) {
+	validation := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	restoreEnvironment, err := validation.Activate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restoreEnvironment() })
+	boundary := newConfigRestoreHostBoundary(validation)
+	runtime, final := configRestoreExecutionFixture(t, "capture-a")
+	guardRoot := filepath.Join(validation.Root(), "state", "guard")
+	if err := os.MkdirAll(guardRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guard := &recordingLiveConfigRestoreGuard{base: guardRoot}
+	stageRoot := filepath.Join(validation.Root(), "manifests", "stage")
+	if err := os.MkdirAll(stageRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target, err := validation.ResolveHostPath(`%APPDATA%\Vendor\settings.json`, validationmode.HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beginSeen, stageParentSeen, materializeSeen, executeSeen := false, false, false, false
+	restoreExecutionSeams(t,
+		func(_ context.Context, _, _ string, _ configrestore.RegistryMutator, got configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			beginSeen = got == boundary
+			return guard, nil
+		},
+		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+			wantParent := filepath.Join(validation.Root(), "state", "config-staging")
+			info, statErr := os.Stat(request.TempParent)
+			stageParentSeen = request.TempParent == wantParent && statErr == nil && info.IsDir()
+			return &migration.StageResult{Root: stageRoot, TargetGeneration: request.TargetGeneration.ID}, nil
+		},
+		func(_ context.Context, request configrestore.Request) (*configrestore.MaterializedSet, error) {
+			materializeSeen = request.Boundary == boundary
+			return &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+				Kind: configrestore.ActionDeleteFile, Strategy: "delete-glob", Target: target, SnapshotRequired: true,
+			}}}, nil
+		},
+		func(_ context.Context, request configRestoreLiveSetRequest) configRestoreSetOutcome {
+			executeSeen = request.Boundary == boundary
+			return configRestoreSetOutcome{Status: planner.StatusRestored, CanContinue: true}
+		},
+	)
+	session := &configRestoreExecutionSession{
+		runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final},
+	}
+	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "validation-run", StateDir: filepath.Join(validation.Root(), "state"),
+		HostBoundary: boundary, ValidationContext: validation,
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if !beginSeen || !stageParentSeen || !materializeSeen || !executeSeen {
+		t.Fatalf("boundary propagation begin=%v stageParent=%v materialize=%v execute=%v", beginSeen, stageParentSeen, materializeSeen, executeSeen)
+	}
+}
+
 func TestConfigRestoreExecutionTreatsJournalIntentFailureAsCommandFatal(t *testing.T) {
 	runtime, final := configRestoreExecutionFixture(t, "capture-a", "capture-b")
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
@@ -1082,7 +1530,7 @@ func TestConfigRestoreExecutionTreatsJournalIntentFailureAsCommandFatal(t *testi
 	}
 	secondMaterialized := false
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -1138,7 +1586,7 @@ func TestConfigRestoreExecutionStopsAfterRollbackFailure(t *testing.T) {
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
 	var executed []string
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -1211,7 +1659,7 @@ func configRestoreExecutionFixture(t *testing.T, captureIDs ...string) (*configR
 
 func restoreExecutionSeams(
 	t *testing.T,
-	begin func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error),
+	begin func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error),
 	stage func(context.Context, migration.StageRequest) (*migration.StageResult, error),
 	materialize func(context.Context, configrestore.Request) (*configrestore.MaterializedSet, error),
 	execute func(context.Context, configRestoreLiveSetRequest) configRestoreSetOutcome,
@@ -1221,14 +1669,19 @@ func restoreExecutionSeams(
 	originalStage := stageConfigRestoreSetFn
 	originalMaterialize := materializeConfigRestoreSetFn
 	originalExecute := executeLiveConfigRestoreSetFn
+	originalInspect := inspectLiveConfigRestoreSetFn
 	beginLiveConfigRestoreFn = begin
 	stageConfigRestoreSetFn = stage
 	materializeConfigRestoreSetFn = materialize
 	executeLiveConfigRestoreSetFn = execute
+	inspectLiveConfigRestoreSetFn = func(context.Context, *configrestore.MaterializedSet, configrestore.RegistryMutator, configrestore.HostBoundary, string) configRestoreSetOutcome {
+		return configRestoreSetOutcome{Status: planner.StatusPlanned, CanContinue: true}
+	}
 	t.Cleanup(func() {
 		beginLiveConfigRestoreFn = originalBegin
 		stageConfigRestoreSetFn = originalStage
 		materializeConfigRestoreSetFn = originalMaterialize
 		executeLiveConfigRestoreSetFn = originalExecute
+		inspectLiveConfigRestoreSetFn = originalInspect
 	})
 }

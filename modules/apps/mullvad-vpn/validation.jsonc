@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mullvad-vpn",
+  "moduleRevision": "70970d752c5dcde734f493a6fe1ef691d261f6dc1679da1ac1958f9b0b8cf9ca",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

@@ -78,6 +78,16 @@ func TestRepresentativeConfigGenerationModules(t *testing.T) {
 		if len(generation.Restore) != 1 || generation.Restore[0].Source != "settings" || generation.Restore[0].Target != `${instance.root}` || !generation.Restore[0].Backup || !generation.Restore[0].Optional {
 			t.Fatalf("Studio One restore = %+v", generation.Restore)
 		}
+		if len(generation.Validate) != 1 || generation.Validate[0] != (ValidationDef{Type: "file-exists", Path: "settings/Studio One.settings"}) {
+			t.Fatalf("Studio One validation = %+v", generation.Validate)
+		}
+		const releasedFingerprint = "abc0141add2928b64ab8fd6b82319c2f57fb086c1ed4b16b776b991d22882444"
+		if !reflect.DeepEqual(generation.AcceptsSourceFingerprints, []string{releasedFingerprint}) {
+			t.Fatalf("Studio One accepted source fingerprints = %v", generation.AcceptsSourceFingerprints)
+		}
+		if generation.Fingerprint == releasedFingerprint {
+			t.Fatal("Studio One semantic validation change did not produce a new fingerprint")
+		}
 		wantExcludes := []string{
 			`**\PluginBlacklist.settings`,
 			`**\PlugInScanner.log`,

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.microsoft-office",
+  "moduleRevision": "9f3d91766a42190b64de9cf6f180d5aeb7f74a626db4422e1e91ebdc526556fa",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

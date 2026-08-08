@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 const durableLegacyRevertVersion = 1
@@ -54,7 +55,27 @@ type durableLegacyRevertCompleted struct {
 // state recorded before undo or from the verified desired prior state; any
 // unrelated edit fails closed without being overwritten.
 func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertResult, error) {
-	_ = backupDir
+	return RunRevertDurableWithValidation(journal, backupDir, workRoot, nil)
+}
+
+// RunRevertDurableWithValidation reverts a legacy journal while resolving
+// semantic journal identities only at the filesystem and registry I/O boundary.
+// A nil validation context is exactly the production RunRevertDurable path.
+func RunRevertDurableWithValidation(
+	journal *Journal,
+	backupDir, workRoot string,
+	context *validationmode.Context,
+) (_ []RevertResult, returnErr error) {
+	boundary := legacyValidationBoundary{context: context, backupDir: backupDir}
+	defer func() {
+		if returnErr != nil && context != nil {
+			returnErr = fmt.Errorf("%s", replaceFoldMany(returnErr.Error(), [][2]string{
+				{context.Root(), "$ENDSTATE_ROOT"},
+				{context.RegistryNamespace(), "HKCU"},
+				{context.Descriptor().Nonce, "validation"},
+			}))
+		}
+	}()
 	if journal == nil {
 		return nil, fmt.Errorf("restore journal is required")
 	}
@@ -64,11 +85,16 @@ func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertRes
 	if err := ValidateFilesystemTarget(workRoot); err != nil {
 		return nil, fmt.Errorf("validate legacy revert work root: %w", err)
 	}
+	if context != nil {
+		if err := context.ValidateSandboxPath(workRoot); err != nil {
+			return nil, fmt.Errorf("validate legacy revert work root: %w", err)
+		}
+	}
 	info, err := os.Lstat(workRoot)
 	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
 		return nil, fmt.Errorf("legacy revert work root is not a safe directory")
 	}
-	if err := prepareDurableLegacyRevertEntries(journal, workRoot); err != nil {
+	if err := prepareDurableLegacyRevertEntries(journal, workRoot, boundary); err != nil {
 		return nil, err
 	}
 
@@ -80,7 +106,7 @@ func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertRes
 			continue
 		}
 		if entry.RestoreType == "registry-import" || entry.RestoreType == "registry-set" {
-			result, err := runDurableRegistryRevertEntry(entry, index, workRoot)
+			result, err := runDurableRegistryRevertEntry(entry, index, workRoot, boundary)
 			if err != nil {
 				return results, err
 			}
@@ -92,7 +118,7 @@ func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertRes
 			}
 			continue
 		}
-		result, err := runDurableFilesystemRevertEntry(entry, index, workRoot)
+		result, err := runDurableFilesystemRevertEntry(entry, index, workRoot, boundary)
 		if err != nil {
 			return results, err
 		}
@@ -110,7 +136,7 @@ func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertRes
 // before the first target mutation. For repeated targets, the next reverse
 // entry expects the prior entry's desired state rather than rescanning the
 // still-current final state.
-func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error {
+func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string, boundary legacyValidationBoundary) error {
 	virtual := make(map[string]durableLegacyRevertState)
 	for index := len(journal.Entries) - 1; index >= 0; index-- {
 		entry := journal.Entries[index]
@@ -131,7 +157,7 @@ func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error 
 			if !entry.BackupCreated && entry.TargetExistedBefore {
 				continue
 			}
-			actual, desired, err := durableLegacyRegistryStates(entry, workRoot)
+			actual, desired, err := durableLegacyRegistryStates(entry, workRoot, boundary)
 			if err != nil {
 				return err
 			}
@@ -140,7 +166,7 @@ func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error 
 			if !chained {
 				before = actual
 			}
-			stagePath, heldPath, err := durableLegacyRegistryScratchTargets(entry, entryDigest)
+			stagePath, heldPath, err := durableLegacyRegistryScratchTargets(entry, entryDigest, boundary)
 			if err != nil {
 				return err
 			}
@@ -150,7 +176,7 @@ func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error 
 				StagePath: stagePath, HeldPath: heldPath,
 			}
 			if !found {
-				if err := validateDurableLegacyRegistryScratchAvailable(stagePath, heldPath, workRoot); err != nil {
+				if err := validateDurableLegacyRegistryScratchAvailable(stagePath, heldPath, workRoot, boundary); err != nil {
 					return err
 				}
 				if err := writeImmutableDurableJSON(preparedPath, expected); err != nil {
@@ -164,7 +190,7 @@ func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error 
 			continue
 		}
 
-		desired, desiredSource, mutates, err := durableLegacyDesiredState(entry)
+		desired, desiredSource, mutates, err := durableLegacyDesiredState(entry, boundary)
 		if err != nil {
 			return err
 		}
@@ -174,27 +200,32 @@ func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error 
 		key := durableLegacyVirtualTarget(entry)
 		before, chained := virtual[key]
 		if !chained {
-			before, err = scanDurableLegacyFilesystemState(entry.TargetPath)
+			before, err = scanDurableLegacyFilesystemState(entry.TargetPath, boundary)
 			if err != nil {
 				return fmt.Errorf("capture revert target %q: %w", entry.TargetPath, err)
 			}
 		}
 		suffix := entryDigest[:16]
-		base := filepath.Base(entry.TargetPath)
-		parent := filepath.Dir(entry.TargetPath)
 		expected := durableLegacyRevertPrepared{
 			Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
 			Target: filepath.Clean(entry.TargetPath), Before: before, Desired: desired, DesiredSource: desiredSource,
-			StagePath: filepath.Join(parent, "."+base+".endstate-revert-"+suffix+"-stage"),
-			HeldPath:  filepath.Join(parent, "."+base+".endstate-revert-"+suffix+"-held"),
+			StagePath: semanticFilesystemScratch(entry.TargetPath, suffix, "stage"),
+			HeldPath:  semanticFilesystemScratch(entry.TargetPath, suffix, "held"),
 		}
 		if !found {
-			for _, path := range []string{expected.StagePath, expected.HeldPath} {
+			for _, identity := range []string{expected.StagePath, expected.HeldPath} {
+				path, resolveErr := boundary.resolveHost(identity)
+				if resolveErr != nil {
+					return resolveErr
+				}
+				if err := boundary.validateConcrete(path); err != nil {
+					return err
+				}
 				if _, err := os.Lstat(path); !os.IsNotExist(err) {
 					if err == nil {
 						err = fmt.Errorf("path already exists")
 					}
-					return fmt.Errorf("legacy revert scratch path %q is unavailable: %w", path, err)
+					return fmt.Errorf("legacy revert scratch path %q is unavailable: %w", identity, err)
 				}
 			}
 			if err := writeImmutableDurableJSON(preparedPath, expected); err != nil {
@@ -233,7 +264,7 @@ func durableLegacyVirtualTarget(entry JournalEntry) string {
 	return "filesystem\x00" + target
 }
 
-func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot string) (RevertResult, error) {
+func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot string, boundary legacyValidationBoundary) (RevertResult, error) {
 	if !entry.BackupCreated && entry.TargetExistedBefore {
 		return RevertResult{Target: entry.TargetPath, Action: "skipped"}, nil
 	}
@@ -249,7 +280,7 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 		return RevertResult{Target: entry.TargetPath, Action: completed.Action, BackupUsed: entry.BackupPath}, nil
 	}
 
-	_, desired, err := durableLegacyRegistryStates(entry, workRoot)
+	_, desired, err := durableLegacyRegistryStates(entry, workRoot, boundary)
 	if err != nil {
 		return RevertResult{}, err
 	}
@@ -260,7 +291,7 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 	if !found {
 		return RevertResult{}, fmt.Errorf("legacy registry revert entry %d was not durably prepared", index)
 	}
-	stagePath, heldPath, err := durableLegacyRegistryScratchTargets(entry, entryDigest)
+	stagePath, heldPath, err := durableLegacyRegistryScratchTargets(entry, entryDigest, boundary)
 	if err != nil {
 		return RevertResult{}, err
 	}
@@ -271,11 +302,11 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 	}
 
 	if entry.RestoreType == "registry-import" && entry.BackupCreated && entry.BackupPath != "" {
-		if err := applyDurableLegacyRegistryImportSwap(entry, prepared, index, workRoot); err != nil {
+		if err := applyDurableLegacyRegistryImportSwap(entry, prepared, index, workRoot, boundary); err != nil {
 			return RevertResult{}, err
 		}
 	} else {
-		current, _, err := durableLegacyRegistryStates(entry, workRoot)
+		current, _, err := durableLegacyRegistryStates(entry, workRoot, boundary)
 		if err != nil {
 			return RevertResult{}, err
 		}
@@ -283,7 +314,7 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 			if current != prepared.Before {
 				return RevertResult{}, fmt.Errorf("legacy registry revert target %q changed after its durable before-state was recorded", entry.TargetPath)
 			}
-			if err := applyDurableLegacyRegistryRevert(entry, index); err != nil {
+			if err := applyDurableLegacyRegistryRevert(entry, index, boundary); err != nil {
 				return RevertResult{}, err
 			}
 		}
@@ -291,7 +322,7 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 	if err := durableRevertCheckpoint("after_target_replaced", index); err != nil {
 		return RevertResult{}, err
 	}
-	current, _, err := durableLegacyRegistryStates(entry, workRoot)
+	current, _, err := durableLegacyRegistryStates(entry, workRoot, boundary)
 	if err != nil {
 		return RevertResult{}, err
 	}
@@ -311,7 +342,7 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 	return RevertResult{Target: entry.TargetPath, Action: action, BackupUsed: entry.BackupPath}, nil
 }
 
-func runDurableFilesystemRevertEntry(entry JournalEntry, index int, workRoot string) (RevertResult, error) {
+func runDurableFilesystemRevertEntry(entry JournalEntry, index int, workRoot string, boundary legacyValidationBoundary) (RevertResult, error) {
 	entryDigest, err := durableLegacyJournalEntryDigest(entry)
 	if err != nil {
 		return RevertResult{}, err
@@ -324,7 +355,7 @@ func runDurableFilesystemRevertEntry(entry JournalEntry, index int, workRoot str
 		return RevertResult{Target: entry.TargetPath, Action: completed.Action, BackupUsed: entry.BackupPath}, nil
 	}
 
-	desired, desiredSource, mutates, err := durableLegacyDesiredState(entry)
+	desired, desiredSource, mutates, err := durableLegacyDesiredState(entry, boundary)
 	if err != nil {
 		return RevertResult{}, err
 	}
@@ -345,7 +376,7 @@ func runDurableFilesystemRevertEntry(entry JournalEntry, index int, workRoot str
 		return RevertResult{}, fmt.Errorf("legacy revert prepared record differs from journal entry %d", index)
 	}
 
-	if err := applyDurableLegacyFilesystemRevert(prepared, index); err != nil {
+	if err := applyDurableLegacyFilesystemRevert(prepared, index, boundary); err != nil {
 		return RevertResult{}, err
 	}
 	action := "reverted"
@@ -361,10 +392,14 @@ func runDurableFilesystemRevertEntry(entry JournalEntry, index int, workRoot str
 	return RevertResult{Target: entry.TargetPath, Action: action, BackupUsed: entry.BackupPath}, nil
 }
 
-func durableLegacyDesiredState(entry JournalEntry) (durableLegacyRevertState, string, bool, error) {
+func durableLegacyDesiredState(entry JournalEntry, boundary legacyValidationBoundary) (durableLegacyRevertState, string, bool, error) {
 	if entry.BackupCreated && entry.BackupPath != "" {
-		if _, err := os.Lstat(entry.BackupPath); err == nil {
-			state, err := scanDurableLegacyFilesystemState(entry.BackupPath)
+		backupPath, resolveErr := boundary.resolveBackup(entry.BackupPath)
+		if resolveErr != nil {
+			return durableLegacyRevertState{}, "", false, resolveErr
+		}
+		if _, err := os.Lstat(backupPath); err == nil {
+			state, err := scanDurableLegacyFilesystemStatePath(backupPath, boundary)
 			return state, filepath.Clean(entry.BackupPath), true, err
 		} else if !os.IsNotExist(err) {
 			return durableLegacyRevertState{}, "", false, err
@@ -376,35 +411,35 @@ func durableLegacyDesiredState(entry JournalEntry) (durableLegacyRevertState, st
 	return durableLegacyRevertState{}, "", false, nil
 }
 
-func applyDurableLegacyFilesystemRevert(prepared durableLegacyRevertPrepared, index int) error {
-	targetState, err := scanDurableLegacyFilesystemState(prepared.Target)
+func applyDurableLegacyFilesystemRevert(prepared durableLegacyRevertPrepared, index int, boundary legacyValidationBoundary) error {
+	targetState, err := scanDurableLegacyFilesystemState(prepared.Target, boundary)
 	if err != nil {
 		return err
 	}
 	if targetState == prepared.Desired {
-		if stage, exists, err := scanOptionalDurableLegacyState(prepared.StagePath); err != nil {
+		if stage, exists, err := scanOptionalDurableLegacyState(prepared.StagePath, boundary); err != nil {
 			return err
 		} else if exists {
 			if stage != prepared.Desired {
 				return fmt.Errorf("legacy revert stage changed after target replacement")
 			}
-			if err := removeDurableLegacyScratch(prepared.StagePath); err != nil {
+			if err := removeDurableLegacyScratch(prepared.StagePath, boundary); err != nil {
 				return err
 			}
 		}
-		if held, exists, err := scanOptionalDurableLegacyState(prepared.HeldPath); err != nil {
+		if held, exists, err := scanOptionalDurableLegacyState(prepared.HeldPath, boundary); err != nil {
 			return err
 		} else if exists {
 			if held != prepared.Before {
 				return fmt.Errorf("legacy revert held target changed after replacement")
 			}
-			if err := removeDurableLegacyScratch(prepared.HeldPath); err != nil {
+			if err := removeDurableLegacyScratch(prepared.HeldPath, boundary); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	heldState, heldExists, err := scanOptionalDurableLegacyState(prepared.HeldPath)
+	heldState, heldExists, err := scanOptionalDurableLegacyState(prepared.HeldPath, boundary)
 	if err != nil {
 		return err
 	}
@@ -417,12 +452,12 @@ func applyDurableLegacyFilesystemRevert(prepared durableLegacyRevertPrepared, in
 	}
 
 	if prepared.Desired.Kind != "absent" {
-		if err := ensureDurableLegacyStage(prepared); err != nil {
+		if err := ensureDurableLegacyStage(prepared, boundary); err != nil {
 			return err
 		}
 	}
 	if !heldExists && targetState.Kind != "absent" {
-		if err := renameDurableLegacyPath(prepared.Target, prepared.HeldPath); err != nil {
+		if err := renameDurableLegacyPath(prepared.Target, prepared.HeldPath, boundary); err != nil {
 			return err
 		}
 		if err := durableRevertCheckpoint("after_target_held", index); err != nil {
@@ -431,12 +466,12 @@ func applyDurableLegacyFilesystemRevert(prepared durableLegacyRevertPrepared, in
 		heldExists = true
 	}
 	if prepared.Desired.Kind != "absent" {
-		current, err := scanDurableLegacyFilesystemState(prepared.Target)
+		current, err := scanDurableLegacyFilesystemState(prepared.Target, boundary)
 		if err != nil {
 			return err
 		}
 		if current.Kind == "absent" {
-			if err := renameDurableLegacyPath(prepared.StagePath, prepared.Target); err != nil {
+			if err := renameDurableLegacyPath(prepared.StagePath, prepared.Target, boundary); err != nil {
 				return err
 			}
 		}
@@ -444,7 +479,7 @@ func applyDurableLegacyFilesystemRevert(prepared durableLegacyRevertPrepared, in
 	if err := durableRevertCheckpoint("after_target_replaced", index); err != nil {
 		return err
 	}
-	actual, err := scanDurableLegacyFilesystemState(prepared.Target)
+	actual, err := scanDurableLegacyFilesystemState(prepared.Target, boundary)
 	if err != nil {
 		return err
 	}
@@ -452,15 +487,15 @@ func applyDurableLegacyFilesystemRevert(prepared durableLegacyRevertPrepared, in
 		return fmt.Errorf("legacy revert target %q does not match its recorded prior state", prepared.Target)
 	}
 	if heldExists {
-		if err := removeDurableLegacyScratch(prepared.HeldPath); err != nil {
+		if err := removeDurableLegacyScratch(prepared.HeldPath, boundary); err != nil {
 			return err
 		}
 	}
-	return removeDurableLegacyScratch(prepared.StagePath)
+	return removeDurableLegacyScratch(prepared.StagePath, boundary)
 }
 
-func ensureDurableLegacyStage(prepared durableLegacyRevertPrepared) error {
-	if state, exists, err := scanOptionalDurableLegacyState(prepared.StagePath); err != nil {
+func ensureDurableLegacyStage(prepared durableLegacyRevertPrepared, boundary legacyValidationBoundary) error {
+	if state, exists, err := scanOptionalDurableLegacyState(prepared.StagePath, boundary); err != nil {
 		return err
 	} else if exists {
 		if state != prepared.Desired {
@@ -471,7 +506,18 @@ func ensureDurableLegacyStage(prepared durableLegacyRevertPrepared) error {
 	if prepared.DesiredSource == "" {
 		return fmt.Errorf("legacy revert desired source is missing")
 	}
-	info, err := os.Lstat(prepared.DesiredSource)
+	desiredSource, err := boundary.resolveBackup(prepared.DesiredSource)
+	if err != nil {
+		return err
+	}
+	stagePath, err := boundary.resolveHost(prepared.StagePath)
+	if err != nil {
+		return err
+	}
+	if err := boundary.validateConcrete(stagePath); err != nil {
+		return err
+	}
+	info, err := os.Lstat(desiredSource)
 	if err != nil {
 		return err
 	}
@@ -479,27 +525,27 @@ func ensureDurableLegacyStage(prepared durableLegacyRevertPrepared) error {
 		return fmt.Errorf("legacy revert backup is a link or reparse point")
 	}
 	if info.IsDir() {
-		if err := os.Mkdir(prepared.StagePath, info.Mode().Perm()); err != nil {
+		if err := os.Mkdir(stagePath, info.Mode().Perm()); err != nil {
 			return err
 		}
-		if err := copyDirRecursive(prepared.DesiredSource, prepared.StagePath, nil); err != nil {
-			_ = removeDurableLegacyScratch(prepared.StagePath)
+		if err := copyDirRecursive(desiredSource, stagePath, nil); err != nil {
+			_ = removeDurableLegacyScratch(prepared.StagePath, boundary)
 			return err
 		}
 	} else if info.Mode().IsRegular() {
-		if err := atomicRestoreCopy(prepared.DesiredSource, prepared.StagePath); err != nil {
+		if err := atomicRestoreCopy(desiredSource, stagePath); err != nil {
 			return err
 		}
 	} else {
 		return fmt.Errorf("legacy revert backup has unsupported type")
 	}
-	if err := syncDurableLegacyTree(prepared.StagePath); err != nil {
+	if err := syncDurableLegacyTree(stagePath); err != nil {
 		return err
 	}
-	if err := syncDurableLegacyDirectory(filepath.Dir(prepared.StagePath)); err != nil {
+	if err := syncDurableLegacyDirectory(filepath.Dir(stagePath)); err != nil {
 		return err
 	}
-	state, err := scanDurableLegacyFilesystemState(prepared.StagePath)
+	state, err := scanDurableLegacyFilesystemState(prepared.StagePath, boundary)
 	if err != nil {
 		return err
 	}
@@ -509,11 +555,19 @@ func ensureDurableLegacyStage(prepared durableLegacyRevertPrepared) error {
 	return nil
 }
 
-func renameDurableLegacyPath(source, destination string) error {
-	if err := ValidateFilesystemTarget(source); err != nil {
+func renameDurableLegacyPath(sourceIdentity, destinationIdentity string, boundary legacyValidationBoundary) error {
+	source, err := boundary.resolveHost(sourceIdentity)
+	if err != nil {
 		return err
 	}
-	if err := ValidateFilesystemTarget(destination); err != nil {
+	destination, err := boundary.resolveHost(destinationIdentity)
+	if err != nil {
+		return err
+	}
+	if err := boundary.validateConcrete(source); err != nil {
+		return err
+	}
+	if err := boundary.validateConcrete(destination); err != nil {
 		return err
 	}
 	if _, err := os.Lstat(destination); !os.IsNotExist(err) {
@@ -525,7 +579,7 @@ func renameDurableLegacyPath(source, destination string) error {
 	if err := os.Rename(source, destination); err != nil {
 		return err
 	}
-	if err := ValidateFilesystemTarget(destination); err != nil {
+	if err := boundary.validateConcrete(destination); err != nil {
 		return err
 	}
 	sourceParent := filepath.Dir(source)
@@ -539,11 +593,19 @@ func renameDurableLegacyPath(source, destination string) error {
 	return nil
 }
 
-func removeDurableLegacyScratch(path string) error {
-	if path == "" {
+func removeDurableLegacyScratch(identity string, boundary legacyValidationBoundary) error {
+	if identity == "" {
 		return nil
 	}
-	if err := ValidateFilesystemTarget(path); err != nil {
+	path, err := boundary.resolveHost(identity)
+	if err != nil {
+		return err
+	}
+	return removeDurableLegacyScratchPath(path, boundary)
+}
+
+func removeDurableLegacyScratchPath(path string, boundary legacyValidationBoundary) error {
+	if err := boundary.validateConcrete(path); err != nil {
 		return err
 	}
 	info, err := os.Lstat(path)
@@ -559,7 +621,7 @@ func removeDurableLegacyScratch(path string) error {
 			return err
 		}
 		for _, entry := range entries {
-			if err := removeDurableLegacyScratch(filepath.Join(path, entry.Name())); err != nil {
+			if err := removeDurableLegacyScratchPath(filepath.Join(path, entry.Name()), boundary); err != nil {
 				return err
 			}
 		}
@@ -595,19 +657,27 @@ func syncDurableLegacyTree(path string) error {
 	return syncDurableLegacyDirectory(path)
 }
 
-func scanOptionalDurableLegacyState(path string) (durableLegacyRevertState, bool, error) {
-	state, err := scanDurableLegacyFilesystemState(path)
+func scanOptionalDurableLegacyState(identity string, boundary legacyValidationBoundary) (durableLegacyRevertState, bool, error) {
+	state, err := scanDurableLegacyFilesystemState(identity, boundary)
 	if err != nil {
 		return durableLegacyRevertState{}, false, err
 	}
 	return state, state.Kind != "absent", nil
 }
 
-func scanDurableLegacyFilesystemState(target string) (durableLegacyRevertState, error) {
-	if err := ValidateFilesystemTarget(target); err != nil {
+func scanDurableLegacyFilesystemState(identity string, boundary legacyValidationBoundary) (durableLegacyRevertState, error) {
+	target, err := boundary.resolveHost(identity)
+	if err != nil {
 		return durableLegacyRevertState{}, err
 	}
-	info, err := os.Lstat(target)
+	return scanDurableLegacyFilesystemStatePath(target, boundary)
+}
+
+func scanDurableLegacyFilesystemStatePath(target string, boundary legacyValidationBoundary) (durableLegacyRevertState, error) {
+	if err := boundary.validateConcrete(target); err != nil {
+		return durableLegacyRevertState{}, err
+	}
+	info, err := boundary.lstat("durable-scan-root-lstat", target)
 	if os.IsNotExist(err) {
 		return absentDurableLegacyState(), nil
 	}
@@ -622,12 +692,15 @@ func scanDurableLegacyFilesystemState(target string) (durableLegacyRevertState, 
 		mode               os.FileMode
 	}
 	entries := []entry{}
-	err = filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
+	err = walkTreeWithBoundary(target, boundary, "durable-scan", func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if isLinkOrReparse(info) {
 			return fmt.Errorf("legacy revert path %q contains a link or reparse point", path)
+		}
+		if err := boundary.validateConcrete(path); err != nil {
+			return err
 		}
 		relative, err := filepath.Rel(target, path)
 		if err != nil {
@@ -640,7 +713,7 @@ func scanDurableLegacyFilesystemState(target string) (durableLegacyRevertState, 
 			item.kind = "directory"
 		case info.Mode().IsRegular():
 			item.kind = "file"
-			data, mode, err := safepath.ReadRegularFile(path)
+			data, mode, err := boundary.readRegularFile("durable-scan-member-read", path)
 			if err != nil {
 				return err
 			}

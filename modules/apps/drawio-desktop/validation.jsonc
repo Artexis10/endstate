@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.drawio-desktop",
+  "moduleRevision": "53e72e9d08b402eb1b027b9ab353ec8c9f172b26f92523279dc6c76b6b6e04cb",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}

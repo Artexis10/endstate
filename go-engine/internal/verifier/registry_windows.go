@@ -11,8 +11,17 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 	"golang.org/x/sys/windows/registry"
 )
+
+var registryOpenKeyNative = registry.OpenKey
+var registryCloseKeyNative = func(key registry.Key) error { return key.Close() }
+var registryReadValueDataNative = readRegistryValueData
+var registryValueExistsNative = func(key registry.Key, valueName string) bool {
+	_, _, err := key.GetValue(valueName, nil)
+	return err == nil
+}
 
 // CheckRegistryKeyExists opens the specified Windows registry key and
 // optionally verifies that a named value exists within it. The entry's Path
@@ -30,7 +39,7 @@ func CheckRegistryKeyExists(entry manifest.VerifyEntry) VerifyResult {
 		}
 	}
 
-	key, err := registry.OpenKey(hive, subkey, registry.QUERY_VALUE)
+	key, err := registryOpenKeyNative(hive, subkey, registry.QUERY_VALUE)
 	if err != nil {
 		return VerifyResult{
 			Type:    entry.Type,
@@ -39,12 +48,11 @@ func CheckRegistryKeyExists(entry manifest.VerifyEntry) VerifyResult {
 			Message: fmt.Sprintf("Registry key not found: %s", entry.Path),
 		}
 	}
-	defer key.Close()
+	defer registryCloseKeyNative(key)
 
 	// If a value name is specified, check that it exists within the key.
 	if entry.ValueName != "" {
-		_, _, err := key.GetValue(entry.ValueName, nil)
-		if err != nil {
+		if !registryValueExistsNative(key, entry.ValueName) {
 			return VerifyResult{
 				Type:      entry.Type,
 				Path:      entry.Path,
@@ -100,15 +108,15 @@ func CheckRegistryValueEquals(entry manifest.VerifyEntry) VerifyResult {
 		return base
 	}
 
-	key, err := registry.OpenKey(hive, subkey, registry.QUERY_VALUE)
+	key, err := registryOpenKeyNative(hive, subkey, registry.QUERY_VALUE)
 	if err != nil {
 		base.Pass = false
 		base.Message = fmt.Sprintf("Registry key not found: %s", entry.Path)
 		return base
 	}
-	defer key.Close()
+	defer registryCloseKeyNative(key)
 
-	actualType, actualData, ok := readRegistryValueData(key, entry.ValueName)
+	actualType, actualData, ok := registryReadValueDataNative(key, entry.ValueName)
 	if !ok {
 		base.Pass = false
 		base.Message = fmt.Sprintf("Registry value not found: %s\\%s", entry.Path, entry.ValueName)
@@ -135,6 +143,85 @@ func CheckRegistryValueEquals(entry manifest.VerifyEntry) VerifyResult {
 	base.Pass = true
 	base.Message = fmt.Sprintf("Registry value matches: %s\\%s = %q", entry.Path, entry.ValueName, actualData)
 	return base
+}
+
+func checkRegistryKeyExistsWithValidation(entry manifest.VerifyEntry, context *validationmode.Context) (VerifyResult, error) {
+	base := VerifyResult{Type: entry.Type, Path: entry.Path, ValueName: entry.ValueName}
+	hive, subkey, err := validationRegistryCoordinates(context, entry.Path)
+	if err != nil {
+		base.Message = fmt.Sprintf("Registry check rejected: %s", entry.Path)
+		return base, err
+	}
+	key, err := registryOpenKeyNative(hive, subkey, registry.QUERY_VALUE)
+	if err != nil {
+		base.Message = fmt.Sprintf("Registry key not found: %s", entry.Path)
+		return base, nil
+	}
+	defer registryCloseKeyNative(key)
+
+	if entry.ValueName != "" {
+		if !registryValueExistsNative(key, entry.ValueName) {
+			base.Message = fmt.Sprintf("Registry value not found: %s\\%s", entry.Path, entry.ValueName)
+			return base, nil
+		}
+		base.Pass = true
+		base.Message = fmt.Sprintf("Registry value exists: %s\\%s", entry.Path, entry.ValueName)
+		return base, nil
+	}
+
+	base.Pass = true
+	base.Message = fmt.Sprintf("Registry key exists: %s", entry.Path)
+	return base, nil
+}
+
+func checkRegistryValueEqualsWithValidation(entry manifest.VerifyEntry, context *validationmode.Context) (VerifyResult, error) {
+	base := VerifyResult{Type: entry.Type, Path: entry.Path, ValueName: entry.ValueName}
+	if entry.ValueName == "" {
+		base.Message = "registry-value-equals requires a valueName"
+		return base, nil
+	}
+	hive, subkey, err := validationRegistryCoordinates(context, entry.Path)
+	if err != nil {
+		base.Message = fmt.Sprintf("Registry check rejected: %s", entry.Path)
+		return base, err
+	}
+	key, err := registryOpenKeyNative(hive, subkey, registry.QUERY_VALUE)
+	if err != nil {
+		base.Message = fmt.Sprintf("Registry key not found: %s", entry.Path)
+		return base, nil
+	}
+	defer registryCloseKeyNative(key)
+
+	actualType, actualData, ok := registryReadValueDataNative(key, entry.ValueName)
+	if !ok {
+		base.Message = fmt.Sprintf("Registry value not found: %s\\%s", entry.Path, entry.ValueName)
+		return base, nil
+	}
+	wantType := strings.ToUpper(strings.TrimSpace(entry.ValueType))
+	if wantType != "" && wantType != actualType {
+		base.Message = fmt.Sprintf("Registry value type mismatch at %s\\%s: expected %s, got %s",
+			entry.Path, entry.ValueName, wantType, actualType)
+		return base, nil
+	}
+	if !registryDataEqual(actualType, actualData, entry.Data) {
+		base.Message = fmt.Sprintf("Registry value mismatch at %s\\%s", entry.Path, entry.ValueName)
+		return base, nil
+	}
+	base.Pass = true
+	base.Message = fmt.Sprintf("Registry value matches: %s\\%s", entry.Path, entry.ValueName)
+	return base, nil
+}
+
+func validationRegistryCoordinates(context *validationmode.Context, semantic string) (registry.Key, string, error) {
+	mapped, err := context.MapHKCU(semantic)
+	if err != nil {
+		return 0, "", fmt.Errorf("authorize verifier registry key: %w", err)
+	}
+	hive, subkey, err := parseRegistryPath(mapped)
+	if err != nil {
+		return 0, "", fmt.Errorf("parse mapped verifier registry key: %w", err)
+	}
+	return hive, subkey, nil
 }
 
 // readRegistryValueData reads the named value's REG_* type string and string-

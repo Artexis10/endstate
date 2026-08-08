@@ -28,6 +28,9 @@ plans/
 /state/
 capture/
 payload/
+!go-engine/internal/validationharness/testdata/restore-contract/payload/
+go-engine/internal/validationharness/testdata/restore-contract/payload/*
+!go-engine/internal/validationharness/testdata/restore-contract/payload/settings.ini
 .endstate/
 
 # ---------------------------------------------------------------------------
@@ -140,3 +143,6 @@ go-engine/endstate.exe
 
 # OMC operational state (runtime artifacts, never committed)
 .omc/
+
+# Superpowers operational state (runtime artifacts, never committed)
+/.superpowers/

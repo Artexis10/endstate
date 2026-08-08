@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/state"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // stringPtr returns a pointer to s.
@@ -37,6 +38,24 @@ func checkVerifyPath(verifyPath string) (expanded string, exists bool) {
 	expanded = expandVerifyPath(verifyPath)
 	_, err := os.Stat(expanded)
 	return expanded, err == nil
+}
+
+var manualVerifyStatNative = os.Stat
+
+func checkVerifyPathWithValidation(verifyPath string, context *validationmode.Context) (display string, exists bool, err error) {
+	if context == nil {
+		display, exists = checkVerifyPath(verifyPath)
+		return display, exists, nil
+	}
+	resolved, err := context.ResolveHostPath(verifyPath, validationmode.HostPathPolicy{})
+	if err != nil {
+		return verifyPath, false, err
+	}
+	if err := context.ValidateSandboxPath(resolved); err != nil {
+		return verifyPath, false, err
+	}
+	_, statErr := manualVerifyStatNative(resolved)
+	return verifyPath, statErr == nil, nil
 }
 
 // resolveModuleDisplayName returns a human-readable display name for a module.
@@ -90,6 +109,10 @@ type ApplyFlags struct {
 	// (plan, drivers, config-module expansion, restore scoping, verify, events,
 	// summary counts) sees only the selected apps. Incompatible with --prune.
 	Only string
+	// validationRebuild is set only by RunRebuild. It admits the private,
+	// descriptor-bound validation manifest without widening ordinary apply or
+	// any other shared manifest consumer.
+	validationRebuild bool
 
 	// Prepared command-scoped restore facts are carried into alternate backend
 	// paths without reloading or renormalizing the manifest/catalog.
@@ -296,6 +319,9 @@ type ApplyAction struct {
 func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("apply")
 	emitter := newApplyEmitterFn(runID, flags.Events == "jsonl")
+	if validationErr := preflightActiveValidationSandboxPaths(validationSandboxTarget("manifest.input", flags.Manifest)); validationErr != nil {
+		return nil, validationErr
+	}
 
 	// EnableRestore is handled after the install phase (before verify).
 
@@ -303,9 +329,18 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// Phase 1: Plan
 	// ----------------------------------------------------------------
 
-	mf, envelopeErr := loadManifest(flags.Manifest)
+	var mf *manifest.Manifest
+	var envelopeErr *envelope.Error
+	if flags.validationRebuild {
+		mf, envelopeErr = loadValidationCommandManifest(flags.Manifest)
+	} else {
+		mf, envelopeErr = loadManifest(flags.Manifest)
+	}
 	if envelopeErr != nil {
 		return nil, envelopeErr
+	}
+	if validationErr := preflightValidationManifest(mf); validationErr != nil {
+		return nil, validationErr
 	}
 	repoRoot := resolveRepoRootFn()
 	configRuntime, configInputErr := newConfigRestoreRuntime(configRestoreBuildRequest{
@@ -357,23 +392,12 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	var configModuleMap map[string]string
 	var packageModuleMap map[string][]string
 	var matchedModules []*modules.Module
-	if catalog != nil {
-		matchedModules = modules.MatchModulesForApps(catalog, mf.Apps)
-		if len(matchedModules) > 0 {
-			packageModuleMap = buildPackageModuleMap(matchedModules)
-			configModuleMap = make(map[string]string, len(matchedModules))
-			for _, mod := range matchedModules {
-				if len(mod.Matches.Winget) > 0 {
-					for _, wingetRef := range mod.Matches.Winget {
-						configModuleMap[wingetRef] = mod.ID
-					}
-				} else if len(mod.Matches.Chocolatey) == 0 {
-					// pathExists-only modules: key by short app ID so the GUI can match.
-					shortID := strings.TrimPrefix(mod.ID, "apps.")
-					configModuleMap[shortID] = mod.ID
-				}
-			}
-		}
+	validationDriver := false
+	if flags.validationRebuild {
+		matchedModules, configModuleMap, packageModuleMap, validationDriver = validationDriverModuleOwnership(catalog, mf)
+	}
+	if !validationDriver && catalog != nil {
+		matchedModules, configModuleMap, packageModuleMap = matchApplyModuleOwnership(catalog, mf.Apps)
 	}
 	// restoreModulesAvailable answers "which settings does this profile carry",
 	// not "which catalog modules match these apps" — the two diverge sharply
@@ -394,6 +418,29 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	restoreScope := scopeRestoreModules(mf, catalog, onlyModuleIDs)
 	if flags.Only != "" {
 		scopeConfigRestoreRuntimeForOnly(configRuntime, matchedModules)
+	}
+	if currentValidationMode != nil {
+		instances, instanceErr := validationDiscoverCommandInstances(matchedModules, mf.Apps)
+		if instanceErr != nil {
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "instances", "instance-discovery")
+		}
+		targets := []validationProductionSandboxTarget{validationSandboxTarget("manifest.input", flags.Manifest)}
+		options := applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter)
+		for _, target := range []struct{ coordinate, path string }{
+			{"restore.state", options.StateDir}, {"restore.backup", options.BackupDir},
+			{"restore.journal", options.JournalLogsDir}, {"restore.export", options.ExportRoot},
+		} {
+			if target.path != "" {
+				targets = append(targets, validationSandboxTarget(target.coordinate, target.path))
+			}
+		}
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: catalog, Modules: matchedModules, Manifest: mf,
+			PortableRoot: validationManifestPortableRoot(flags.Manifest),
+			ConfigPlans:  validationConfigPlansFromManifest(mf), Instances: instances, SandboxTargets: targets,
+		}); validationErr != nil {
+			return nil, validationErr
+		}
 	}
 
 	// Platform realizer path (whole-set, e.g. Nix on linux/darwin). When a
@@ -464,6 +511,28 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	return runApplyDriverLanes(flags, mf, emitter, runID, configModuleMap, packageModuleMap, restoreScope)
 }
 
+func matchApplyModuleOwnership(catalog map[string]*modules.Module, apps []manifest.App) ([]*modules.Module, map[string]string, map[string][]string) {
+	matched := modules.MatchModulesForAppsIncludingInstall(catalog, apps)
+	if len(matched) == 0 {
+		return nil, nil, nil
+	}
+	packageMap := buildPackageModuleMap(matched)
+	configMatched := modules.MatchModulesForApps(catalog, apps)
+	configMap := make(map[string]string, len(configMatched))
+	for _, mod := range configMatched {
+		if len(mod.Matches.Winget) > 0 {
+			for _, wingetRef := range mod.Matches.Winget {
+				configMap[wingetRef] = mod.ID
+			}
+		} else if len(mod.Matches.Chocolatey) == 0 {
+			// pathExists-only modules: key by short app ID so the GUI can match.
+			shortID := strings.TrimPrefix(mod.ID, "apps.")
+			configMap[shortID] = mod.ID
+		}
+	}
+	return matched, configMap, packageMap
+}
+
 func scopeConfigRestoreRuntimeForOnly(runtime *configRestoreRuntime, matched []*modules.Module) {
 	if runtime == nil {
 		return
@@ -510,17 +579,19 @@ func applyConfigRestoreExecutionOptions(
 		logsDir = filepath.Join(repoRoot, "logs")
 	}
 	options := configRestoreExecutionOptions{
-		RestoreEnabled: flags.EnableRestore,
-		DryRun:         flags.DryRun,
-		RunID:          runID,
-		StateDir:       stateDir,
-		ManifestPath:   flags.Manifest,
-		ManifestDir:    manifestDir,
-		ExportRoot:     exportRoot,
-		BackupDir:      filepath.Join(stateDir, "backups", runID),
-		JournalLogsDir: logsDir,
+		RestoreEnabled:    flags.EnableRestore,
+		DryRun:            flags.DryRun,
+		RunID:             runID,
+		StateDir:          stateDir,
+		ManifestPath:      flags.Manifest,
+		ManifestDir:       manifestDir,
+		ExportRoot:        exportRoot,
+		BackupDir:         filepath.Join(stateDir, "backups", runID),
+		JournalLogsDir:    logsDir,
+		ValidationContext: currentValidationMode,
 	}
-	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
+	options.HostBoundary = newConfigRestoreHostBoundary(currentValidationMode)
+	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters(currentValidationMode)
 	options.Emitter = emitter
 	return options
 }

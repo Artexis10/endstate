@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.irfanview",
+  "moduleRevision": "15a69f792e82b5f74065b5ea7ab962ba0aee58e9e119b3d8ecfc0064cd68cfa9",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate"
+  }
+}
