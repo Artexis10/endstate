@@ -15,6 +15,13 @@
 //   storage.CreateVersion → presigned PUT URLs (manifest at chunkIndex=-1)
 //        ↓
 //   PUT each chunk + manifest in parallel, retry once on 5xx
+//        ↓
+//   storage.CommitVersion → the generation becomes durable (contract §8)
+//
+// The commit is the last step, and it is what makes a generation a restore
+// target. If any chunk or the manifest fails to upload, no commit is sent
+// and the push fails — a partially uploaded generation is never reported
+// as protected.
 //
 // The package never sees plaintext outside this process: chunks are
 // encrypted client-side before they hit any presigned URL. The DEK is
@@ -184,13 +191,44 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 		deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, failedCount)
 		return nil, envelope.NewError(envelope.ErrBackendUnreachable,
 			"backup push: chunk upload failed: "+perr.Error()).
-			WithRemediation("Re-run `endstate backup push`; a fresh versionId will be minted. The half-uploaded version is garbage-collected by substrate.")
+			WithRemediation(uncommittedRemediation)
+	}
+
+	// Commit LAST — after every chunk and the manifest are durably PUT.
+	// This is the only point at which the generation becomes a restore
+	// target (contract §7, §8). A commit failure means the generation is
+	// NOT protected, so the push fails; the uncommitted version is never
+	// listed, never counted against quota, and never selected by
+	// manifest.SelectLatest.
+	//
+	// A schema-2.0 backend 404s the route; CommitVersion reports that as
+	// (false, nil) because create is the durability point there. The push
+	// then succeeds exactly as it did before 2.1.
+	if _, cErr := deps.Storage.CommitVersion(ctx, resolvedBackupID, resp.VersionID); cErr != nil {
+		deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, 1)
+		return nil, envelope.NewError(cErr.Code,
+			"backup push: upload finished but the version could not be committed, so it is NOT protected: "+cErr.Message).
+			WithDetail(map[string]string{"backupId": resolvedBackupID, "versionId": resp.VersionID}).
+			WithRemediation(uncommittedRemediation)
 	}
 
 	deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, 0)
 
 	return &PushResult{BackupID: resolvedBackupID, VersionID: resp.VersionID}, nil
 }
+
+// uncommittedRemediation describes what actually happens to a generation
+// whose upload did not reach a successful commit.
+//
+// The previous text claimed "the half-uploaded version is garbage-collected
+// by substrate", which was false: before the commit endpoint existed,
+// CreateVersion made the row durable immediately, so a partial generation
+// stayed listed, counted against quota, and could be picked as the restore
+// target. This string states the real behaviour on both backend versions.
+const uncommittedRemediation = "Re-run `endstate backup push`; a fresh versionId is minted. " +
+	"This generation was never committed, so it is not protected and is not a restore target. " +
+	"On a schema 2.1 backend an uncommitted version stays invisible to listing, quota, and restore, and the backend reclaims it. " +
+	"On an older 2.0 backend the partial version may still be listed — remove it with `endstate backup delete-version --backup-id <id> --version-id <id> --confirm`."
 
 // encBundle is the fully client-side, encrypted result of bundling a profile —
 // the encrypted chunks plus the encrypted manifest — i.e. the exact set of
