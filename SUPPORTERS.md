@@ -1,13 +1,13 @@
 # Endstate Supporters
 
-This file lists people who purchased a Supporter License to fund continued development of Endstate. The product remains free for everyone because of them.
+This file lists people who chose to Support Endstate and fund continued development. The product remains free for everyone because of them.
 
 Listed in chronological order. Earliest supporters first.
 
 ## Supporters
 
-<!-- Names will be appended here as supporters opt in via the supporter license purchase flow. -->
+<!-- Names will be appended here as supporters opt in via the Support Endstate purchase flow. -->
 
 ---
 
-Becoming a supporter is optional. Endstate is fully free without one — see [PRINCIPLES.md](PRINCIPLES.md).
+Supporting Endstate is optional, and being listed here is opt-in. Endstate is fully free either way — see [PRINCIPLES.md](PRINCIPLES.md).
