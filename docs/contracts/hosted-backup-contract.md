@@ -346,7 +346,7 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 - `PATCH /api/backups/:backupId` → update a backup's mutable metadata (partial body; today `{ name }`) → `{ id, name, updatedAt }`. The id is immutable identity; only the label changes. Future metadata fields extend the body additively. Same read-access gating as DELETE (see below).
 - `DELETE /api/backups/:backupId` → permanently delete a backup and all its versions
 - `GET /api/backups/:backupId/versions` → list versions: `{ versions: [{ versionId, createdAt, size, manifestSha256 }] }`
-- `POST /api/backups/:backupId/versions` → create a new version: `{ encryptedManifest, chunkMetadata: [{ index, encryptedSize, sha256 }] }` → `{ versionId, uploadUrls: [{ chunkIndex, presignedUrl, expiresAt }] }`
+- `POST /api/backups/:backupId/versions` → create a new version: `{ encryptedManifest, chunkMetadata: [{ index, encryptedSize, sha256 }] }` → `{ versionId, uploadUrls: [{ chunkIndex, presignedUrl, expiresAt }], requiresCommit }`
 - `POST /api/backups/:backupId/versions/:versionId/commit` → finalise an uploaded version (see below)
 - `DELETE /api/backups/:backupId/versions/:versionId` → soft-delete a version (purged after 7 days)
 
@@ -356,7 +356,16 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 
 **Request:** no body.
 
-**Response:** `{ "versionId": "<uuid>", "committedAt": "<ISO 8601>" }`
+**Response:** `{ "versionId": "<uuid>", "committedAt": "<ISO 8601>", "alreadyCommitted": <bool> }`
+
+`alreadyCommitted` is `true` when the version was already committed by an earlier
+call; `committedAt` then carries the ORIGINAL timestamp, not the retry's. Clients
+MAY ignore both fields — the engine does, treating any 2xx as durable — but a
+server MUST return them so a replay is distinguishable from a first commit.
+
+**Access.** Commit requires an active subscription. It is the closing half of a
+write, not a management operation, so it is gated exactly like version creation
+and is NOT covered by the delete/rename read-access exemption in §10.
 
 Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and it is the only signal the server has to that effect.
 
