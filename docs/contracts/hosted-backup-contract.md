@@ -1,8 +1,8 @@
 # Endstate Hosted Backup Contract
 
 **Status:** Locked
-**Schema Version:** 2.0
-**Last Updated:** 2026-05-10
+**Schema Version:** 2.1
+**Last Updated:** 2026-08-08
 
 This document is the canonical specification for Endstate Hosted Backup — the optional paid tier that allows users to upload encrypted profile backups to Endstate-operated infrastructure and restore them on any machine.
 
@@ -347,7 +347,33 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 - `DELETE /api/backups/:backupId` → permanently delete a backup and all its versions
 - `GET /api/backups/:backupId/versions` → list versions: `{ versions: [{ versionId, createdAt, size, manifestSha256 }] }`
 - `POST /api/backups/:backupId/versions` → create a new version: `{ encryptedManifest, chunkMetadata: [{ index, encryptedSize, sha256 }] }` → `{ versionId, uploadUrls: [{ chunkIndex, presignedUrl, expiresAt }] }`
+- `POST /api/backups/:backupId/versions/:versionId/commit` → finalise an uploaded version (see below)
 - `DELETE /api/backups/:backupId/versions/:versionId` → soft-delete a version (purged after 7 days)
+
+### Version commit (schema 2.1)
+
+`POST /api/backups/:backupId/versions/:versionId/commit`
+
+**Request:** no body.
+
+**Response:** `{ "versionId": "<uuid>", "committedAt": "<ISO 8601>" }`
+
+Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and it is the only signal the server has to that effect.
+
+The server sets `committed_at` and only then applies retention (§8). The endpoint is **idempotent**: committing an already-committed version returns 200 and changes nothing, so a client that retries after an ambiguous network result is safe.
+
+**Client-version negotiation.** The server decides whether a version requires a commit from the `X-Endstate-API-Version` **minor** on the request that created it:
+
+| Client minor | Behaviour |
+|---|---|
+| `2.0` | Version is visible, quota-counted, and restorable immediately on create. Unchanged from schema 2.0. A commit call is accepted and is a no-op. |
+| `2.1` | Version is invisible to `GET .../versions`, excluded from quota, and not a restore target until committed. |
+
+Clients therefore MUST send `X-Endstate-API-Version` on every request; the header is no longer response-only.
+
+**Backwards compatibility.** A 2.1 client talking to a 2.0 server receives 404 for this route. That is not an error: the 2.0 server made the version durable at create time. The client treats a 404 here as "already committed" and reports success. Any other failure status means the generation is NOT durable and the client MUST NOT report it as protected.
+
+**Uncommitted versions.** A version created by a 2.1 client that is never committed is reclaimed by the same scheduled cleanup job that handles retention (§8). Until then it is invisible to every user-facing surface.
 
 ### Blob storage endpoints
 
@@ -399,22 +425,46 @@ Mints presigned URLs (PUT for upload, GET for download) scoped to a single objec
 
 ### Client's role
 
-Uploads/downloads chunks directly to R2 via presigned URLs. Verifies SHA-256 of each chunk on download against the manifest before decrypting. Refuses to decrypt any chunk whose hash does not match.
+Uploads/downloads chunks directly to R2 via presigned URLs. Verifies SHA-256 of each chunk on download against the manifest before decrypting, and verifies the encrypted manifest blob against the `manifestSha256` returned by `GET /api/backups/:backupId/versions` before decrypting it. Refuses to decrypt any blob whose hash does not match, and writes nothing to disk in that case.
+
+The manifest check exists for the same reason as the chunk check: without it the manifest's only integrity protection is its AEAD tag, which is evaluated after the bytes are already in the decrypt path. When the server does not advertise a `manifestSha256` for a version, the check is skipped — the gate hardens the transport where the value exists and never blocks restore against a backend that omits it.
+
+After the last blob is stored, the client commits the version (§7). That call is what makes the generation durable.
 
 ### Versioning model (v1)
 
 **Whole-snapshot versioning.** Each `POST /api/backups/:backupId/versions` creates a complete new copy of the backup. No chunk-level deduplication across versions. Storage cost grows linearly with version count. This is a deliberate v1 simplification; content-addressed deduplication is a possible v2 optimisation if real usage demands it.
 
+**A version is durable only once committed (schema 2.1).** Creating a version is not the durability point — it mints a row and a set of presigned URLs, nothing more. The blobs travel client→R2 over paths the server never sees, so the server cannot know a version is complete until the client says so via `POST .../versions/:versionId/commit` (§7).
+
+For a version created by a 2.1 client, the server therefore treats `committed_at IS NULL` as "does not exist yet":
+
+| Surface | Uncommitted version |
+|---|---|
+| `GET /api/backups/:backupId/versions` | Not listed |
+| `latestVersionId` / `versionCount` / `totalSize` on `GET /api/backups` | Not counted |
+| Storage quota | Not counted |
+| Restore target selection | Never selected |
+| Retention pruning | Does not trigger it, and is not protected by it |
+
+This closes a real failure mode. Before 2.1, a push that died between "create version" and "last chunk uploaded" left a row the server considered real: it was listed, it consumed quota, it pruned the oldest good generation out of retention, and a subsequent restore could select it as "latest" and fail — or worse, restore a truncated profile. The commit call moves the durability boundary to the only point at which the data is actually complete.
+
+Versions created by a 2.0 client keep the old semantics (durable on create); the server distinguishes the two by the client's advertised `X-Endstate-API-Version` minor (§7).
+
 ### Versioning policy
 
 - **Last 5 versions per backup retained.** Configurable per backup via metadata (future).
+- **Retention prunes at commit, not at create.** The retention sweep for a backup runs as part of committing a new version, so the count of retained generations only ever changes when a complete, durable generation exists to replace an older one. A failed upload can no longer evict a good generation. (Under schema 2.0 semantics, where create is the durability point, pruning happens at create as before.)
 - Older versions are garbage-collected by a scheduled substrate cron job.
 - Garbage collection is "soft" for 7 days — version row marked `deleted_at`, blobs purged from R2 after the 7-day window — to allow for accidental-deletion recovery.
+- Uncommitted versions are reclaimed by the same cron job. They were never visible, so there is no soft-delete window for them.
 - After purge, blobs are unrecoverable.
 
 ### Storage quota (v1)
 
-**1 GiB per active subscriber.** Enforced server-side at version creation. Quota check uses the sum of `size` across non-deleted versions. Quota exceeded → version creation fails with `STORAGE_QUOTA_EXCEEDED`. Calibrated against realistic profile sizes (apps + configs typically <200 MB); intended as a backstop against pathological cases, not a feature limit. May be raised post-launch based on real usage data.
+**1 GiB per active subscriber.** Enforced server-side at version creation. Quota check uses the sum of `size` across non-deleted, committed versions. Quota exceeded → version creation fails with `STORAGE_QUOTA_EXCEEDED`. Calibrated against realistic profile sizes (apps + configs typically <200 MB); intended as a backstop against pathological cases, not a feature limit. May be raised post-launch based on real usage data.
+
+Because the quota check runs at create time and uncommitted versions do not count, a pathological client that creates versions it never commits is bounded by the cleanup job's cadence, not by the quota. Rate limiting at the substrate edge is the control for that case.
 
 ### Why client uses presigned URLs (not direct R2 credentials)
 
@@ -526,9 +576,29 @@ This is a deliberate kindness exception. Three reasons:
 
 A subscription lapse is the worst time to lock users out of their own data. Card declines, expired cards, billing email going to spam — all common. Allowing read/restore during grace is the kindest UX and the one users most need at exactly the moment their card needs attention.
 
+### Grace and retention windows (normative)
+
+These two durations are the only time-based state transitions in the subscription machine. Both are **30 days**, and both are enforced server-side; no client enforces or displays a locally computed deadline.
+
+| Window | Duration | Starts at | Ends with |
+|---|---|---|---|
+| Grace (payment failed) | **30 days** | `grace_started_at`, set on `subscription.past_due` | `grace → active` on recovery, or `grace → cancelled` on expiry |
+| Cancellation retention | **30 days** | `cancel_started_at`, set on `subscription.canceled` | `cancelled → none`, then blob purge |
+
+Backups remain readable and restorable for the whole of both windows. Writes are blocked for the whole of both windows. Deletes and renames stay allowed throughout (see above).
+
+A client MUST NOT hard-code either duration as an authorisation decision. The server is authoritative; `gracePeriodEndsAt` on `GET /api/account/me` is the value to surface to the user.
+
 ### Purge timeline
 
-Blobs are purged 30 days after entering `cancelled`. The user's account remains. They can re-subscribe at any time, but data from before purge is gone. This is documented in Terms.
+Blobs are purged 30 days after entering `cancelled` — the end of the cancellation retention window above. Purge is what the `cancelled → none` transition schedules:
+
+1. Day 0: `subscription.canceled` → state `cancelled`, `cancel_started_at` set. Reads and restores continue to work; writes are blocked.
+2. Days 1–30: unchanged. The user can re-subscribe at any point and keep all data.
+3. Day 30: `cancelled → none`, blob purge scheduled for the user's R2 prefix.
+4. After purge: all versions of all backups are unrecoverable, including any uncommitted ones.
+
+The user's account row survives the purge. They can re-subscribe at any time and start backing up again, but data from before the purge is gone. This is documented in Terms.
 
 ### Webhook reliability
 
@@ -552,11 +622,21 @@ Three independent version axes, with explicit compatibility checks at every boun
 | `engineVersion` | Engine | `MAJOR.MINOR.PATCH` (semver) | `engine/VERSION.txt` |
 | `guiVersion` | GUI | `MAJOR.MINOR.PATCH` (semver) | `endstate-gui/package.json` |
 
-**Contract version:** Currently `2.0`. The bump from `1.0` was the recovery-flow shape change (see §6 and the Changelog) — a breaking auth-flow change per §13 invariants. Changes per the rules in Section 13.
+**Contract version:** Currently `2.1`. The bump from `2.0` added the version commit endpoint (§7) and the durability semantics that hang off it (§8) — additive per §13 (a new endpoint, negotiated per-client), so it is a minor bump and does not trigger the breaking-change protocol. The earlier bump from `1.0` to `2.0` was the recovery-flow shape change (see §6 and the Changelog) — a breaking auth-flow change. Changes per the rules in Section 13.
 
 ### Compatibility check at each boundary
 
-1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. Backend includes `X-Endstate-API-Version: 2.0` on every response. Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
+1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. Backend includes `X-Endstate-API-Version: 2.1` on every response, and the engine includes it on every request so the backend can negotiate per-client behaviour (§7, §8). Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
+
+   **Minor-version behaviour is asymmetric and deliberate:**
+
+   | Engine | Backend | Reads | Writes |
+   |---|---|---|---|
+   | 2.1 | 2.1 | Allowed | Allowed; commit required for durability |
+   | 2.1 | 2.0 | Allowed | Allowed; commit route 404s and the engine treats the version as durable at create, i.e. 2.0 behaviour |
+   | 2.0 | 2.1 | Allowed, warned in logs | **Blocked** with `SCHEMA_INCOMPATIBLE` |
+
+   The 2.0-engine/2.1-backend write block is the pre-existing "higher backend minor blocks writes, warns on reads" rule, and it is exactly right here: a 2.0 engine cannot commit, so its writes would be silently non-durable under 2.1 rules. The backend's per-client negotiation makes that case impossible in practice for backends that honour the advertised client minor, but the engine-side block is retained as defence in depth.
 
 2. **GUI ↔ Engine.** Existing pattern — `endstate capabilities --json` includes `cliVersion` and `schemaVersion`. GUI checks compatibility on startup. Hosted-backup commands gated behind `engineVersion >= 2.0.0` (the version that introduces the `backup` subcommand).
 
@@ -662,6 +742,13 @@ A schema bump triggers the breaking-change protocol from Section 11.
 
 ## Changelog
 
+- **2026-08-08 — v2.1** (additive; minor bump).
+  - **§7 API surface.** New endpoint `POST /api/backups/:backupId/versions/:versionId/commit`. Idempotent; sets `committed_at`. The server negotiates whether a version requires a commit from the client's `X-Endstate-API-Version` minor — 2.0 clients keep create-is-durable, 2.1 clients get commit-is-durable. `X-Endstate-API-Version` is now a request header as well as a response header.
+  - **§8 versioning model.** A version created by a 2.1 client is durable only once committed: until then it is not listed, not counted against quota or `versionCount`/`totalSize`, and never selected as a restore target. Retention prunes at commit rather than at create, so a failed upload can no longer evict a good generation. Uncommitted versions are reclaimed by the existing cleanup job.
+  - **§8 client responsibilities.** The encrypted manifest blob is verified against the API-supplied `manifestSha256` before decryption, mirroring the existing per-chunk gate. A missing `manifestSha256` skips the check rather than failing the restore.
+  - **§10 grace and retention.** Both the payment-failure grace window and the post-cancellation retention window are stated normatively as **30 days**, with the purge timeline spelled out step by step. The document already specified 30 days; substrate's implementation used 14 for grace and is being corrected to match this contract. The contract is the source of truth for the value.
+  - **§11 compatibility.** Contract version `2.1`; `X-Endstate-API-Version: 2.1`. The engine/backend minor matrix is stated explicitly, including the required graceful degradation of a 2.1 engine against a 2.0 backend.
+  - Additive per §13 (new endpoint, negotiated per client) — no major bump, no 90-day overlap window required.
 - **2026-05-27 — additive.**
   - **§4 JWT format.** New audience `endstate-account` for the GUI→web `/account` portal handoff. 60-second TTL, single-use via `jti` burn at redeem. Reuses the existing EdDSA signing infrastructure.
   - **§5 auth flow.** New endpoints `POST /api/auth/browser-session` (bearer-authenticated, engine-initiated) and `POST /api/auth/browser-session/redeem` (substrate-internal, sets HttpOnly cookie). The engine command is `endstate backup browser-session`.
