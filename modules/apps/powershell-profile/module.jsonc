@@ -11,7 +11,15 @@
   "matches": {
     "winget": [],
     "exe": ["pwsh.exe", "powershell.exe"],
-    "uninstallDisplayName": []
+    "uninstallDisplayName": [],
+    // PowerShell is always present on Windows, so the executable proves nothing.
+    // A profile file is the real signal that there is anything worth capturing.
+    "pathExists": [
+      "%USERPROFILE%\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1",
+      "%USERPROFILE%\\Documents\\PowerShell\\profile.ps1",
+      "%USERPROFILE%\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1",
+      "%USERPROFILE%\\Documents\\WindowsPowerShell\\profile.ps1"
+    ]
   },
 
   "verify": [

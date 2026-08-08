@@ -13,7 +13,11 @@
   "matches": {
     "winget": [],
     "exe": ["modo.exe", "modo_cl.exe"],
-    "uninstallDisplayName": ["^Modo\\b", "^The Foundry Modo", "^Foundry Modo"]
+    "uninstallDisplayName": ["^Modo\\b", "^The Foundry Modo", "^Foundry Modo"],
+    // No winget package — Foundry installer only, so config presence is the signal.
+    "pathExists": [
+      "%LOCALAPPDATA%\\Luxology"
+    ]
   },
 
   "verify": [

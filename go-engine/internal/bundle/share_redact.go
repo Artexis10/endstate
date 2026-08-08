@@ -85,6 +85,13 @@ var shareDenyModules = map[string]bool{
 	"apps.anydesk":     true,
 	"apps.teamviewer":  true,
 	"apps.rustdesk":    true,
+	// An SSH config is a map of someone's infrastructure: HostName values,
+	// ProxyJump bastions, per-host User directives and ports. The pattern pass
+	// cannot help here — it replaces the capturing machine's hostname, not the
+	// remote ones, and deliberately leaves usernames outside path contexts
+	// alone. Denied whole for the same reason as the account-bound modules
+	// above.
+	"apps.ssh-config": true,
 }
 
 // ShareModuleDenied reports whether a module is excluded from share bundles.

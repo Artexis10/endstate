@@ -11,7 +11,12 @@
     // No winget distribution — installed via Marmoset vendor installer
     "winget": [],
     "exe": ["toolbag.exe", "Toolbag.exe"],
-    "uninstallDisplayName": ["^Marmoset Toolbag"]
+    "uninstallDisplayName": ["^Marmoset Toolbag"],
+    // Same signal the verify step uses, promoted to a matcher so the module can
+    // actually attach without a package ref.
+    "pathExists": [
+      "%LOCALAPPDATA%\\Marmoset\\Toolbag"
+    ]
   },
 
   "verify": [

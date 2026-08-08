@@ -11,7 +11,13 @@
   "matches": {
     "winget": [],
     "exe": ["ssh.exe"],
-    "uninstallDisplayName": []
+    "uninstallDisplayName": [],
+    // OpenSSH ships with Windows and has no package entry, so config presence is
+    // the only signal. This also scopes the module correctly: attach when the
+    // user actually has a config to carry, not merely because ssh.exe exists.
+    "pathExists": [
+      "%USERPROFILE%\\.ssh\\config"
+    ]
   },
 
   "verify": [
