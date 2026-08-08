@@ -224,7 +224,7 @@ func writeRecoveryFile(path, mnemonic string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil && !os.IsExist(err) {
 		return "", err
 	}
-	contents := "# Endstate Hosted Backup recovery key\n" +
+	contents := "# Endstate Cloud recovery key\n" +
 		"# Anyone with this phrase can reset your passphrase and decrypt your data.\n" +
 		"# Store it somewhere offline; do not commit it to source control.\n\n" +
 		mnemonic + "\n"

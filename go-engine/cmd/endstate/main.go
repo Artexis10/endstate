@@ -44,8 +44,8 @@ Commands:
   rollback        Roll back packages to a prior generation (native-rollback backends)
   doctor          Run diagnostics
   bootstrap       Bootstrap Endstate installation
-  backup          Hosted Backup commands (login, logout, status, ...)
-  account         Hosted account management (delete)
+  backup          Endstate Cloud commands (login, logout, status, ...)
+  account         Endstate Cloud account management (delete)
   schedule        Scheduled drift-check commands (enable, disable, status, run)
 
 Global flags:
@@ -97,11 +97,11 @@ Subcommands:
   profile path <name>  Resolve profile path
   profile validate <p> Validate a profile manifest
   profile inspect <manifest-path>  Inspect an extracted manifest without machine evaluation
-  backup signup        Create Hosted Backup account (passphrase via stdin)
-  backup login         Sign in to Hosted Backup (passphrase via stdin)
-  backup logout        Clear cached Hosted Backup session
-  backup status        Report Hosted Backup session state
-  backup subscribe     Start a Hosted Backup subscription checkout (returns checkoutUrl)
+  backup signup        Create Endstate Cloud account (passphrase via stdin)
+  backup login         Sign in to Endstate Cloud (passphrase via stdin)
+  backup logout        Clear cached Endstate Cloud session
+  backup status        Report Endstate Cloud session state
+  backup subscribe     Start an Endstate Cloud subscription checkout (returns checkoutUrl)
   backup browser-session Mint a short-lived /account portal handoff token (returns sessionToken + accountUrl)
   backup push          Encrypt and upload a profile (--profile required)
   backup estimate      Report the upload size a push of a profile would use (--profile required)
@@ -111,7 +111,7 @@ Subcommands:
   backup delete        Permanently delete a backup (--backup-id, --confirm)
   backup delete-version Soft-delete a backup version (--backup-id, --version-id, --confirm)
   backup recover       Reset passphrase using BIP39 recovery key (stdin)
-  account delete       Delete the Hosted Backup account (requires --confirm)
+  account delete       Delete the Endstate Cloud account (requires --confirm)
 
 Run 'endstate <command> --help' for command-specific help.
 `
@@ -456,9 +456,9 @@ func commandUsage(cmd string) string {
 	case "profile":
 		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n  inspect <manifest-path>  Inspect an extracted manifest read-only, without machine evaluation\n"
 	case "backup":
-		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  claim --token <token> --save-recovery-to <path>\n                              Attach credentials to a pre-account using the bearer claim token\n                              from the buyer's purchase email (passphrase via stdin).\n                              Replaces any existing local session on success.\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  subscribe                     Start a Hosted Backup subscription checkout (returns checkoutUrl for the GUI to open)\n  browser-session               Mint a 60s /account portal handoff token (returns sessionToken + accountUrl for the GUI to open)\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
+		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  claim --token <token> --save-recovery-to <path>\n                              Attach credentials to a pre-account using the bearer claim token\n                              from the buyer's purchase email (passphrase via stdin).\n                              Replaces any existing local session on success.\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  subscribe                     Start an Endstate Cloud subscription checkout (returns checkoutUrl for the GUI to open)\n  browser-session               Mint a 60s /account portal handoff token (returns sessionToken + accountUrl for the GUI to open)\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
 	case "account":
-		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Hosted Backup account permanently\n"
+		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Endstate Cloud account permanently\n"
 	case "bootstrap":
 		return "Usage: endstate bootstrap\n\nBootstrap Endstate installation.\n"
 	case "schedule":
