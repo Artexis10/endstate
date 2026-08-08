@@ -302,6 +302,55 @@ func TestDo_VersionMinorMismatch_WriteRejected(t *testing.T) {
 	}
 }
 
+// TestDo_OlderBackendMinorAccepted: the engine now speaks 2.1, but a 2.0
+// substrate is still fully usable — an OLDER minor is not a mismatch on
+// either reads or writes. This is the graceful-degradation guarantee that
+// lets a 2.1 engine keep pushing to a substrate that has not yet shipped
+// the commit endpoint (contract §11).
+func TestDo_OlderBackendMinorAccepted(t *testing.T) {
+	if client.EngineSchemaMinor < 1 {
+		t.Skip("engine minor is 0; there is no older minor to test against")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newClient(t, client.Anonymous{})
+
+	if err := c.Do(context.Background(), client.Request{Method: "GET", URL: srv.URL, ReadOnly: true}, nil); err != nil {
+		t.Errorf("read against an older-minor backend: got %+v, want nil", err)
+	}
+	if err := c.Do(context.Background(), client.Request{Method: "POST", URL: srv.URL}, nil); err != nil {
+		t.Errorf("write against an older-minor backend: got %+v, want nil", err)
+	}
+}
+
+// TestDo_AdvertisesEngineSchemaVersionOnRequests: the backend decides
+// whether a created version needs an explicit commit from the client's
+// advertised minor (contract §8), so every request must carry
+// X-Endstate-API-Version.
+func TestDo_AdvertisesEngineSchemaVersionOnRequests(t *testing.T) {
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("X-Endstate-API-Version")
+		versionV1(w.Header())
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newClient(t, client.Anonymous{})
+
+	if err := c.Do(context.Background(), client.Request{Method: "POST", URL: srv.URL}, nil); err != nil {
+		t.Fatalf("Do: %+v", err)
+	}
+	if want := client.EngineSchemaVersion(); seen != want {
+		t.Errorf("request X-Endstate-API-Version = %q, want %q", seen, want)
+	}
+	if want := "2.1"; client.EngineSchemaVersion() != want {
+		t.Errorf("EngineSchemaVersion() = %q, want %q for contract schema 2.1", client.EngineSchemaVersion(), want)
+	}
+}
+
 func TestDo_StorageQuotaExceededFromBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		versionV1(w.Header())
