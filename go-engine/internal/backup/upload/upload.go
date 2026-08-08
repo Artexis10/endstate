@@ -205,7 +205,11 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 	// (false, nil) because create is the durability point there. The push
 	// then succeeds exactly as it did before 2.1.
 	if _, cErr := deps.Storage.CommitVersion(ctx, resolvedBackupID, resp.VersionID); cErr != nil {
-		deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, 1)
+		// The commit is the extra unit of work on this path: every blob
+		// succeeded and the commit is the one that failed. Counting it
+		// keeps the event contract's `total = success + skipped + failed`
+		// guarantee exact (successCount is chunkCount+1 here).
+		deps.Events.EmitSummary("backup-push", chunkCount+2, successCount, 0, 1)
 		return nil, envelope.NewError(cErr.Code,
 			"backup push: upload finished but the version could not be committed, so it is NOT protected: "+cErr.Message).
 			WithDetail(map[string]string{"backupId": resolvedBackupID, "versionId": resp.VersionID}).
