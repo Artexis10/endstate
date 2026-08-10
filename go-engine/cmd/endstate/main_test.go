@@ -641,6 +641,22 @@ func TestRestoreCapableCommandUsageAdvertisesRestoreTarget(t *testing.T) {
 	}
 }
 
+func TestScheduleUsageAdvertisesBackupSelectionAndUncertainUploadResolution(t *testing.T) {
+	usage := commandUsage("schedule")
+	for _, want := range []string{"--backup-id <id>", "discard-upload --artifact-sha256 <sha> --confirm"} {
+		if !strings.Contains(usage, want) {
+			t.Fatalf("schedule usage missing %q: %s", want, usage)
+		}
+	}
+	if !strings.Contains(usageText, "discard-upload") || !strings.Contains(usageText, "--backup-id") {
+		t.Fatalf("top-level usage omits schedule recovery: %s", usageText)
+	}
+	parsed := parseArgs([]string{"schedule", "discard-upload", "--artifact-sha256", "capture-sha", "--confirm"})
+	if parsed.artifactSHA256 != "capture-sha" || !parsed.confirm {
+		t.Fatalf("schedule discard args = %#v", parsed)
+	}
+}
+
 func TestParseArgs_CaptureRepeatableDriver(t *testing.T) {
 	got := parseArgs([]string{"capture", "--driver", "winget", "--driver", "chocolatey", "--json"})
 	if want := []string{"winget", "chocolatey"}; !reflect.DeepEqual(got.drivers, want) {

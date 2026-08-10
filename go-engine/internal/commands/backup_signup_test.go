@@ -46,7 +46,7 @@ func newSignupBackend(t *testing.T) *signupBackend {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"userId":             "user-new-1",
-			"accessToken":        "access-new",
+			"accessToken":        testAccessToken(srv.URL, "user-new-1"),
 			"refreshToken":       "refresh-new",
 			"subscriptionStatus": "active",
 		})

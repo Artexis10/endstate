@@ -5,6 +5,8 @@ package commands_test
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -23,8 +25,10 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/keychain"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/storage"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/upload"
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 )
 
 // TestBackupLogin_FullFlow drives the full login orchestration: pre-handshake
@@ -78,19 +82,19 @@ func TestBackupLogin_WrongPassphrase(t *testing.T) {
 
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"issuer":                            srv.URL,
-			"jwks_uri":                          srv.URL + "/api/.well-known/jwks.json",
+			"issuer":                                srv.URL,
+			"jwks_uri":                              srv.URL + "/api/.well-known/jwks.json",
 			"id_token_signing_alg_values_supported": []string{"EdDSA"},
 			"endstate_extensions": map[string]interface{}{
-				"auth_login_endpoint":          srv.URL + "/api/auth/login",
-				"auth_signup_endpoint":         srv.URL + "/api/auth/signup",
-				"auth_refresh_endpoint":        srv.URL + "/api/auth/refresh",
-				"auth_logout_endpoint":         srv.URL + "/api/auth/logout",
-				"auth_recover_endpoint":        srv.URL + "/api/auth/recover",
-				"backup_api_base":              srv.URL + "/api/backups",
-				"supported_kdf_algorithms":     []string{"argon2id"},
-				"supported_envelope_versions":  []int{1},
-				"min_kdf_params":               map[string]int{"memory": 65536, "iterations": 3, "parallelism": 4},
+				"auth_login_endpoint":         srv.URL + "/api/auth/login",
+				"auth_signup_endpoint":        srv.URL + "/api/auth/signup",
+				"auth_refresh_endpoint":       srv.URL + "/api/auth/refresh",
+				"auth_logout_endpoint":        srv.URL + "/api/auth/logout",
+				"auth_recover_endpoint":       srv.URL + "/api/auth/recover",
+				"backup_api_base":             srv.URL + "/api/backups",
+				"supported_kdf_algorithms":    []string{"argon2id"},
+				"supported_envelope_versions": []int{1},
+				"min_kdf_params":              map[string]int{"memory": 65536, "iterations": 3, "parallelism": 4},
 			},
 		})
 	})
@@ -104,7 +108,7 @@ func TestBackupLogin_WrongPassphrase(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"salt": f.SaltB64,
+			"salt":      f.SaltB64,
 			"kdfParams": map[string]interface{}{"algorithm": "argon2id", "memory": 65536, "iterations": 3, "parallelism": 4},
 		})
 	})
@@ -160,40 +164,125 @@ func TestBackupLogout_ClearsRefreshAndDEK(t *testing.T) {
 // pushPullBackend extends storageBackend with R2-mock + create-version
 // + download-urls handlers, used by the push and pull tests.
 type pushPullBackend struct {
-	srv     *httptest.Server
-	r2      *httptest.Server
-	createVersionFn   http.HandlerFunc
-	downloadURLsFn    http.HandlerFunc
-	versionsFn        http.HandlerFunc
-	listFn            http.HandlerFunc
-	createBackupFn    http.HandlerFunc
+	srv             *httptest.Server
+	r2              *httptest.Server
+	createVersionFn http.HandlerFunc
+	downloadURLsFn  http.HandlerFunc
+	versionsFn      http.HandlerFunc
+	listFn          http.HandlerFunc
+	createBackupFn  http.HandlerFunc
+	// commitFn overrides the default idempotent 200 for
+	// `POST /api/backups/:id/versions/:vid/commit` (contract §7). Used to
+	// simulate a schema-2.0 backend (404) or a failing commit.
+	commitFn http.HandlerFunc
+	// requiresCommit controls the create-version response. The default mock
+	// models a commit-aware backend; individual tests can supply an older
+	// response through createVersionFn.
+	requiresCommit        bool
+	backupAPICapabilities []string
+	createResponses       int
 
-	mu          sync.Mutex
-	r2Stored    map[string][]byte // key = chunk index ("manifest" or "0", "1"...)
-	r2Latency   atomic.Int32
-	r2FailFirst map[string]int // key → number of remaining 5xx attempts before success
-	r2TamperOn  map[string]bool
+	// commits records every commit call the mock received, regardless of
+	// what commitFn does with it.
+	commits commitLog
+
+	mu              sync.Mutex
+	r2Stored        map[string][]byte // key = chunk index ("manifest" or "0", "1"...)
+	r2Latency       atomic.Int32
+	r2FailFirst     map[string]int // key → number of remaining 5xx attempts before success
+	r2StoreThenFail map[string]int // key → stores body then returns 5xx; retry receives 412
+	r2TamperOn      map[string]bool
+	// r2FailAlways makes every PUT to the key return 5xx, exhausting the
+	// upload retry budget — the "chunk never lands" case.
+	r2FailAlways map[string]bool
+	// r2DeadURL forces the minted presigned URL for the key to point at a
+	// closed listener, producing a transport error rather than an HTTP
+	// status — the "process/transport dies mid-upload" case.
+	r2DeadURL map[string]bool
+	// r2Redirect returns a successful landing response after a 302. It models
+	// a dangerous misissued presigned URL: following it must never count as an
+	// object PUT success.
+	r2Redirect map[string]bool
+	// r2WaitForManifest makes a PUT to the key block until the manifest
+	// blob has been stored, so "manifest uploaded, chunk failed" is
+	// deterministic under the concurrent uploader.
+	r2WaitForManifest map[string]bool
+
+	// deadURL is a closed httptest server's URL; connecting to it fails at
+	// the transport layer.
+	deadURL string
 }
 
 func newPushPullBackend(t *testing.T) *pushPullBackend {
 	t.Helper()
 	pp := &pushPullBackend{
-		r2Stored:    make(map[string][]byte),
-		r2FailFirst: make(map[string]int),
-		r2TamperOn:  make(map[string]bool),
+		requiresCommit:    true,
+		r2Stored:          make(map[string][]byte),
+		r2FailFirst:       make(map[string]int),
+		r2StoreThenFail:   make(map[string]int),
+		r2TamperOn:        make(map[string]bool),
+		r2FailAlways:      make(map[string]bool),
+		r2DeadURL:         make(map[string]bool),
+		r2Redirect:        make(map[string]bool),
+		r2WaitForManifest: make(map[string]bool),
 	}
+
+	// A server we immediately close: its URL is routable but refuses
+	// connections, which is exactly a mid-upload transport failure.
+	dead := httptest.NewServer(http.NotFoundHandler())
+	pp.deadURL = dead.URL
+	dead.Close()
 
 	// R2 mock — separate server so URLs are clearly distinct.
 	r2mux := http.NewServeMux()
 	r2 := httptest.NewServer(r2mux)
 	pp.r2 = r2
 	t.Cleanup(r2.Close)
+	r2mux.HandleFunc("/landing", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 
 	r2mux.HandleFunc("/r2/", func(w http.ResponseWriter, r *http.Request) {
 		key := strings.TrimPrefix(r.URL.Path, "/r2/")
 		switch r.Method {
 		case http.MethodPut:
 			pp.mu.Lock()
+			waitForManifest := pp.r2WaitForManifest[key]
+			redirect := pp.r2Redirect[key]
+			pp.mu.Unlock()
+			if redirect {
+				http.Redirect(w, r, pp.r2.URL+"/landing", http.StatusFound)
+				return
+			}
+			if waitForManifest && !pp.awaitManifestStored(2*time.Second) {
+				http.Error(w, "manifest never arrived", http.StatusInternalServerError)
+				return
+			}
+			pp.mu.Lock()
+			if pp.r2FailAlways[key] {
+				pp.mu.Unlock()
+				http.Error(w, "synthetic permanent 5xx", http.StatusServiceUnavailable)
+				return
+			}
+			if remaining := pp.r2StoreThenFail[key]; remaining > 0 {
+				pp.r2StoreThenFail[key] = remaining - 1
+				body, _ := io.ReadAll(r.Body)
+				pp.r2Stored[key] = append([]byte(nil), body...)
+				pp.mu.Unlock()
+				http.Error(w, "synthetic response lost after store", http.StatusServiceUnavailable)
+				return
+			}
+			if existing, ok := pp.r2Stored[key]; ok && r.Header.Get("If-None-Match") == "*" {
+				sum := sha256.Sum256(existing)
+				if r.Header.Get("x-amz-checksum-sha256") != base64.StdEncoding.EncodeToString(sum[:]) || r.Header.Get("x-amz-meta-endstate-sha256") != fmt.Sprintf("%x", sum) {
+					pp.mu.Unlock()
+					http.Error(w, "checksum mismatch", http.StatusBadRequest)
+					return
+				}
+				pp.mu.Unlock()
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
 			if remaining, ok := pp.r2FailFirst[key]; ok && remaining > 0 {
 				pp.r2FailFirst[key] = remaining - 1
 				pp.mu.Unlock()
@@ -234,7 +323,7 @@ func newPushPullBackend(t *testing.T) *pushPullBackend {
 	srv := httptest.NewServer(mux)
 	pp.srv = srv
 	t.Cleanup(srv.Close)
-	addAuthRoutes(mux, srv)
+	addAuthRoutesWithCapabilitySource(mux, srv, func() []string { return pp.backupAPICapabilities })
 
 	// list backups
 	mux.HandleFunc("/api/backups", func(w http.ResponseWriter, r *http.Request) {
@@ -294,22 +383,55 @@ func newPushPullBackend(t *testing.T) *pushPullBackend {
 					} `json:"chunkMetadata"`
 				}
 				_ = json.NewDecoder(r.Body).Decode(&body)
+				pp.mu.Lock()
+				pp.createResponses++
+				generation := pp.createResponses
+				pp.mu.Unlock()
+				prefix, versionID := "", "v-pushed"
+				if generation > 1 {
+					prefix = fmt.Sprintf("v%d/", generation)
+					versionID = fmt.Sprintf("v-pushed-%d", generation)
+				}
 				urls := []map[string]interface{}{
-					{"chunkIndex": -1, "presignedUrl": pp.r2.URL + "/r2/manifest", "expiresAt": "2026-05-02T01:00:00Z"},
+					{"chunkIndex": -1, "presignedUrl": pp.r2.URL + "/r2/" + prefix + "manifest", "expiresAt": "2026-05-02T01:00:00Z"},
 				}
 				for _, c := range body.ChunkMetadata {
+					key := fmt.Sprintf("%d", c.Index)
+					host := pp.r2.URL
+					pp.mu.Lock()
+					if pp.r2DeadURL[key] {
+						host = pp.deadURL
+					}
+					pp.mu.Unlock()
 					urls = append(urls, map[string]interface{}{
 						"chunkIndex":   c.Index,
-						"presignedUrl": fmt.Sprintf("%s/r2/%d", pp.r2.URL, c.Index),
+						"presignedUrl": fmt.Sprintf("%s/r2/%s%s", host, prefix, key),
 						"expiresAt":    "2026-05-02T01:00:00Z",
 					})
 				}
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"versionId":  "v-pushed",
-					"uploadUrls": urls,
+					"versionId":      versionID,
+					"uploadUrls":     urls,
+					"requiresCommit": pp.requiresCommit,
 				})
 				return
 			}
+		}
+
+		// /api/backups/{id}/versions/{vid}/commit — contract §7.
+		// Idempotent by default: a repeat commit of the same version is a
+		// no-op 200, exactly as substrate behaves.
+		if len(segments) == 4 && segments[1] == "versions" && segments[3] == "commit" && r.Method == http.MethodPost {
+			pp.commits.record(segments[2])
+			if pp.commitFn != nil {
+				pp.commitFn(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"versionId":   segments[2],
+				"committedAt": "2026-05-02T00:00:01Z",
+			})
+			return
 		}
 
 		// /api/backups/{id}/versions/{vid}/download-urls
@@ -343,6 +465,34 @@ func newPushPullBackend(t *testing.T) *pushPullBackend {
 	})
 
 	return pp
+}
+
+// awaitManifestStored blocks until the manifest blob has landed in the R2
+// mock, or the timeout expires. Used to order "manifest uploaded" before
+// "chunk PUT fails" deterministically despite the concurrent uploader.
+func (pp *pushPullBackend) awaitManifestStored(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		pp.mu.Lock()
+		_, ok := pp.r2Stored["manifest"]
+		pp.mu.Unlock()
+		if ok {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
+}
+
+// storedKeys returns the R2 mock's stored blob keys.
+func (pp *pushPullBackend) storedKeys() map[string]bool {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	out := make(map[string]bool, len(pp.r2Stored))
+	for k := range pp.r2Stored {
+		out[k] = true
+	}
+	return out
 }
 
 func stackForPushPull(pp *pushPullBackend) (*backup.Stack, keychain.Keychain) {
@@ -396,6 +546,217 @@ func TestBackupPush_HappyPath(t *testing.T) {
 	}
 }
 
+func TestBackupPush_ReplayCapabilityCommittedResponseSkipsPUTs(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.backupAPICapabilities = []string{"version-create-operation-replay-v1"}
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+	var bodies [][]byte
+	var operationIDs []string
+	pp.createVersionFn = func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, body)
+		operationIDs = append(operationIDs, r.Header.Get("X-Endstate-Operation-ID"))
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"versionId": "v-replayed", "alreadyCommitted": true, "uploadUrls": []interface{}{}})
+	}
+	profile := filepath.Join(t.TempDir(), "profile")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "x"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", BackupID: "b-1", Profile: profile}); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if len(bodies) != 1 || operationIDs[0] == "" {
+		t.Fatalf("capability create omitted operation ID: %d %#v", len(bodies), operationIDs)
+	}
+	if len(pp.storedKeys()) != 0 {
+		t.Fatalf("committed replay sent PUTs: %#v", pp.storedKeys())
+	}
+}
+
+func TestBackupPush_EventsEmitOnePhaseAndTerminalSummary(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*pushPullBackend)
+		wantErr   bool
+	}{
+		{
+			name: "success",
+		},
+		{
+			name: "already committed replay",
+			configure: func(pp *pushPullBackend) {
+				pp.backupAPICapabilities = []string{"version-create-operation-replay-v1"}
+				pp.createVersionFn = func(w http.ResponseWriter, r *http.Request) {
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"versionId": "v-replayed", "alreadyCommitted": true, "uploadUrls": []interface{}{},
+					})
+				}
+			},
+		},
+		{
+			name: "create failure",
+			configure: func(pp *pushPullBackend) {
+				pp.createVersionFn = func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, `{"success":false,"error":{"code":"CREATE_FAILED","message":"create failed"}}`, http.StatusBadRequest)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "upload failure",
+			configure: func(pp *pushPullBackend) {
+				pp.r2FailAlways["0"] = true
+			},
+			wantErr: true,
+		},
+		{
+			name: "commit failure",
+			configure: func(pp *pushPullBackend) {
+				pp.commitFn = func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, `{"success":false,"error":{"code":"COMMIT_FAILED","message":"commit failed"}}`, http.StatusInternalServerError)
+				}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pp := newPushPullBackend(t)
+			if tt.configure != nil {
+				tt.configure(pp)
+			}
+			st, _ := stackForPushPull(pp)
+			restoreStack := commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })
+			t.Cleanup(restoreStack)
+
+			var stream bytes.Buffer
+			restoreEvents := events.ActivateDefaultWriter(&stream)
+			t.Cleanup(restoreEvents)
+			_, err := commands.RunBackup(commands.BackupFlags{
+				Subcommand: "push",
+				Profile:    writeTestProfile(t, t.TempDir()),
+				BackupID:   "b-1",
+				Events:     "jsonl",
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("push error = %v, want error = %t", err, tt.wantErr)
+			}
+
+			assertBackupPushTerminalEvents(t, &stream)
+		})
+	}
+}
+
+func assertBackupPushTerminalEvents(t *testing.T, stream *bytes.Buffer) {
+	t.Helper()
+	var events []map[string]interface{}
+	for _, line := range strings.Split(strings.TrimSpace(stream.String()), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("backup push event is not valid JSON: %v\n%s", err, line)
+		}
+		events = append(events, event)
+	}
+	if len(events) == 0 {
+		t.Fatal("backup push emitted no events")
+	}
+
+	phaseCount, summaryCount := 0, 0
+	for _, event := range events {
+		if event["phase"] != "backup-push" {
+			continue
+		}
+		switch event["event"] {
+		case "phase":
+			phaseCount++
+		case "summary":
+			summaryCount++
+			total, ok := event["total"].(float64)
+			if !ok {
+				t.Fatalf("backup-push summary total = %#v, want a number", event["total"])
+			}
+			success, successOK := event["success"].(float64)
+			skipped, skippedOK := event["skipped"].(float64)
+			failed, failedOK := event["failed"].(float64)
+			if !successOK || !skippedOK || !failedOK {
+				t.Fatalf("backup-push summary counts = %#v, want numbers", event)
+			}
+			if total != success+skipped+failed {
+				t.Errorf("backup-push summary total = %v, want success + skipped + failed = %v", total, success+skipped+failed)
+			}
+		}
+	}
+	if phaseCount != 1 {
+		t.Errorf("backup-push phase events = %d, want 1", phaseCount)
+	}
+	if summaryCount != 1 {
+		t.Errorf("backup-push summary events = %d, want 1", summaryCount)
+	}
+	last := events[len(events)-1]
+	if last["event"] != "summary" || last["phase"] != "backup-push" {
+		t.Errorf("last event = %#v, want backup-push terminal summary", last)
+	}
+}
+
+func TestBackupPush_ScheduledReplayAfterLostCreateResponseIsByteIdentical(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.backupAPICapabilities = []string{"version-create-operation-replay-v1"}
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+	var bodies [][]byte
+	var operationIDs []string
+	pp.createVersionFn = func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, body)
+		operationIDs = append(operationIDs, r.Header.Get("X-Endstate-Operation-ID"))
+		if len(bodies) == 1 {
+			http.Error(w, "response lost after create", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"versionId": "v-one", "alreadyCommitted": true, "uploadUrls": []interface{}{}})
+	}
+	profile := filepath.Join(t.TempDir(), "profile")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "x"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := t.TempDir()
+	var persisted upload.ScheduledCreate
+	persist := func(state upload.ScheduledCreate) error { persisted = state; return nil }
+	first := &upload.ScheduledCreate{StateDir: stateDir, Persist: persist}
+	if _, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", BackupID: "b-1", Profile: profile, ScheduledCreate: first}); err == nil {
+		t.Fatal("first lost create response succeeded")
+	}
+	if persisted.OperationID == "" || persisted.CreateSpool == "" {
+		t.Fatalf("first run did not persist replay state: %#v", persisted)
+	}
+	second := persisted
+	second.Persist = persist
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", BackupID: "b-1", Profile: profile, ScheduledCreate: &second})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if data.(*commands.PushResult).VersionID != "v-one" {
+		t.Fatalf("result=%#v", data)
+	}
+	if len(bodies) != 2 || !bytes.Equal(bodies[0], bodies[1]) || operationIDs[0] == "" || operationIDs[0] != operationIDs[1] {
+		t.Fatalf("replay mismatch bodies=%d opIDs=%#v", len(bodies), operationIDs)
+	}
+	if len(pp.storedKeys()) != 0 {
+		t.Fatalf("terminal replay issued PUTs: %#v", pp.storedKeys())
+	}
+}
+
 func TestBackupPush_RetryOn5xx(t *testing.T) {
 	pp := newPushPullBackend(t)
 	pp.r2FailFirst["0"] = 1 // first PUT to chunk 0 returns 5xx; second succeeds
@@ -422,6 +783,24 @@ func TestBackupPush_RetryOn5xx(t *testing.T) {
 	defer pp.mu.Unlock()
 	if _, ok := pp.r2Stored["0"]; !ok {
 		t.Error("chunk 0 not received after retry")
+	}
+}
+
+func TestBackupPush_ChecksumBoundCreateOnlyRetryCommitsAfterLostResponse(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.r2StoreThenFail["0"] = 1
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: writeTestProfile(t, t.TempDir()), BackupID: "b-1"})
+	if err != nil {
+		t.Fatalf("push after lost response: %+v", err)
+	}
+	if data == nil {
+		t.Fatal("push result = nil")
+	}
+	if n := pp.commits.count("v-pushed"); n != 1 {
+		t.Fatalf("commit calls = %d, want 1 after checksum-bound retry", n)
 	}
 }
 
@@ -591,7 +970,7 @@ func TestBackupRecover_FullFlow(t *testing.T) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"userId":             "user-1",
-			"accessToken":        "access-recovered",
+			"accessToken":        testAccessToken(srv.URL, "user-1"),
 			"refreshToken":       "refresh-recovered",
 			"subscriptionStatus": "active",
 		})
@@ -685,7 +1064,7 @@ func TestBackupRecover_BearerNotClobberedByStaleSession(t *testing.T) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"userId":             "user-1",
-			"accessToken":        "access-recovered",
+			"accessToken":        testAccessToken(srv.URL, "user-1"),
 			"refreshToken":       "refresh-recovered",
 			"subscriptionStatus": "active",
 		})
@@ -733,3 +1112,334 @@ func TestBackupPull_NoDEKSurfacesAuthRequired(t *testing.T) {
 
 // noTime returns a zero time; signals "no expiry tracking" in SetTokens.
 func noTime() (z time.Time) { return z }
+
+// ---------------------------------------------------------------------------
+// Generation durability (contract §7 commit endpoint, §8 versioning model)
+//
+// The invariant under test: a generation is protected only once every chunk
+// AND the manifest are uploaded AND the commit lands. Anything short of that
+// must not send a commit, and must not be reported to the user as protected.
+// ---------------------------------------------------------------------------
+
+// writeTestProfile creates a small two-file profile directory and returns it.
+func writeTestProfile(t *testing.T, root string) string {
+	t.Helper()
+	profile := filepath.Join(root, "profile")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "manifest.jsonc"), []byte(`{"name":"durability"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "extra.txt"), bytes.Repeat([]byte("D"), 2048), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return profile
+}
+
+// TestBackupPush_CommitSentExactlyOnceAfterFullUpload: a fully successful
+// push commits the version exactly once, at the /commit route, after the
+// manifest and every chunk have landed. A repeated commit is tolerated by
+// the backend (idempotent) and by the engine.
+func TestBackupPush_CommitSentExactlyOnceAfterFullUpload(t *testing.T) {
+	pp := newPushPullBackend(t)
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	profile := writeTestProfile(t, t.TempDir())
+
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: profile, BackupID: "b-1"})
+	if err != nil {
+		t.Fatalf("push: %+v", err)
+	}
+	res := data.(*commands.PushResult)
+	if res.VersionID != "v-pushed" {
+		t.Fatalf("VersionID = %q, want v-pushed", res.VersionID)
+	}
+
+	if n := pp.commits.count("v-pushed"); n != 1 {
+		t.Errorf("commit calls for v-pushed = %d, want exactly 1", n)
+	}
+	if n := pp.commits.total(); n != 1 {
+		t.Errorf("total commit calls = %d, want 1", n)
+	}
+	stored := pp.storedKeys()
+	if !stored["manifest"] || !stored["0"] {
+		t.Errorf("expected manifest and chunk 0 stored before commit, got %v", stored)
+	}
+
+	// Idempotency: committing the same version again must succeed.
+	if _, cErr := st.Storage.CommitVersion(context.Background(), "b-1", "v-pushed"); cErr != nil {
+		t.Fatalf("repeat commit should be tolerated, got %+v", cErr)
+	}
+	if n := pp.commits.count("v-pushed"); n != 2 {
+		t.Errorf("commit calls after repeat = %d, want 2", n)
+	}
+}
+
+// TestBackupPush_TransportFailureMidChunkSendsNoCommit: the presigned URL
+// for chunk 0 points at a closed listener, so the PUT dies at the transport
+// layer (the "process or network dropped mid-upload" case). The push must
+// fail, no commit may be sent, and the user must not be told the generation
+// is protected.
+func TestBackupPush_TransportFailureMidChunkSendsNoCommit(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.r2DeadURL["0"] = true
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	profile := writeTestProfile(t, t.TempDir())
+
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: profile, BackupID: "b-1"})
+	if err == nil {
+		t.Fatalf("expected push to fail on a transport error, got %+v", data)
+	}
+	if data != nil {
+		t.Errorf("failed push must not return a result payload, got %+v", data)
+	}
+	if n := pp.commits.total(); n != 0 {
+		t.Errorf("commit calls = %d, want 0 — an incomplete upload must never be committed", n)
+	}
+	if strings.Contains(err.Remediation, "garbage-collected by substrate") {
+		t.Error("remediation still makes the false garbage-collection claim")
+	}
+	if !strings.Contains(err.Remediation, "never committed") {
+		t.Errorf("remediation %q should state the generation was never committed", err.Remediation)
+	}
+}
+
+// TestBackupPush_ManifestUploadedButChunkFailsSendsNoCommit: the manifest
+// PUT succeeds and a chunk PUT exhausts its retry budget. Even with the
+// manifest durable in storage, no commit may be sent.
+func TestBackupPush_ManifestUploadedButChunkFailsSendsNoCommit(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.r2WaitForManifest["0"] = true // order: manifest lands first
+	pp.r2FailAlways["0"] = true      // then chunk 0 never succeeds
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	profile := writeTestProfile(t, t.TempDir())
+
+	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: profile, BackupID: "b-1"})
+	if err == nil {
+		t.Fatal("expected push to fail when a chunk PUT never succeeds")
+	}
+	stored := pp.storedKeys()
+	if !stored["manifest"] {
+		t.Fatal("test precondition: manifest should have been stored before the chunk failed")
+	}
+	if stored["0"] {
+		t.Error("chunk 0 should never have been stored")
+	}
+	if n := pp.commits.total(); n != 0 {
+		t.Errorf("commit calls = %d, want 0 — a manifest-only upload must never be committed", n)
+	}
+}
+
+// TestBackupPush_LegacyBackendWithoutCommitEndpoint: a schema-2.0 substrate
+// has no commit route and answers 404. The 2.1 engine must degrade
+// gracefully — treat the version as durable at create time and succeed,
+// exactly as it behaved before the commit endpoint existed.
+func TestBackupPush_LegacyBackendWithoutCommitEndpoint(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.requiresCommit = false
+	pp.commitFn = func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"success":false,"error":{"code":"NOT_FOUND","message":"no such route"}}`, http.StatusNotFound)
+	}
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	profile := writeTestProfile(t, t.TempDir())
+
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: profile, BackupID: "b-1"})
+	if err != nil {
+		t.Fatalf("push against a 2.0 backend must still succeed, got %+v", err)
+	}
+	res := data.(*commands.PushResult)
+	if res.VersionID != "v-pushed" {
+		t.Errorf("VersionID = %q, want v-pushed", res.VersionID)
+	}
+	if n := pp.commits.total(); n != 0 {
+		t.Errorf("legacy create response should not attempt commit (got %d)", n)
+	}
+	stored := pp.storedKeys()
+	if !stored["manifest"] || !stored["0"] {
+		t.Errorf("blobs should still be uploaded, got %v", stored)
+	}
+}
+
+func TestBackupPush_LegacyCreateResponseSkipsCommit(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.createVersionFn = func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"versionId": "v-pushed",
+			"uploadUrls": []map[string]interface{}{
+				{"chunkIndex": -1, "presignedUrl": pp.r2.URL + "/r2/manifest"},
+				{"chunkIndex": 0, "presignedUrl": pp.r2.URL + "/r2/0"},
+			},
+		})
+	}
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	if _, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: writeTestProfile(t, t.TempDir()), BackupID: "b-1"}); err != nil {
+		t.Fatalf("legacy push: %+v", err)
+	}
+	if n := pp.commits.total(); n != 0 {
+		t.Errorf("legacy create response sent %d commits, want none", n)
+	}
+}
+
+func TestBackupPush_LegacyRedirectDoesNotReportProtected(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.requiresCommit = false
+	pp.r2Redirect["manifest"] = true
+	pp.r2Redirect["0"] = true
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: writeTestProfile(t, t.TempDir()), BackupID: "b-1"})
+	if err == nil {
+		t.Fatalf("legacy redirected push reported success: %+v", data)
+	}
+	if data != nil {
+		t.Errorf("failed legacy redirect returned protected result: %+v", data)
+	}
+	if stored := pp.storedKeys(); len(stored) != 0 {
+		t.Errorf("redirected PUTs stored objects: %v", stored)
+	}
+}
+
+func TestBackupPush_RequiredCommit404Fails(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.commitFn = func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"success":false,"error":{"code":"NOT_FOUND","message":"commit route missing"}}`, http.StatusNotFound)
+	}
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: writeTestProfile(t, t.TempDir()), BackupID: "b-1"})
+	if err == nil {
+		t.Fatalf("required commit 404 returned success: %+v", data)
+	}
+	if data != nil {
+		t.Errorf("failed required commit returned data: %+v", data)
+	}
+	if n := pp.commits.total(); n != 1 {
+		t.Errorf("commit calls = %d, want 1", n)
+	}
+}
+
+// TestBackupPush_CommitFailureIsNotProtected: a commit that fails for any
+// reason other than "route not implemented" fails the push with an
+// actionable error. The upload succeeded, but the generation is not durable.
+func TestBackupPush_CommitFailureIsNotProtected(t *testing.T) {
+	pp := newPushPullBackend(t)
+	pp.commitFn = func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"success":false,"error":{"code":"BACKEND_ERROR","message":"commit failed"}}`, http.StatusInternalServerError)
+	}
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	profile := writeTestProfile(t, t.TempDir())
+
+	data, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: profile, BackupID: "b-1"})
+	if err == nil {
+		t.Fatalf("expected push to fail when commit fails, got %+v", data)
+	}
+	if data != nil {
+		t.Errorf("failed push must not return a result payload, got %+v", data)
+	}
+	if !strings.Contains(err.Message, "NOT protected") {
+		t.Errorf("message %q should state the generation is not protected", err.Message)
+	}
+	if !strings.Contains(err.Remediation, "never committed") {
+		t.Errorf("remediation %q should state the generation was never committed", err.Remediation)
+	}
+}
+
+// TestBackupPull_ManifestSHA256MismatchRefusesDecrypt: the API advertises a
+// manifestSha256 that does not match the stored blob. The engine must
+// refuse to decrypt and write nothing to disk — the manifest equivalent of
+// the existing per-chunk integrity gate.
+func TestBackupPull_ManifestSHA256MismatchRefusesDecrypt(t *testing.T) {
+	pp := newPushPullBackend(t)
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	tmp := t.TempDir()
+	profile := writeTestProfile(t, tmp)
+	if _, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: profile, BackupID: "b-1"}); err != nil {
+		t.Fatalf("push: %+v", err)
+	}
+
+	// Advertise a hash that cannot match any blob.
+	pp.versionsFn = func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"versions": []map[string]interface{}{
+				{"versionId": "v-pushed", "createdAt": "2026-05-02T00:00:00Z", "size": 0,
+					"manifestSha256": strings.Repeat("0", 64)},
+			},
+		})
+	}
+
+	target := filepath.Join(tmp, "restored")
+	_, err := commands.RunBackup(commands.BackupFlags{
+		Subcommand: "pull", BackupID: "b-1", VersionID: "v-pushed", To: target, Overwrite: true,
+	})
+	if err == nil {
+		t.Fatal("expected an integrity error on a manifest hash mismatch")
+	}
+	if !strings.Contains(err.Message, "manifest SHA-256 mismatch") {
+		t.Errorf("message %q should mention the manifest SHA-256 mismatch", err.Message)
+	}
+	// Nothing on disk: the target directory must not have been created or
+	// populated, because the refusal happens before any decrypt or write.
+	if entries, rerr := os.ReadDir(target); rerr == nil && len(entries) > 0 {
+		t.Errorf("no files should be written on a manifest mismatch, found %d entries", len(entries))
+	}
+}
+
+// TestBackupPull_ManifestSHA256MatchRestores: the positive control for the
+// gate above — when the advertised hash matches the stored blob, the pull
+// completes and the bytes round-trip.
+func TestBackupPull_ManifestSHA256MatchRestores(t *testing.T) {
+	pp := newPushPullBackend(t)
+	st, _ := stackForPushPull(pp)
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return st })()
+
+	tmp := t.TempDir()
+	profile := writeTestProfile(t, tmp)
+	if _, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: profile, BackupID: "b-1"}); err != nil {
+		t.Fatalf("push: %+v", err)
+	}
+
+	pp.mu.Lock()
+	manifestSHA := sha256Hex(pp.r2Stored["manifest"])
+	pp.mu.Unlock()
+	if manifestSHA == "" {
+		t.Fatal("test precondition: manifest blob missing from the R2 mock")
+	}
+	pp.versionsFn = func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"versions": []map[string]interface{}{
+				{"versionId": "v-pushed", "createdAt": "2026-05-02T00:00:00Z", "size": 0,
+					"manifestSha256": manifestSHA},
+			},
+		})
+	}
+
+	target := filepath.Join(tmp, "restored")
+	if _, err := commands.RunBackup(commands.BackupFlags{
+		Subcommand: "pull", BackupID: "b-1", VersionID: "v-pushed", To: target, Overwrite: true,
+	}); err != nil {
+		t.Fatalf("pull with a matching manifest hash must succeed, got %+v", err)
+	}
+	got, rerr := os.ReadFile(filepath.Join(target, "manifest.jsonc"))
+	if rerr != nil {
+		t.Fatalf("read restored manifest.jsonc: %v", rerr)
+	}
+	if !bytes.Equal(got, []byte(`{"name":"durability"}`)) {
+		t.Error("restored manifest.jsonc bytes mismatch")
+	}
+}

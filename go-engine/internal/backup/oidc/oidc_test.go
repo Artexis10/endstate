@@ -9,6 +9,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,9 +22,9 @@ import (
 // requirements. Test cases mutate it to drive the negative paths.
 func validDiscovery(issuer string) oidc.Document {
 	return oidc.Document{
-		Issuer:                            issuer,
-		JWKSURI:                           issuer + "/api/.well-known/jwks.json",
-		IDTokenSigningAlgValuesSupported:  []string{"EdDSA"},
+		Issuer:                           issuer,
+		JWKSURI:                          issuer + "/api/.well-known/jwks.json",
+		IDTokenSigningAlgValuesSupported: []string{"EdDSA"},
 		EndstateExtensions: oidc.EndstateExtensions{
 			AuthSignupEndpoint:        issuer + "/api/auth/signup",
 			AuthLoginEndpoint:         issuer + "/api/auth/login",
@@ -130,6 +132,36 @@ func TestDiscovery_RejectsMissingExtensions(t *testing.T) {
 	}
 }
 
+func TestDiscovery_RejectsMissingSecurityFieldsAsIncompatible(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*oidc.Document)
+	}{
+		{
+			name: "missing jwks URI",
+			mutate: func(d *oidc.Document) {
+				d.JWKSURI = ""
+			},
+		},
+		{
+			name: "missing EdDSA support",
+			mutate: func(d *oidc.Document) {
+				d.IDTokenSigningAlgValuesSupported = nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, _, _ := fakeBackend(t, tt.mutate)
+			_, err := oidc.NewClient(srv.URL, srv.Client()).Discovery(context.Background())
+			if !errors.Is(err, oidc.ErrIncompatibleIssuer) {
+				t.Errorf("Discovery() error = %v, want ErrIncompatibleIssuer", err)
+			}
+		})
+	}
+}
+
 func TestDiscovery_RejectsMissingArgon2id(t *testing.T) {
 	srv, _, _ := fakeBackend(t, func(d *oidc.Document) {
 		d.EndstateExtensions.SupportedKDFAlgorithms = []string{"argon2i"}
@@ -179,6 +211,58 @@ func TestDiscovery_NetworkErrorBubbles(t *testing.T) {
 	_, err := c.Discovery(context.Background())
 	if err == nil {
 		t.Fatal("expected error on unreachable backend")
+	}
+	if !errors.Is(err, oidc.ErrDiscoveryTransport) {
+		t.Errorf("Discovery() error = %v, want ErrDiscoveryTransport", err)
+	}
+}
+
+func TestDiscovery_DefaultClientBlocksCrossOriginRedirectWithoutLeakingURL(t *testing.T) {
+	var managedHits int32
+	managed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&managedHits, 1)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer managed.Close()
+
+	selfHosted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, managed.URL+"/openid?redirectSecret=do-not-leak", http.StatusPermanentRedirect)
+	}))
+	defer selfHosted.Close()
+
+	_, err := oidc.NewClient(selfHosted.URL, nil).Discovery(context.Background())
+	if err == nil {
+		t.Fatal("Discovery() error = nil, want blocked redirect")
+	}
+	for _, secret := range []string{"redirectSecret", "?"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("error leaked %q: %q", secret, err)
+		}
+	}
+	if got := atomic.LoadInt32(&managedHits); got != 0 {
+		t.Errorf("managed-host requests = %d, want 0", got)
+	}
+}
+
+func TestDiscovery_DefaultClientAllowsSameOriginRedirect(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/discovery", http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/discovery", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewEncoder(w).Encode(validDiscovery(server.URL)); err != nil {
+			t.Fatalf("encode discovery: %v", err)
+		}
+	})
+
+	doc, err := oidc.NewClient(server.URL, nil).Discovery(context.Background())
+	if err != nil {
+		t.Fatalf("Discovery(): %v", err)
+	}
+	if doc.Issuer != server.URL {
+		t.Errorf("issuer = %q, want %q", doc.Issuer, server.URL)
 	}
 }
 
@@ -250,5 +334,34 @@ func TestDiscovery_BackupAPIBase_PassesThroughCustomURL(t *testing.T) {
 	}
 	if doc.EndstateExtensions.BackupAPIBase != customBase {
 		t.Errorf("BackupAPIBase = %q, want %q", doc.EndstateExtensions.BackupAPIBase, customBase)
+	}
+}
+
+func TestDiscovery_BackupAPICapabilityRequiresExactReplayToken(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want bool
+	}{
+		{name: "exact token", json: `["version-create-operation-replay-v1"]`, want: true},
+		{name: "unknown token", json: `["future-replay-v2"]`, want: false},
+		{name: "mixed token", json: `["future-replay-v2","version-create-operation-replay-v1"]`, want: true},
+		{name: "malformed capability", json: `"version-create-operation-replay-v1"`, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var doc oidc.Document
+			if err := json.Unmarshal([]byte(`{"endstate_extensions":{"backup_api_capabilities":`+tt.json+`}}`), &doc); err != nil {
+				t.Fatalf("decode discovery: %v", err)
+			}
+			method := reflect.ValueOf(doc.EndstateExtensions).MethodByName("SupportsVersionCreateOperationReplay")
+			if !method.IsValid() {
+				t.Fatal("EndstateExtensions is missing SupportsVersionCreateOperationReplay")
+			}
+			got := method.Call(nil)[0].Bool()
+			if got != tt.want {
+				t.Errorf("capability supported = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

@@ -120,26 +120,34 @@ func newStorageBackend(t *testing.T) *storageBackend {
 // the fakeBackend in backup_test.go but on a fresh mux so storage tests
 // don't depend on that file's wiring.
 func addAuthRoutes(mux *http.ServeMux, srv *httptest.Server) {
+	addAuthRoutesWithCapabilitySource(mux, srv, func() []string { return nil })
+}
+
+func addAuthRoutesWithCapabilitySource(mux *http.ServeMux, srv *httptest.Server, capabilities func() []string) {
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		extensions := map[string]interface{}{
+			"auth_signup_endpoint":        srv.URL + "/api/auth/signup",
+			"auth_login_endpoint":         srv.URL + "/api/auth/login",
+			"auth_refresh_endpoint":       srv.URL + "/api/auth/refresh",
+			"auth_logout_endpoint":        srv.URL + "/api/auth/logout",
+			"auth_recover_endpoint":       srv.URL + "/api/auth/recover",
+			"backup_api_base":             srv.URL + "/api/backups",
+			"supported_kdf_algorithms":    []string{"argon2id"},
+			"supported_envelope_versions": []int{1},
+			"min_kdf_params":              map[string]int{"memory": 65536, "iterations": 3, "parallelism": 4},
+		}
+		if advertised := capabilities(); advertised != nil {
+			extensions["backup_api_capabilities"] = advertised
+		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"issuer":                            srv.URL,
-			"jwks_uri":                          srv.URL + "/api/.well-known/jwks.json",
+			"issuer":                                srv.URL,
+			"jwks_uri":                              srv.URL + "/api/.well-known/jwks.json",
 			"id_token_signing_alg_values_supported": []string{"EdDSA"},
-			"endstate_extensions": map[string]interface{}{
-				"auth_signup_endpoint":         srv.URL + "/api/auth/signup",
-				"auth_login_endpoint":          srv.URL + "/api/auth/login",
-				"auth_refresh_endpoint":        srv.URL + "/api/auth/refresh",
-				"auth_logout_endpoint":         srv.URL + "/api/auth/logout",
-				"auth_recover_endpoint":        srv.URL + "/api/auth/recover",
-				"backup_api_base":              srv.URL + "/api/backups",
-				"supported_kdf_algorithms":     []string{"argon2id"},
-				"supported_envelope_versions":  []int{1},
-				"min_kdf_params":               map[string]int{"memory": 65536, "iterations": 3, "parallelism": 4},
-			},
+			"endstate_extensions":                   extensions,
 		})
 	})
 	mux.HandleFunc("/api/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"keys": []interface{}{}})
+		_ = json.NewEncoder(w).Encode(testAuthJWKS())
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
@@ -149,7 +157,7 @@ func addAuthRoutes(mux *http.ServeMux, srv *httptest.Server) {
 		if _, hasPwd := raw["serverPassword"]; hasPwd {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"userId":             "user-1",
-				"accessToken":        "access-1",
+				"accessToken":        testAccessToken(srv.URL, "user-1"),
 				"refreshToken":       "refresh-1",
 				"wrappedDEK":         f.WrappedDEKB64,
 				"subscriptionStatus": "active",

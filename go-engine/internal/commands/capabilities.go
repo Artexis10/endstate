@@ -52,13 +52,16 @@ type FeaturesInfo struct {
 }
 
 // ScheduleFeature advertises the scheduled drift-check capability. The GUI gates
-// its "Continuous protection" card on this block. Additive in schema 1.x.
+// its "Scheduled setup checks" card on this block. Additive in schema 1.x.
 type ScheduleFeature struct {
 	// Supported is true only on Windows where schtasks.exe is available.
 	Supported bool `json:"supported"`
 	// AutoPush indicates that schedule run supports --auto-push via the
 	// persisted keychain session.
 	AutoPush bool `json:"autoPush"`
+	// BundleManifestSupported gates feeding captured .endstate/.zip artifacts
+	// into schedule enable on engines that understand bundle baselines.
+	BundleManifestSupported bool `json:"bundleManifestSupported"`
 }
 
 // HostedBackupFeature is the GUI-facing capability advertisement for the
@@ -70,6 +73,10 @@ type HostedBackupFeature struct {
 	MinSchemaVersion string `json:"minSchemaVersion"`
 	IssuerURL        string `json:"issuerUrl"`
 	Audience         string `json:"audience"`
+	// ProviderKind is an additive managed-offer discriminator. GUI clients
+	// must treat an absent or unknown value as ineligible for Endstate Cloud
+	// invitations and subscription offers.
+	ProviderKind string `json:"providerKind"`
 	// Rename advertises that the engine supports `backup rename` (mutable
 	// backup labels via PATCH). The GUI gates its rename affordance on this
 	// so it stays hidden against an older engine.
@@ -164,7 +171,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"schedule": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--interval", "--time", "--auto-push", "--root", "--json"},
+				Flags:     []string{"--manifest", "--interval", "--time", "--auto-push", "--backup-id", "--artifact-sha256", "--confirm", "--root", "--json"},
 			},
 			"rebuild": {
 				Supported: true,
@@ -187,12 +194,14 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				MinSchemaVersion: "1.0",
 				IssuerURL:        backup.IssuerURL(),
 				Audience:         backup.Audience(),
+				ProviderKind:     backup.ProviderKind(),
 				Rename:           true,
 				IfChanged:        true,
 			},
 			Schedule: ScheduleFeature{
-				Supported: runtime.GOOS == "windows",
-				AutoPush:  true,
+				Supported:               runtime.GOOS == "windows",
+				AutoPush:                true,
+				BundleManifestSupported: true,
 			},
 		},
 		Platform:           platformInfoFor(runtime.GOOS),

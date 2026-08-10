@@ -4,10 +4,16 @@
 package commands_test
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"sync"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/oidc"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // testFixture holds a precomputed Argon2id result so the suite doesn't
@@ -15,15 +21,40 @@ import (
 // par) is deliberately heavy in production; for tests we compute it once
 // across the whole package via sync.Once.
 type testFixture struct {
-	Email          string
-	Passphrase     string
-	Salt           []byte // 16 bytes, deterministic
-	SaltB64        string
-	Derived        crypto.DerivedKeys
-	DEK            []byte // 32 bytes, deterministic
-	WrappedDEK     []byte // 60 bytes
-	WrappedDEKB64  string
-	ServerPassB64  string
+	Email         string
+	Passphrase    string
+	Salt          []byte // 16 bytes, deterministic
+	SaltB64       string
+	Derived       crypto.DerivedKeys
+	DEK           []byte // 32 bytes, deterministic
+	WrappedDEK    []byte // 60 bytes
+	WrappedDEKB64 string
+	ServerPassB64 string
+}
+
+func testAuthJWKS() oidc.JWKS {
+	private := ed25519.NewKeyFromSeed(bytes32(0x91))
+	public := private.Public().(ed25519.PublicKey)
+	return oidc.JWKS{Keys: []oidc.JWK{{
+		Kty: "OKP", Crv: "Ed25519", Kid: "commands-test-key", Alg: "EdDSA", Use: "sig",
+		X: base64.RawURLEncoding.EncodeToString(public),
+	}}}
+}
+
+func testAccessToken(issuer, subject string) string {
+	now := time.Now()
+	claims := jwt.RegisteredClaims{
+		Issuer: issuer, Subject: subject, Audience: jwt.ClaimStrings{"endstate-backup"},
+		IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now),
+		ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "commands-test-key"
+	signed, err := token.SignedString(ed25519.NewKeyFromSeed(bytes32(0x91)))
+	if err != nil {
+		panic("sign test access token: " + err.Error())
+	}
+	return signed
 }
 
 var (
@@ -57,6 +88,49 @@ func loadFixture() *testFixture {
 		fixture = f
 	})
 	return fixture
+}
+
+// commitLog records the `POST .../versions/:versionId/commit` calls the
+// substrate mock received (contract §7). Shared by the push orchestration
+// tests: the durability invariant they assert is "no commit ⇒ the
+// generation was never presented as protected", so every one of them needs
+// to count commits per version.
+type commitLog struct {
+	mu    sync.Mutex
+	calls []string // versionIds, in arrival order
+}
+
+func (c *commitLog) record(versionID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, versionID)
+}
+
+// count returns how many commits arrived for versionID.
+func (c *commitLog) count(versionID string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, v := range c.calls {
+		if v == versionID {
+			n++
+		}
+	}
+	return n
+}
+
+// total returns the number of commit calls across all versions.
+func (c *commitLog) total() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.calls)
+}
+
+// sha256Hex is the hex SHA-256 of b — the shape substrate returns as
+// `manifestSha256` on `GET /api/backups/:id/versions`.
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func bytes16(b byte) []byte {

@@ -49,7 +49,7 @@ func fakeBackend(t *testing.T) *httptest.Server {
 		})
 	})
 	mux.HandleFunc("/api/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(oidc.JWKS{Keys: []oidc.JWK{}})
+		_ = json.NewEncoder(w).Encode(testAuthJWKS())
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
@@ -59,7 +59,7 @@ func fakeBackend(t *testing.T) *httptest.Server {
 		if _, hasPwd := raw["serverPassword"]; hasPwd {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"userId":             "user-1",
-				"accessToken":        "access-1",
+				"accessToken":        testAccessToken(srv.URL, "user-1"),
 				"refreshToken":       "refresh-1",
 				"wrappedDEK":         f.WrappedDEKB64,
 				"subscriptionStatus": "active",
@@ -383,10 +383,24 @@ func TestCapabilities_AdvertisesHostedBackup(t *testing.T) {
 	if caps.Features.HostedBackup.MinSchemaVersion != "1.0" {
 		t.Errorf("minSchemaVersion = %q, want 1.0", caps.Features.HostedBackup.MinSchemaVersion)
 	}
+	if caps.Features.HostedBackup.ProviderKind != "self-hosted" {
+		t.Errorf("providerKind = %q, want self-hosted for a custom issuer", caps.Features.HostedBackup.ProviderKind)
+	}
 	if _, ok := caps.Commands["backup"]; !ok {
 		t.Error("Commands map missing 'backup'")
 	}
 	if _, ok := caps.Commands["account"]; !ok {
 		t.Error("Commands map missing 'account'")
+	}
+}
+
+func TestCapabilities_HostedBackupProviderKindNormalizesManagedIssuer(t *testing.T) {
+	t.Setenv("ENDSTATE_OIDC_ISSUER_URL", "HTTPS://SUBSTRATESYSTEMS.IO/")
+	data, err := commands.RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities: %+v", err)
+	}
+	if got := data.(commands.CapabilitiesData).Features.HostedBackup.ProviderKind; got != "endstate-cloud" {
+		t.Errorf("providerKind = %q, want endstate-cloud for the normalized managed issuer", got)
 	}
 }

@@ -59,7 +59,7 @@ func newClaimBackend(t *testing.T) *claimBackend {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"userId":             "user-claim-1",
 			"email":              "buyer@example.com",
-			"accessToken":        "access-claim",
+			"accessToken":        testAccessToken(srv.URL, "user-claim-1"),
 			"refreshToken":       "refresh-claim",
 			"subscriptionStatus": "active",
 		})

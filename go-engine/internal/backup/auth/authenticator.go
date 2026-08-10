@@ -186,8 +186,7 @@ func (a *Authenticator) CompleteLogin(ctx context.Context, email string, serverP
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
-	if perr := a.session.Persist(); perr != nil {
+	if perr := a.acceptIssuedTokens(ctx, resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus); perr != nil {
 		// Persisting to the keychain failed — the session is still good
 		// in-process but won't survive a restart. Surface as INTERNAL_ERROR
 		// because we shouldn't pretend everything is fine.
@@ -221,6 +220,7 @@ func (a *Authenticator) refreshAccessToken(ctx context.Context) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	beforeLock := a.session.Snapshot()
 
 	// Acquire the cross-process refresh lock before reading the RT. The
 	// 50ms poll is generous enough not to thrash; the wait is bounded by
@@ -252,19 +252,22 @@ func (a *Authenticator) refreshAccessToken(ctx context.Context) (string, error) 
 	// what's in the keychain — proceeding would risk POSTing a stale RT,
 	// which substrate's reuse-detection would burn, re-introducing exactly
 	// the AUTH_REQUIRED symptom F5 is meant to eliminate. Fail closed.
-	if uid := a.session.Snapshot().UserID; uid != "" {
+	if uid := beforeLock.UserID; uid != "" {
 		if err := a.session.Hydrate(uid); err != nil && !errors.Is(err, keychain.ErrNotFound) {
 			return "", fmt.Errorf("auth: refresh: hydrate before rotation: %w", err)
 		}
 	}
 	snap := a.session.Snapshot()
 
-	// Second-waiter optimisation: if a sibling process already rotated
-	// the access token while we were waiting, the AccessToken() check
-	// will see a still-valid cached token and short-circuit. This drops
-	// N-way concurrent refreshes to a single substrate round-trip.
-	if cached, _ := a.session.AccessToken(ctx); cached != "" {
-		return cached, nil
+	// Second-waiter optimisation: return a valid token only when the
+	// re-hydration actually observed a sibling's rotation. The caller may have
+	// reached us because its current token received a 401 even if its `exp`
+	// looks valid, so unconditionally returning a cache here would suppress the
+	// required refresh.
+	if snap.AccessToken != beforeLock.AccessToken || !snap.AccessExpiry.Equal(beforeLock.AccessExpiry) {
+		if cached, _ := a.session.AccessToken(ctx); cached != "" {
+			return cached, nil
+		}
 	}
 
 	if snap.RefreshToken == "" {
@@ -298,8 +301,7 @@ func (a *Authenticator) refreshAccessToken(ctx context.Context) (string, error) 
 	if resp.RefreshToken == "" {
 		return "", errors.New("auth: refresh: substrate response missing refreshToken (sliding-window rotation requires a new RT; keychain RT is now stale)")
 	}
-	a.session.SetTokens(snap.UserID, snap.Email, resp.AccessToken, resp.RefreshToken, snap.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
-	if perr := a.session.Persist(); perr != nil {
+	if perr := a.acceptIssuedTokens(ctx, snap.UserID, snap.Email, resp.AccessToken, resp.RefreshToken, snap.SubscriptionStatus); perr != nil {
 		return "", fmt.Errorf("auth: refresh: persist refresh token: %w", perr)
 	}
 	return resp.AccessToken, nil
@@ -362,8 +364,7 @@ func (a *Authenticator) Signup(ctx context.Context, body SignupBody) (*CompleteL
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, body.Email, resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
-	if perr := a.session.Persist(); perr != nil {
+	if perr := a.acceptIssuedTokens(ctx, resp.UserID, body.Email, resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus); perr != nil {
 		return &resp, envelope.NewError(envelope.ErrInternalError,
 			"signup succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
 			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
@@ -427,8 +428,7 @@ func (a *Authenticator) Claim(ctx context.Context, claimToken string, body Claim
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, strings.ToLower(resp.Email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
-	if perr := a.session.Persist(); perr != nil {
+	if perr := a.acceptIssuedTokens(ctx, resp.UserID, strings.ToLower(resp.Email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus); perr != nil {
 		return &resp, envelope.NewError(envelope.ErrInternalError,
 			"claim succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
 			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
@@ -517,8 +517,7 @@ func (a *Authenticator) RecoverFinalize(ctx context.Context, recoveryToken, emai
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
-	if perr := a.session.Persist(); perr != nil {
+	if perr := a.acceptIssuedTokens(ctx, resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus); perr != nil {
 		return &resp, envelope.NewError(envelope.ErrInternalError,
 			"recovery finalize succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
 			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
@@ -662,6 +661,43 @@ func mapDiscoveryError(err error) *envelope.Error {
 // base64Encode is a tiny helper that keeps the call sites readable.
 func base64Encode(b []byte) string {
 	return stdBase64.EncodeToString(b)
+}
+
+// acceptIssuedTokens verifies a backend-issued access token before it can
+// enter either the in-memory session or the persistent keychain. The response
+// user ID is checked against JWT sub so a valid token for another account can
+// never be bound to this session. Verify performs one JWKS refetch on a key
+// miss, covering normal signing-key rotation without accepting an unverified
+// token.
+func (a *Authenticator) acceptIssuedTokens(ctx context.Context, userID, email, access, refresh, subscription string) error {
+	if userID == "" || access == "" || refresh == "" {
+		return errors.New("auth: token response missing userId, accessToken, or refreshToken")
+	}
+	keys, err := a.oidc.JWKS(ctx)
+	if err != nil {
+		return fmt.Errorf("auth: fetch JWKS: %w", err)
+	}
+	claims, err := Verify(ctx, access, a.oidc, VerifyOptions{
+		ExpectedIssuer:   a.issuer.URL,
+		ExpectedAudience: a.issuer.Audience,
+		JWKS:             keys,
+		Now:              time.Now(),
+	})
+	if err != nil {
+		return fmt.Errorf("auth: reject issued access token: %w", err)
+	}
+	if claims.Subject == "" || claims.Subject != userID {
+		return fmt.Errorf("auth: issued token subject %q does not match response userId %q", claims.Subject, userID)
+	}
+	var expiry time.Time
+	if claims.ExpiresAt != nil {
+		expiry = claims.ExpiresAt.Time
+	}
+	a.session.SetTokens(userID, email, access, refresh, subscription, expiry)
+	if err := a.session.Persist(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // parseAccessExpiry extracts the `exp` claim from a substrate-issued

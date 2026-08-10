@@ -245,14 +245,16 @@ func TestWriteReadConfig_RoundTrip(t *testing.T) {
 	path := ConfigPath(dir)
 
 	want := &Config{
-		SchemaVersion: "1.0",
-		Enabled:       true,
-		Manifest:      "/some/manifest.jsonc",
-		Interval:      "daily",
-		Time:          "08:30",
-		AutoPush:      true,
-		TaskName:      TaskName,
-		Root:          dir,
+		SchemaVersion:   "1.0",
+		Enabled:         true,
+		Manifest:        "/some/manifest.jsonc",
+		Interval:        "daily",
+		Time:            "08:30",
+		AutoPush:        true,
+		TaskName:        TaskName,
+		Root:            dir,
+		PendingArtifact: filepath.Join(dir, "schedule", "pending", "abc.endstate"),
+		PendingSHA256:   "abc",
 	}
 	if err := WriteConfig(path, want); err != nil {
 		t.Fatalf("WriteConfig: %v", err)
@@ -271,6 +273,9 @@ func TestWriteReadConfig_RoundTrip(t *testing.T) {
 	if got.AutoPush != want.AutoPush {
 		t.Errorf("AutoPush = %v, want %v", got.AutoPush, want.AutoPush)
 	}
+	if got.PendingArtifact != want.PendingArtifact || got.PendingSHA256 != want.PendingSHA256 {
+		t.Errorf("pending capture = (%q, %q), want (%q, %q)", got.PendingArtifact, got.PendingSHA256, want.PendingArtifact, want.PendingSHA256)
+	}
 }
 
 func TestReadConfig_MissingFile_ReturnsDefault(t *testing.T) {
@@ -287,6 +292,26 @@ func TestReadConfig_MissingFile_ReturnsDefault(t *testing.T) {
 	}
 	if cfg.SchemaVersion != "1.0" {
 		t.Errorf("default SchemaVersion = %q, want 1.0", cfg.SchemaVersion)
+	}
+}
+
+func TestReadConfig_MigratesLegacyPendingCaptureIntoOrderedQueue(t *testing.T) {
+	dir := t.TempDir()
+	path := ConfigPath(dir)
+	legacy := `{"schemaVersion":"1.0","pendingArtifact":"C:/pending/first.endstate","pendingSha256":"first"}`
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := ReadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.PendingUploads) != 1 || cfg.PendingUploads[0].Artifact != "C:/pending/first.endstate" || cfg.PendingUploads[0].SHA256 != "first" {
+		t.Fatalf("PendingUploads = %#v, want migrated legacy capture", cfg.PendingUploads)
 	}
 }
 

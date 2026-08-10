@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -47,26 +48,30 @@ const (
 
 // Document is the subset of the OIDC discovery response Endstate consumes.
 type Document struct {
-	Issuer                            string             `json:"issuer"`
-	JWKSURI                           string             `json:"jwks_uri"`
-	IDTokenSigningAlgValuesSupported  []string           `json:"id_token_signing_alg_values_supported"`
-	EndstateExtensions                EndstateExtensions `json:"endstate_extensions"`
+	Issuer                           string             `json:"issuer"`
+	JWKSURI                          string             `json:"jwks_uri"`
+	IDTokenSigningAlgValuesSupported []string           `json:"id_token_signing_alg_values_supported"`
+	EndstateExtensions               EndstateExtensions `json:"endstate_extensions"`
 }
 
 // EndstateExtensions is the namespaced extension block required of any
 // backend Endstate talks to (contract §9). Missing or invalid → engine
 // refuses to use the backend.
 type EndstateExtensions struct {
-	AuthSignupEndpoint        string         `json:"auth_signup_endpoint"`
-	AuthLoginEndpoint         string         `json:"auth_login_endpoint"`
-	AuthRefreshEndpoint       string         `json:"auth_refresh_endpoint"`
-	AuthLogoutEndpoint        string         `json:"auth_logout_endpoint"`
-	AuthRecoverEndpoint       string         `json:"auth_recover_endpoint"`
+	AuthSignupEndpoint  string `json:"auth_signup_endpoint"`
+	AuthLoginEndpoint   string `json:"auth_login_endpoint"`
+	AuthRefreshEndpoint string `json:"auth_refresh_endpoint"`
+	AuthLogoutEndpoint  string `json:"auth_logout_endpoint"`
+	AuthRecoverEndpoint string `json:"auth_recover_endpoint"`
 	// AuthClaimEndpoint is optional: substrate v1 does not yet advertise
 	// it. When absent, callers fall back to `<issuer>/api/auth/claim`.
 	// See `Authenticator.Claim`.
-	AuthClaimEndpoint         string         `json:"auth_claim_endpoint,omitempty"`
-	BackupAPIBase             string         `json:"backup_api_base"`
+	AuthClaimEndpoint string `json:"auth_claim_endpoint,omitempty"`
+	BackupAPIBase     string `json:"backup_api_base"`
+	// BackupAPICapabilities is deliberately kept as raw JSON so a malformed
+	// optional capability field fails closed without rejecting an otherwise
+	// compatible legacy issuer.
+	BackupAPICapabilities json.RawMessage `json:"backup_api_capabilities,omitempty"`
 	// AccountPortalURL is optional. When advertised it is the canonical
 	// `/account/start` landing for the GUI→web handoff (contract §9).
 	// Self-hosters who relocate the portal populate this. Engines never
@@ -74,10 +79,23 @@ type EndstateExtensions struct {
 	// `/api/auth/browser-session` response — but it documents the
 	// self-host contract for any GUI / non-engine client that needs to
 	// resolve the portal URL on its own.
-	AccountPortalURL          string         `json:"account_portal_url,omitempty"`
-	SupportedKDFAlgorithms    []string       `json:"supported_kdf_algorithms"`
-	SupportedEnvelopeVersions []int          `json:"supported_envelope_versions"`
-	MinKDFParams              MinKDFParams   `json:"min_kdf_params"`
+	AccountPortalURL          string       `json:"account_portal_url,omitempty"`
+	SupportedKDFAlgorithms    []string     `json:"supported_kdf_algorithms"`
+	SupportedEnvelopeVersions []int        `json:"supported_envelope_versions"`
+	MinKDFParams              MinKDFParams `json:"min_kdf_params"`
+}
+
+const VersionCreateOperationReplayCapability = "version-create-operation-replay-v1"
+
+// SupportsVersionCreateOperationReplay reports whether discovery explicitly
+// advertises the only capability that permits a create-version POST replay.
+// Missing, malformed, and unknown values are all legacy-safe false.
+func (e EndstateExtensions) SupportsVersionCreateOperationReplay() bool {
+	var capabilities []string
+	if len(e.BackupAPICapabilities) == 0 || json.Unmarshal(e.BackupAPICapabilities, &capabilities) != nil {
+		return false
+	}
+	return contains(capabilities, VersionCreateOperationReplayCapability)
 }
 
 // MinKDFParams matches the contract §9 sub-block inside endstate_extensions.
@@ -118,24 +136,61 @@ type Client struct {
 	http      HTTPDoer
 	now       func() time.Time
 
-	mu       sync.Mutex
-	doc      *Document
-	docExp   time.Time
-	jwks     *JWKS
-	jwksExp  time.Time
-	jwksURI  string // remembered separately so a stale jwks does not cross-pollute when the doc URL changes
+	mu      sync.Mutex
+	doc     *Document
+	docExp  time.Time
+	jwks    *JWKS
+	jwksExp time.Time
+	jwksURI string // remembered separately so a stale jwks does not cross-pollute when the doc URL changes
 }
 
 // NewClient returns a discovery client for the given issuer URL.
 // Trailing slashes are tolerated.
 func NewClient(issuerURL string, httpDoer HTTPDoer) *Client {
 	if httpDoer == nil {
-		httpDoer = &http.Client{Timeout: 15 * time.Second}
+		httpDoer = &http.Client{Timeout: 15 * time.Second, CheckRedirect: blockCrossOriginRedirect}
 	}
 	return &Client{
 		issuerURL: strings.TrimRight(issuerURL, "/"),
 		http:      httpDoer,
 		now:       time.Now,
+	}
+}
+
+var errCrossOriginRedirect = errors.New("oidc: cross-origin redirect blocked")
+
+// ErrDiscoveryTransport identifies failures that prevented the discovery
+// request from reaching the configured issuer. HTTP responses and malformed
+// discovery documents are not transport failures.
+var ErrDiscoveryTransport = errors.New("oidc: discovery transport failed")
+
+// blockCrossOriginRedirect prevents a self-hosted issuer from redirecting
+// discovery or JWKS requests to another origin. Same-origin redirects remain
+// supported for ordinary endpoint routing.
+func blockCrossOriginRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 || sameOrigin(req.URL, via[0].URL) {
+		return nil
+	}
+	return errCrossOriginRedirect
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
 	}
 }
 
@@ -146,7 +201,7 @@ func (c *Client) IssuerURL() string { return c.issuerURL }
 //
 // Errors:
 //   - any transport / parse / non-2xx response → wrapped error
-//   - empty or invalid endstate_extensions → ErrIncompatibleIssuer
+//   - invalid required discovery fields → ErrIncompatibleIssuer
 //
 // Callers map ErrIncompatibleIssuer → envelope.ErrBackendIncompatible and
 // other errors → envelope.ErrBackendUnreachable.
@@ -179,6 +234,15 @@ func (c *Client) Discovery(ctx context.Context) (*Document, error) {
 	}
 	c.mu.Unlock()
 	return doc, nil
+}
+
+// HasCachedDiscovery reports whether this client has previously accepted a
+// discovery document. It remains true after the document TTL expires so callers
+// can distinguish a transient refetch failure from an untrusted cold start.
+func (c *Client) HasCachedDiscovery() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.doc != nil
 }
 
 // JWKS returns the (possibly cached) JWK set.
@@ -224,10 +288,9 @@ func (c *Client) SetClock(now func() time.Time) {
 	c.now = now
 }
 
-// ErrIncompatibleIssuer is returned by Discovery when the backend either
-// fails to advertise the `endstate_extensions` block or advertises values
-// the engine refuses (KDF floor, missing envelope version 1, missing
-// argon2id algorithm).
+// ErrIncompatibleIssuer is returned by Discovery when required discovery
+// fields or `endstate_extensions` values are absent or unsafe (KDF floor,
+// envelope version, signing support).
 var ErrIncompatibleIssuer = errors.New("oidc: backend does not advertise required endstate_extensions")
 
 // ErrIssuerMismatch is returned by Discovery when the backend's
@@ -246,7 +309,10 @@ func (c *Client) fetchDiscovery(ctx context.Context) (*Document, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: fetch discovery: %w", err)
+		if errors.Is(err, errCrossOriginRedirect) {
+			return nil, errCrossOriginRedirect
+		}
+		return nil, fmt.Errorf("%w: fetch discovery failed", ErrDiscoveryTransport)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
@@ -273,7 +339,10 @@ func (c *Client) fetchJWKS(ctx context.Context, jwksURI string) (*JWKS, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("oidc: fetch jwks: %w", err)
+		if errors.Is(err, errCrossOriginRedirect) {
+			return nil, errCrossOriginRedirect
+		}
+		return nil, errors.New("oidc: fetch jwks failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
@@ -295,10 +364,10 @@ func validateDocument(doc *Document, expectedIssuer string) error {
 		return fmt.Errorf("%w (got %q, want %q)", ErrIssuerMismatch, doc.Issuer, expectedIssuer)
 	}
 	if doc.JWKSURI == "" {
-		return errors.New("oidc: discovery document missing jwks_uri")
+		return fmt.Errorf("%w: discovery document missing jwks_uri", ErrIncompatibleIssuer)
 	}
 	if !contains(doc.IDTokenSigningAlgValuesSupported, "EdDSA") {
-		return errors.New("oidc: backend does not advertise EdDSA support")
+		return fmt.Errorf("%w: backend does not advertise EdDSA support", ErrIncompatibleIssuer)
 	}
 
 	ext := doc.EndstateExtensions

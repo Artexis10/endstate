@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Endstate Cloud recovery drill receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "backupId", "newestVersionId", "olderVersionId", "commit", "sandbox", "disposableVmId", "manualReviewRequired", "timestamp", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": "1.2" },
+    "status": { "enum": ["PASS", "FAIL", "BLOCKED"] },
+    "email": { "type": "string" },
+    "backupId": { "type": "string", "minLength": 1 },
+    "newestVersionId": { "type": "string", "minLength": 1 },
+    "olderVersionId": { "type": "string", "minLength": 1 },
+    "commit": { "type": "string", "minLength": 7 },
+    "sandbox": { "type": "string", "minLength": 1 },
+    "disposableVmId": { "type": "string", "minLength": 1 },
+    "manualReviewRequired": { "const": true },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "scenarios": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["newestCleanRestore", "olderGenerationRestore", "corruptNewestManifest", "missingOrCorruptNewestChunk", "partialUpload", "retryAfterPartialUpload", "localProfilePreserved"],
+      "properties": {
+        "newestCleanRestore": { "$ref": "#/$defs/scenario" },
+        "olderGenerationRestore": { "$ref": "#/$defs/scenario" },
+        "corruptNewestManifest": { "$ref": "#/$defs/scenario" },
+        "missingOrCorruptNewestChunk": { "$ref": "#/$defs/scenario" },
+        "partialUpload": { "$ref": "#/$defs/scenario" },
+        "retryAfterPartialUpload": { "$ref": "#/$defs/scenario" },
+        "localProfilePreserved": { "$ref": "#/$defs/scenario" }
+      }
+    }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": { "enum": ["PASS", "FAIL", "NOT_EXECUTED"] },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "result": { "const": "NOT_EXECUTED" } } },
+          "then": { "required": ["reason"] }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "PASS" } } },
+      "then": {
+        "properties": {
+          "scenarios": {
+            "properties": {
+              "newestCleanRestore": { "properties": { "result": { "const": "PASS" } } },
+              "olderGenerationRestore": { "properties": { "result": { "const": "PASS" } } },
+              "corruptNewestManifest": { "properties": { "result": { "const": "PASS" } } },
+              "missingOrCorruptNewestChunk": { "properties": { "result": { "const": "PASS" } } },
+              "partialUpload": { "properties": { "result": { "const": "PASS" } } },
+              "retryAfterPartialUpload": { "properties": { "result": { "const": "PASS" } } },
+              "localProfilePreserved": { "properties": { "result": { "const": "PASS" } } }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

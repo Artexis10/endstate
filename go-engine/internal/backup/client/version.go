@@ -25,11 +25,31 @@ const EngineSchemaMajor = 2
 // A backend advertising a higher minor on a write request also triggers
 // SCHEMA_INCOMPATIBLE; on a read-only request it logs a warning and lets
 // the request proceed.
-const EngineSchemaMinor = 0
+//
+// v2.1 of the contract added the version commit endpoint (contract §7,
+// §8): a generation becomes durable — listed, quota-counted, and
+// selectable as a restore target — only once the client commits it.
+// The bump is additive per §13. A 2.1 engine uses the create response's
+// additive requiresCommit flag: true requires a successful commit, while
+// absent/false retains the compatibility path for a genuinely old server.
+// During the compatibility bridge the backend keeps response headers at 2.0,
+// so a 2.0 engine continues to operate while the backend verifies and
+// reconciles its pending generations. The higher-minor response guard below
+// remains for a future response-version bump after that bridge is retired.
+const EngineSchemaMinor = 1
 
-// versionHeader is the response header substrate sets on every response
-// (contract §11).
+// versionHeader is the API schema version header. Substrate sets it on
+// every response (contract §11); the engine sets it on every request so
+// the backend can negotiate per-client behaviour — notably whether a
+// created version requires an explicit commit before it becomes visible
+// (contract §8).
 const versionHeader = "X-Endstate-API-Version"
+
+// EngineSchemaVersion is the `MAJOR.MINOR` string this engine advertises
+// in the request-side versionHeader.
+func EngineSchemaVersion() string {
+	return fmt.Sprintf("%d.%d", EngineSchemaMajor, EngineSchemaMinor)
+}
 
 // parsedVersion holds the major/minor extracted from the version header.
 type parsedVersion struct {

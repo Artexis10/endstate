@@ -44,9 +44,9 @@ Commands:
   rollback        Roll back packages to a prior generation (native-rollback backends)
   doctor          Run diagnostics
   bootstrap       Bootstrap Endstate installation
-  backup          Hosted Backup commands (login, logout, status, ...)
-  account         Hosted account management (delete)
-  schedule        Scheduled drift-check commands (enable, disable, status, run)
+  backup          Endstate Cloud commands (login, logout, status, ...)
+  account         Endstate Cloud account management (delete)
+  schedule        Scheduled drift-check commands (enable, disable, status, run, discard-upload)
 
 Global flags:
   --json               Output result as a single-line JSON envelope to stdout
@@ -89,19 +89,20 @@ Per-command flags:
   --confirm            Acknowledge a state-changing operation (apply --prune, rollback, backup/account delete)
 
 Subcommands:
-  schedule enable      Register drift-check task (--manifest, --interval, --time, --auto-push)
+  schedule enable      Register drift-check task (--manifest, --interval, --time, --auto-push, --backup-id)
   schedule disable     Remove drift-check task
   schedule status      Report schedule config and last run outcome
   schedule run         Execute drift-check now (--root, --json)
+  schedule discard-upload Stop retrying one uncertain legacy Cloud upload (--artifact-sha256, --confirm)
   profile list         List discovered profiles
   profile path <name>  Resolve profile path
   profile validate <p> Validate a profile manifest
   profile inspect <manifest-path>  Inspect an extracted manifest without machine evaluation
-  backup signup        Create Hosted Backup account (passphrase via stdin)
-  backup login         Sign in to Hosted Backup (passphrase via stdin)
-  backup logout        Clear cached Hosted Backup session
-  backup status        Report Hosted Backup session state
-  backup subscribe     Start a Hosted Backup subscription checkout (returns checkoutUrl)
+  backup signup        Create Endstate Cloud account (passphrase via stdin)
+  backup login         Sign in to Endstate Cloud (passphrase via stdin)
+  backup logout        Clear cached Endstate Cloud session
+  backup status        Report Endstate Cloud session state
+  backup subscribe     Start an Endstate Cloud subscription checkout (returns checkoutUrl)
   backup browser-session Mint a short-lived /account portal handoff token (returns sessionToken + accountUrl)
   backup push          Encrypt and upload a profile (--profile required)
   backup estimate      Report the upload size a push of a profile would use (--profile required)
@@ -111,7 +112,7 @@ Subcommands:
   backup delete        Permanently delete a backup (--backup-id, --confirm)
   backup delete-version Soft-delete a backup version (--backup-id, --version-id, --confirm)
   backup recover       Reset passphrase using BIP39 recovery key (stdin)
-  account delete       Delete the Hosted Backup account (requires --confirm)
+  account delete       Delete the Endstate Cloud account (requires --confirm)
 
 Run 'endstate <command> --help' for command-specific help.
 `
@@ -167,6 +168,7 @@ type parsedArgs struct {
 	email             string
 	token             string
 	backupID          string
+	artifactSHA256    string
 	versionID         string
 	to                string
 	confirm           bool
@@ -381,6 +383,11 @@ func parseArgs(args []string) parsedArgs {
 				p.backupID = args[i+1]
 				i++
 			}
+		case "--artifact-sha256":
+			if i+1 < len(args) {
+				p.artifactSHA256 = args[i+1]
+				i++
+			}
 		case "--version-id":
 			if i+1 < len(args) {
 				p.versionID = args[i+1]
@@ -456,13 +463,13 @@ func commandUsage(cmd string) string {
 	case "profile":
 		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n  inspect <manifest-path>  Inspect an extracted manifest read-only, without machine evaluation\n"
 	case "backup":
-		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  claim --token <token> --save-recovery-to <path>\n                              Attach credentials to a pre-account using the bearer claim token\n                              from the buyer's purchase email (passphrase via stdin).\n                              Replaces any existing local session on success.\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  subscribe                     Start a Hosted Backup subscription checkout (returns checkoutUrl for the GUI to open)\n  browser-session               Mint a 60s /account portal handoff token (returns sessionToken + accountUrl for the GUI to open)\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
+		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  claim --token <token> --save-recovery-to <path>\n                              Attach credentials to a pre-account using the bearer claim token\n                              from the buyer's purchase email (passphrase via stdin).\n                              Replaces any existing local session on success.\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  subscribe                     Start an Endstate Cloud subscription checkout (returns checkoutUrl for the GUI to open)\n  browser-session               Mint a 60s /account portal handoff token (returns sessionToken + accountUrl for the GUI to open)\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
 	case "account":
-		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Hosted Backup account permanently\n"
+		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Endstate Cloud account permanently\n"
 	case "bootstrap":
 		return "Usage: endstate bootstrap\n\nBootstrap Endstate installation.\n"
 	case "schedule":
-		return "Usage: endstate schedule <subcommand> [flags] [--json]\n\nSubcommands:\n  enable --manifest <path> [--interval daily|weekly] [--time HH:MM] [--auto-push]\n                              Register the drift-check scheduled task (Windows only)\n  disable                     Remove the drift-check scheduled task\n  status                      Report schedule config and last-run outcome\n  run [--root <path>]         Execute drift-check now; write last-run.json; exit 0 on drift\n"
+		return "Usage: endstate schedule <subcommand> [flags] [--json]\n\nSubcommands:\n  enable --manifest <path> [--interval daily|weekly] [--time HH:MM] [--auto-push] [--backup-id <id>]\n                              Register the drift-check scheduled task (Windows only)\n  disable                     Remove the drift-check scheduled task\n  status                      Report schedule config and last-run outcome\n  run [--root <path>]         Execute drift-check now; write last-run.json; exit 0 on drift\n  discard-upload --artifact-sha256 <sha> --confirm\n                              Stop retrying one uncertain legacy Cloud upload; the local capture is retained\n"
 	default:
 		return usageText
 	}
@@ -988,13 +995,16 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			subcommand = p.positionalArgs[0]
 		}
 		return commands.RunSchedule(commands.ScheduleFlags{
-			Subcommand: subcommand,
-			Manifest:   p.manifest,
-			Interval:   p.scheduleInterval,
-			Time:       p.scheduleTime,
-			AutoPush:   p.autoPush,
-			Root:       p.root,
-			JSON:       p.jsonMode,
+			Subcommand:     subcommand,
+			Manifest:       p.manifest,
+			Interval:       p.scheduleInterval,
+			Time:           p.scheduleTime,
+			AutoPush:       p.autoPush,
+			BackupID:       p.backupID,
+			ArtifactSHA256: p.artifactSHA256,
+			Confirm:        p.confirm,
+			Root:           p.root,
+			JSON:           p.jsonMode,
 		})
 
 	default:

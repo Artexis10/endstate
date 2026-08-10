@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -32,6 +33,8 @@ import (
 // test.
 type fakeBackend struct {
 	srv               *httptest.Server
+	privateKey        ed25519.PrivateKey
+	publicKey         ed25519.PublicKey
 	loginPreFn        http.HandlerFunc
 	loginCompleteFn   http.HandlerFunc
 	refreshFn         http.HandlerFunc
@@ -46,7 +49,11 @@ type fakeBackend struct {
 
 func newFakeBackend(t *testing.T) *fakeBackend {
 	t.Helper()
-	fb := &fakeBackend{}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	fb := &fakeBackend{privateKey: privateKey, publicKey: publicKey}
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	fb.srv = srv
@@ -54,9 +61,9 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(oidc.Document{
-			Issuer:                            srv.URL,
-			JWKSURI:                           srv.URL + "/api/.well-known/jwks.json",
-			IDTokenSigningAlgValuesSupported:  []string{"EdDSA"},
+			Issuer:                           srv.URL,
+			JWKSURI:                          srv.URL + "/api/.well-known/jwks.json",
+			IDTokenSigningAlgValuesSupported: []string{"EdDSA"},
 			EndstateExtensions: oidc.EndstateExtensions{
 				AuthSignupEndpoint:        srv.URL + "/api/auth/signup",
 				AuthLoginEndpoint:         srv.URL + "/api/auth/login",
@@ -71,7 +78,10 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 		})
 	})
 	mux.HandleFunc("/api/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(oidc.JWKS{Keys: []oidc.JWK{}})
+		_ = json.NewEncoder(w).Encode(oidc.JWKS{Keys: []oidc.JWK{{
+			Kty: "OKP", Crv: "Ed25519", Kid: "test-key", Alg: "EdDSA", Use: "sig",
+			X: base64.RawURLEncoding.EncodeToString(fb.publicKey),
+		}}})
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
@@ -86,7 +96,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"userId":             "user-1",
-				"accessToken":        "access-1",
+				"accessToken":        fb.accessToken(t, "user-1"),
 				"refreshToken":       "refresh-1",
 				"wrappedDEK":         "AAAA",
 				"subscriptionStatus": "active",
@@ -116,7 +126,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"accessToken":  "access-2",
+			"accessToken":  fb.accessToken(t, "user-1"),
 			"refreshToken": "refresh-2",
 		})
 	})
@@ -144,6 +154,32 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 		})
 	})
 	return fb
+}
+
+func (fb *fakeBackend) accessToken(t *testing.T, subject string) string {
+	return fb.accessTokenWithExpiry(t, subject, time.Now().Add(15*time.Minute))
+}
+
+func (fb *fakeBackend) accessTokenWithExpiry(t *testing.T, subject string, expiry time.Time) string {
+	t.Helper()
+	now := time.Now()
+	claims := jwt.RegisteredClaims{
+		Issuer:    fb.srv.URL,
+		Subject:   subject,
+		Audience:  jwt.ClaimStrings{"endstate-backup"},
+		IssuedAt:  jwt.NewNumericDate(now),
+		NotBefore: jwt.NewNumericDate(now),
+	}
+	if !expiry.IsZero() {
+		claims.ExpiresAt = jwt.NewNumericDate(expiry)
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "test-key"
+	signed, err := token.SignedString(fb.privateKey)
+	if err != nil {
+		t.Fatalf("sign access token: %v", err)
+	}
+	return signed
 }
 
 func (fb *fakeBackend) URL() string { return fb.srv.URL }
@@ -228,8 +264,8 @@ func TestAuthenticator_RefreshRotatesRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshAccessToken: %v", err)
 	}
-	if newAccess != "access-2" {
-		t.Errorf("new access = %q, want access-2", newAccess)
+	if newAccess == "" {
+		t.Error("new access token is empty")
 	}
 	stored, _ := kc.Load(keychain.AccountForUser("user-1"))
 	if string(stored) != "refresh-2" {
@@ -330,15 +366,8 @@ func TestAuthenticator_CompleteLogin_PersistsAccessTokenWithExpiry(t *testing.T)
 	// persisted entry and compare. The signature is not validated by
 	// parseAccessExpiry (we trust substrate's TLS), so the keypair is
 	// only here to produce a parseable token.
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	_ = pub
 	exp := time.Now().Add(15 * time.Minute).UTC().Truncate(time.Second)
-	jwtTok := signTestToken(t, "kid-1", priv, func(c *auth.Claims) {
-		c.ExpiresAt = jwt.NewNumericDate(exp)
-	})
+	jwtTok := fb.accessTokenWithExpiry(t, "user-1", exp)
 
 	fb.loginCompleteFn = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
@@ -379,14 +408,8 @@ func TestAuthenticator_CompleteLogin_PersistsAccessTokenWithExpiry(t *testing.T)
 func TestAuthenticator_Refresh_PersistsAccessTokenWithExpiry(t *testing.T) {
 	fb := newFakeBackend(t)
 
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
 	newExp := time.Now().Add(15 * time.Minute).UTC().Truncate(time.Second)
-	newJWT := signTestToken(t, "kid-1", priv, func(c *auth.Claims) {
-		c.ExpiresAt = jwt.NewNumericDate(newExp)
-	})
+	newJWT := fb.accessTokenWithExpiry(t, "user-1", newExp)
 
 	fb.refreshFn = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
@@ -429,14 +452,8 @@ func TestAuthenticator_Refresh_PersistsAccessTokenWithExpiry(t *testing.T) {
 func TestAuthenticator_Refresh_NotCalledWhenCachedAccessTokenIsValid(t *testing.T) {
 	fb := newFakeBackend(t)
 
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
 	exp := time.Now().Add(15 * time.Minute).UTC().Truncate(time.Second)
-	jwtTok := signTestToken(t, "kid-1", priv, func(c *auth.Claims) {
-		c.ExpiresAt = jwt.NewNumericDate(exp)
-	})
+	jwtTok := fb.accessTokenWithExpiry(t, "user-1", exp)
 
 	fb.loginCompleteFn = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
@@ -581,14 +598,8 @@ func TestAuthenticator_RefreshLock_SerializesConcurrentRotations(t *testing.T) {
 	// the first goroutine persists. Without a parseable exp the F4
 	// path can't trust the cached AT and falls through to a network
 	// call, defeating the second-waiter short-circuit.
-	_, priv, kerr := ed25519.GenerateKey(rand.Reader)
-	if kerr != nil {
-		t.Fatalf("GenerateKey: %v", kerr)
-	}
 	futureExp := time.Now().Add(10 * time.Minute).UTC().Truncate(time.Second)
-	rotatedAT := signTestToken(t, "kid-1", priv, func(c *auth.Claims) {
-		c.ExpiresAt = jwt.NewNumericDate(futureExp)
-	})
+	rotatedAT := fb.accessTokenWithExpiry(t, "user-1", futureExp)
 	// Slow down the refresh handler so the second goroutine reliably
 	// contends for the lock while the first holds it. Without this the
 	// first call can return before the second even tries to acquire,
@@ -681,14 +692,8 @@ func TestAuthenticator_RefreshLock_SecondWaiterUsesFreshAccessToken(t *testing.T
 	// Mint a JWT with a long-into-the-future exp so the cached AT
 	// passes the AccessToken() expiry check inside refreshAccessToken's
 	// second-waiter short-circuit.
-	_, priv, kerr := ed25519.GenerateKey(rand.Reader)
-	if kerr != nil {
-		t.Fatalf("GenerateKey: %v", kerr)
-	}
 	futureExp := time.Now().Add(10 * time.Minute).UTC().Truncate(time.Second)
-	rotatedAT := signTestToken(t, "kid-1", priv, func(c *auth.Claims) {
-		c.ExpiresAt = jwt.NewNumericDate(futureExp)
-	})
+	rotatedAT := fb.accessTokenWithExpiry(t, "user-1", futureExp)
 
 	gateOpen := make(chan struct{})
 	gateClose := make(chan struct{})

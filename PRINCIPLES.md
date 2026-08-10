@@ -24,7 +24,7 @@ Endstate modifies your system on your behalf — installing software, restoring 
 
 ## 3. Subscription only gates access to Endstate's managed services
 
-Endstate offers paid hosted services — currently encrypted backup hosting, possibly continuous sync in the future. These cost money because running them costs money: storage, bandwidth, authentication, uptime, security.
+Endstate offers paid hosted services under the name Endstate Cloud — currently encrypted backup hosting, with any future hosted service described only when it ships. These cost money because running them costs money: storage, bandwidth, authentication, uptime, security.
 
 A subscription buys access to those managed services. It does not gate anything else.
 
@@ -42,7 +42,7 @@ This is non-negotiable and architectural, not a policy that can be quietly chang
 
 ## 5. Self-hosting is a supported pattern
 
-The hosted backup protocol is documented and open. Anyone can run their own backup server. The Endstate client supports configuring an alternative server endpoint.
+The Endstate Cloud backup protocol is documented and open. Anyone can run their own backup server. The Endstate client supports configuring an alternative server endpoint.
 
 Endstate's paid hosting competes with self-hosting on convenience, not lock-in. Users who prefer to host their own backups should be able to, indefinitely.
 
@@ -50,7 +50,7 @@ Endstate's paid hosting competes with self-hosting on convenience, not lock-in. 
 
 Creating an account is optional, tied only to paid hosted services, and never required to install, run, or use the local product.
 
-The local product does not connect to Endstate servers in the background. Network connections happen only when you take an action that requires them. Local features never check subscription status against any server. License activation for paid tiers occurs once online and the resulting token works offline forever.
+The local product does not connect to Endstate servers in the background. Network connections happen only when you take an action that requires them. Local features never check subscription status against any server. Managed-service account state is checked only while operating that service, and voluntary supporter contributions never create a licence or entitlement.
 
 ## 7. No telemetry without explicit consent
 
