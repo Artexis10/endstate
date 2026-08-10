@@ -847,8 +847,16 @@ func TestBackupPull_HappyRoundtrip(t *testing.T) {
 		t.Fatalf("pull: %+v", err)
 	}
 	res := data.(*commands.PullResult)
-	if res.WrittenTo != target {
-		t.Errorf("WrittenTo = %q, want %q", res.WrittenTo, target)
+	writtenInfo, statErr := os.Stat(res.WrittenTo)
+	if statErr != nil {
+		t.Fatalf("stat WrittenTo %q: %v", res.WrittenTo, statErr)
+	}
+	targetInfo, statErr := os.Stat(target)
+	if statErr != nil {
+		t.Fatalf("stat target %q: %v", target, statErr)
+	}
+	if !os.SameFile(writtenInfo, targetInfo) {
+		t.Errorf("WrittenTo = %q, want the same directory as %q", res.WrittenTo, target)
 	}
 
 	got, gerr := os.ReadFile(filepath.Join(target, "manifest.jsonc"))
