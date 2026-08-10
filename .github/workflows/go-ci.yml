@@ -41,9 +41,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The harness repeatedly hashes the repository boundary. Run it alone
           # so concurrent package I/O cannot starve its Windows safety checks.
-          # Its 313 tests include seven fresh-engine builds, while each child
-          # engine command keeps its own stricter sidecar deadline.
-          go test -timeout 6m ./internal/validationharness
+          $freshEnginePattern = '^TestRunFreshBuiltEngine'
+          go test -timeout 3m ./internal/validationharness -skip $freshEnginePattern
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Each real-engine case gets an independent package deadline in
+          # addition to the child engine command's stricter sidecar deadline.
+          $freshEngineTests = @(
+            'TestRunFreshBuiltEngineReviewedMultiFileCaptureContracts',
+            'TestRunFreshBuiltEngineTrackedGitDefaultV1AvoidsRawHarnessIO',
+            'TestRunFreshBuiltEngineTrackedNotepadDefaultV1',
+            'TestRunFreshBuiltEngineTrackedSchemaV1FileMerges',
+            'TestRunFreshBuiltEngineRegistryRoundtrips',
+            'TestRunFreshBuiltEngineTrackedKubectlInstallV1',
+            'TestRunFreshBuiltEngineTrackedMGBACaptureV1',
+            'TestRunFreshBuiltEngineTrackedRestoreContractV1',
+            'TestRunFreshBuiltEngineTrackedSchemaV2'
+          )
+          foreach ($test in $freshEngineTests) {
+            go test -timeout 3m ./internal/validationharness -run ('^' + $test + '$')
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
   build-windows:
     name: Build Validation Binaries
