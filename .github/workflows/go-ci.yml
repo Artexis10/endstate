@@ -30,7 +30,18 @@ jobs:
       - name: Vet
         run: cd go-engine && go vet ./...
       - name: Test
-        run: cd go-engine && go test -timeout 3m ./...
+        shell: pwsh
+        run: |
+          cd go-engine
+          $harness = 'github.com/Artexis10/endstate/go-engine/internal/validationharness'
+          $allPackages = @(go list ./...)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @($allPackages | Where-Object { $_ -ne $harness })
+          go test -timeout 3m @packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The harness repeatedly hashes the repository boundary. Run it alone
+          # so concurrent package I/O cannot starve its Windows safety checks.
+          go test -timeout 3m ./internal/validationharness
 
   build-windows:
     name: Build Validation Binaries
