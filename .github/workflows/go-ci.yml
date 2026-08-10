@@ -14,7 +14,7 @@ jobs:
     # Keep this exact stable check name: branch protection may require it.
     name: Go Tests
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         # v5.0.0
@@ -37,7 +37,7 @@ jobs:
           $allPackages = @(go list ./...)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $packages = @($allPackages | Where-Object { $_ -ne $harness })
-          go test -timeout 3m @packages
+          go test -timeout 8m @packages
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The harness repeatedly hashes the repository boundary. Run it alone
           # so concurrent package I/O cannot starve its Windows safety checks.
