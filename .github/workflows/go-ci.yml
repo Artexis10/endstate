@@ -41,7 +41,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The harness repeatedly hashes the repository boundary. Run it alone
           # so concurrent package I/O cannot starve its Windows safety checks.
-          go test -timeout 3m ./internal/validationharness
+          $freshEngineMatrix = '^TestRunFreshBuiltEngineTrackedSchemaV1FileMerges$'
+          go test -timeout 3m ./internal/validationharness -skip $freshEngineMatrix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Give the 13-module fresh-engine matrix its own package deadline;
+          # the harness package contains hundreds of tests before this case.
+          go test -timeout 3m ./internal/validationharness -run $freshEngineMatrix
 
   build-windows:
     name: Build Validation Binaries
