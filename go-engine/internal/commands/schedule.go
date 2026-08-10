@@ -986,6 +986,9 @@ func canonicalSchedulePath(path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
+	if strings.IndexByte(path, 0) >= 0 {
+		return "", fmt.Errorf("path contains a NUL byte")
+	}
 	abs, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return "", err
