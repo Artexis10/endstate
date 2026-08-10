@@ -80,7 +80,7 @@ func PullVersion(ctx context.Context, deps Dependencies, backupID, versionID, to
 	if strings.TrimSpace(to) == "" {
 		return nil, envelope.NewError(envelope.ErrInternalError, "download: target path is empty")
 	}
-	canonicalTarget, err := filepath.Abs(filepath.Clean(to))
+	canonicalTarget, err := canonicalPublicationPath(to)
 	if err != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, "backup pull: canonicalize target path: "+err.Error())
 	}
@@ -807,19 +807,47 @@ func recoverPublishJournal(target string) error {
 }
 
 func validPublishJournal(target string, journal publishJournal) bool {
-	if journal.Target != target || journal.Rollback == "" || (journal.Phase != journalPrepared && journal.Phase != journalRollbackReady && journal.Phase != journalTargetPublished) {
+	if journal.Rollback == "" || (journal.Phase != journalPrepared && journal.Phase != journalRollbackReady && journal.Phase != journalTargetPublished) {
 		return false
 	}
-	parent, err := filepath.Abs(filepath.Dir(target))
+	targetBase := filepath.Base(filepath.Clean(target))
+	journalTargetBase := filepath.Base(filepath.Clean(journal.Target))
+	if targetBase != journalTargetBase {
+		return false
+	}
+	targetParent, err := os.Stat(filepath.Dir(target))
 	if err != nil {
 		return false
 	}
-	rollbackParent, err := filepath.Abs(filepath.Dir(journal.Rollback))
-	if err != nil || rollbackParent != parent {
+	journalTargetParent, err := os.Stat(filepath.Dir(journal.Target))
+	if err != nil || !os.SameFile(targetParent, journalTargetParent) {
+		return false
+	}
+	rollbackParent, err := os.Stat(filepath.Dir(journal.Rollback))
+	if err != nil || !os.SameFile(targetParent, rollbackParent) {
 		return false
 	}
 	base := filepath.Base(journal.Rollback)
-	return strings.HasPrefix(base, "."+filepath.Base(target)+".endstate-rollback-") && base == filepath.Clean(base)
+	return strings.HasPrefix(base, "."+targetBase+".endstate-rollback-") && base == filepath.Clean(base)
+}
+
+// canonicalPublicationPath resolves aliases in the existing parent while
+// allowing the target itself to be absent. macOS exposes temporary directories
+// through both /var and /private/var; treating those spellings as different
+// would strand a valid crash-recovery journal.
+func canonicalPublicationPath(path string) (string, error) {
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(abs))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return abs, nil
+		}
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(abs)), nil
 }
 
 func mode(headerMode int64, fallback os.FileMode) os.FileMode {
