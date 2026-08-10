@@ -14,6 +14,7 @@ jobs:
     # Keep this exact stable check name: branch protection may require it.
     name: Go Tests
     runs-on: windows-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
         # v5.0.0
@@ -29,7 +30,7 @@ jobs:
       - name: Vet
         run: cd go-engine && go vet ./...
       - name: Test
-        run: cd go-engine && go test ./...
+        run: cd go-engine && go test -timeout 3m ./...
 
   build-windows:
     name: Build Validation Binaries
