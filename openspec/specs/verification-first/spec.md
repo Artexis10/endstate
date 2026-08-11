@@ -31,3 +31,17 @@ Failed verifications SHALL be clearly reported and SHALL NOT be silently swallow
 - **WHEN** `apply --json` is run
 - **THEN** the JSON envelope contains per-entry verification status
 - **AND** entries with failed verification are distinguishable from those that passed
+
+### Requirement: Backup Push Reaches Its Negotiated Durability Boundary
+
+A backup push SHALL report success only after the durability boundary negotiated
+by its create-version response: explicit commit when `requiresCommit` is true,
+or the legacy create-is-durable boundary when the field is absent or false.
+
+#### Scenario: Legacy create is a valid durability boundary
+
+- **WHEN** a legacy backend returns a successful create-version response without
+  `requiresCommit`
+- **THEN** the engine MAY report a successful push after all returned blobs are
+  uploaded
+- **AND** SHALL NOT require a nonexistent commit endpoint

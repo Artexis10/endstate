@@ -19,6 +19,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -52,8 +53,9 @@ type Client struct {
 
 // New returns a Client. issuer is the OIDC issuer URL (with or without
 // trailing slash); oc is the discovery client used to resolve
-// `backup_api_base`. If discovery fails or the field is missing, calls
-// fall back to `${issuer}/api/backups` for backward compatibility.
+// `backup_api_base`. Validation failures fail closed. A discovery transport
+// failure falls back to `${issuer}/api/backups` only after this OIDC client has
+// already accepted a discovery document for the configured issuer.
 func New(issuer string, oc *oidc.Client, hc *client.Client) *Client {
 	return &Client{
 		issuer: strings.TrimRight(issuer, "/"),
@@ -78,10 +80,14 @@ func (c *Client) ListBackups(ctx context.Context) ([]Backup, *envelope.Error) {
 	type listResp struct {
 		Backups []Backup `json:"backups"`
 	}
+	url, err := c.url(ctx, "")
+	if err != nil {
+		return nil, err
+	}
 	var resp listResp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "GET",
-		URL:      c.url(ctx, ""),
+		URL:      url,
 		ReadOnly: true,
 	}, &resp); err != nil {
 		return nil, err
@@ -100,10 +106,14 @@ func (c *Client) CreateBackup(ctx context.Context, name string) (string, *envelo
 	type resp struct {
 		BackupID string `json:"backupId"`
 	}
+	url, err := c.url(ctx, "")
+	if err != nil {
+		return "", err
+	}
 	var out resp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "POST",
-		URL:      c.url(ctx, ""),
+		URL:      url,
 		Body:     req{Name: name},
 		ReadOnly: false,
 	}, &out); err != nil {
@@ -114,9 +124,13 @@ func (c *Client) CreateBackup(ctx context.Context, name string) (string, *envelo
 
 // DeleteBackup permanently removes a backup and all its versions.
 func (c *Client) DeleteBackup(ctx context.Context, backupID string) *envelope.Error {
+	url, err := c.url(ctx, "/"+backupID)
+	if err != nil {
+		return err
+	}
 	return c.httpc.Do(ctx, client.Request{
 		Method:   "DELETE",
-		URL:      c.url(ctx, "/" + backupID),
+		URL:      url,
 		ReadOnly: false,
 	}, nil)
 }
@@ -135,10 +149,14 @@ func (c *Client) UpdateBackup(ctx context.Context, backupID, name string) (Updat
 	type req struct {
 		Name string `json:"name"`
 	}
+	url, err := c.url(ctx, "/"+backupID)
+	if err != nil {
+		return UpdatedBackup{}, err
+	}
 	var out UpdatedBackup
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "PATCH",
-		URL:      c.url(ctx, "/" + backupID),
+		URL:      url,
 		Body:     req{Name: name},
 		ReadOnly: false,
 	}, &out); err != nil {
@@ -160,10 +178,14 @@ func (c *Client) ListVersions(ctx context.Context, backupID string) ([]VersionIn
 	type vresp struct {
 		Versions []VersionInfo `json:"versions"`
 	}
+	url, err := c.url(ctx, "/"+backupID+"/versions")
+	if err != nil {
+		return nil, err
+	}
 	var resp vresp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "GET",
-		URL:      c.url(ctx, "/" + backupID + "/versions"),
+		URL:      url,
 		ReadOnly: true,
 	}, &resp); err != nil {
 		return nil, err
@@ -177,9 +199,13 @@ func (c *Client) ListVersions(ctx context.Context, backupID string) ([]VersionIn
 // DeleteVersion soft-deletes one version. Substrate purges the blob
 // from R2 after a 7-day retention window per contract §8.
 func (c *Client) DeleteVersion(ctx context.Context, backupID, versionID string) *envelope.Error {
+	url, err := c.url(ctx, "/"+backupID+"/versions/"+versionID)
+	if err != nil {
+		return err
+	}
 	return c.httpc.Do(ctx, client.Request{
 		Method:   "DELETE",
-		URL:      c.url(ctx, "/" + backupID + "/versions/" + versionID),
+		URL:      url,
 		ReadOnly: false,
 	}, nil)
 }
@@ -196,28 +222,75 @@ type PresignedURL struct {
 // `UploadURLs` includes the manifest URL with ChunkIndex == -1 as the
 // first entry per contract §7.
 type CreateVersionResponse struct {
-	VersionID  string         `json:"versionId"`
-	UploadURLs []PresignedURL `json:"uploadUrls"`
+	VersionID        string         `json:"versionId"`
+	UploadURLs       []PresignedURL `json:"uploadUrls"`
+	RequiresCommit   bool           `json:"requiresCommit"`
+	AlreadyCommitted bool           `json:"alreadyCommitted"`
 }
 
 // CreateVersion creates a new version row and returns presigned upload
 // URLs the engine PUTs the manifest + chunks to.
 func (c *Client) CreateVersion(ctx context.Context, backupID string, encryptedManifest []byte, chunkMeta []ChunkMetaWire) (*CreateVersionResponse, *envelope.Error) {
+	return c.createVersion(ctx, backupID, encryptedManifest, chunkMeta, "", false)
+}
+
+// SupportsVersionCreateOperationReplay returns true only when the issuer has
+// explicitly advertised the replay protocol. Discovery failures and malformed
+// optional capability data are legacy-safe false.
+func (c *Client) SupportsVersionCreateOperationReplay(ctx context.Context) bool {
+	if c.oc == nil {
+		return false
+	}
+	doc, err := c.oc.Discovery(ctx)
+	return err == nil && doc.EndstateExtensions.SupportsVersionCreateOperationReplay()
+}
+
+// CreateVersionWithReplay uses a caller-owned stable operation ID only when
+// discovery explicitly advertises the replay protocol. It otherwise remains a
+// one-shot legacy mutation.
+func (c *Client) CreateVersionWithReplay(ctx context.Context, backupID string, encryptedManifest []byte, chunkMeta []ChunkMetaWire, operationID string) (*CreateVersionResponse, *envelope.Error) {
+	if operationID == "" {
+		return c.createVersion(ctx, backupID, encryptedManifest, chunkMeta, "", false)
+	}
+	if !c.SupportsVersionCreateOperationReplay(ctx) {
+		return nil, envelope.NewError(envelope.ErrBackendIncompatible,
+			"create-version replay capability disappeared; refusing to send a persisted operation as a legacy create")
+	}
+	return c.createVersion(ctx, backupID, encryptedManifest, chunkMeta, operationID, true)
+}
+
+func (c *Client) createVersion(ctx context.Context, backupID string, encryptedManifest []byte, chunkMeta []ChunkMetaWire, operationID string, retrySafe bool) (*CreateVersionResponse, *envelope.Error) {
 	// Substrate accepts the encrypted manifest as a base64 string in the
 	// JSON body; chunkMeta is the array of {index, encryptedSize, sha256}
 	// triples used to mint upload URLs.
 	type req struct {
-		EncryptedManifest []byte           `json:"encryptedManifest"`
-		ChunkMetadata     []ChunkMetaWire  `json:"chunkMetadata"`
+		EncryptedManifest []byte          `json:"encryptedManifest"`
+		ChunkMetadata     []ChunkMetaWire `json:"chunkMetadata"`
+	}
+	url, err := c.url(ctx, "/"+backupID+"/versions")
+	if err != nil {
+		return nil, err
 	}
 	var resp CreateVersionResponse
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "POST",
-		URL:      c.url(ctx, "/" + backupID + "/versions"),
+		URL:      url,
 		Body:     req{EncryptedManifest: encryptedManifest, ChunkMetadata: chunkMeta},
 		ReadOnly: false,
+		// A legacy create endpoint may not deduplicate an operation ID after a
+		// lost response. Do not replay this mutating POST until create itself
+		// has an explicit server acknowledgement of idempotency.
+		RetrySafe:   retrySafe,
+		OperationID: operationID,
 	}, &resp); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(resp.VersionID) == "" {
+		return nil, envelope.NewError(envelope.ErrBackendIncompatible, "CreateVersion response missing versionId").
+			WithRemediation("This backend appears to violate contract §7. Update the engine or contact support.")
+	}
+	if resp.AlreadyCommitted {
+		return &resp, nil
 	}
 	if !containsManifestURL(resp.UploadURLs) {
 		return nil, envelope.NewError(envelope.ErrBackendIncompatible,
@@ -225,6 +298,43 @@ func (c *Client) CreateVersion(ctx context.Context, backupID string, encryptedMa
 			WithRemediation("This backend appears to violate contract §7. Update the engine or contact support.")
 	}
 	return &resp, nil
+}
+
+// CommitVersion finalises a version created by CreateVersion, calling
+// `POST /api/backups/:backupId/versions/:versionId/commit` (contract §7).
+//
+// Until this call lands, a version created by a schema-2.1 client is not
+// durable: substrate does not list it, does not count it against quota,
+// and does not prune retention on its behalf (contract §8). Committing is
+// therefore the moment a generation becomes a restore target — which is
+// why upload.PushVersion only calls it after every chunk AND the manifest
+// have been PUT successfully.
+//
+// The endpoint is idempotent server-side: a repeated commit of an
+// already-committed version succeeds and changes nothing.
+//
+// Callers invoke this only when CreateVersionResponse.RequiresCommit is true.
+// In that state every non-2xx result, including 404, is a failed durability
+// transition. Legacy servers omit RequiresCommit, so upload does not call this
+// route for them at all.
+//
+// Like every sibling call, the URL is resolved through backupBaseURL so
+// `endstate_extensions.backup_api_base` (contract §9) is honoured verbatim.
+func (c *Client) CommitVersion(ctx context.Context, backupID, versionID string) (bool, *envelope.Error) {
+	url, resolveErr := c.url(ctx, "/"+backupID+"/versions/"+versionID+"/commit")
+	if resolveErr != nil {
+		return false, resolveErr
+	}
+	err := c.httpc.Do(ctx, client.Request{
+		Method:    "POST",
+		URL:       url,
+		ReadOnly:  false,
+		RetrySafe: true,
+	}, nil)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ChunkMetaWire is the on-the-wire shape of a chunk-metadata entry sent
@@ -245,10 +355,14 @@ func (c *Client) DownloadURLs(ctx context.Context, backupID, versionID string, c
 	type resp struct {
 		URLs []PresignedURL `json:"urls"`
 	}
+	url, err := c.url(ctx, "/"+backupID+"/versions/"+versionID+"/download-urls")
+	if err != nil {
+		return nil, err
+	}
 	var out resp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "POST",
-		URL:      c.url(ctx, "/" + backupID + "/versions/" + versionID + "/download-urls"),
+		URL:      url,
 		Body:     req{ChunkIndices: chunkIndices},
 		ReadOnly: true,
 	}, &out); err != nil {
@@ -292,23 +406,37 @@ func (c *Client) DeleteAccount(ctx context.Context) *envelope.Error {
 }
 
 // backupBaseURL resolves the /api/backups base URL via discovery
-// (contract §9, `endstate_extensions.backup_api_base`). The OIDC
-// validator rejects empty `backup_api_base` as `ErrIncompatibleIssuer`,
-// so under normal operation `doc.EndstateExtensions.BackupAPIBase` is
-// always populated. The `${issuer}/api/backups` fallback only fires
-// when discovery itself fails (transport error, parse error, full
-// outage) — letting individual storage calls degrade gracefully rather
-// than block on every transient discovery hiccup.
-func (c *Client) backupBaseURL(ctx context.Context) string {
+// (contract §9, `endstate_extensions.backup_api_base`). Validation errors
+// stop the call before it can fall back to an issuer-derived storage URL.
+func (c *Client) backupBaseURL(ctx context.Context) (string, *envelope.Error) {
 	doc, err := c.oc.Discovery(ctx)
 	if err == nil && doc.EndstateExtensions.BackupAPIBase != "" {
-		return strings.TrimRight(doc.EndstateExtensions.BackupAPIBase, "/")
+		return strings.TrimRight(doc.EndstateExtensions.BackupAPIBase, "/"), nil
 	}
-	return c.issuer + "/api/backups"
+	if errors.Is(err, oidc.ErrIssuerMismatch) {
+		return "", envelope.NewError(envelope.ErrBackendIncompatible,
+			"The configured backend issuer does not match its OIDC discovery document.").
+			WithRemediation("Set ENDSTATE_OIDC_ISSUER_URL to the same value on both sides, or check that your substrate deployment has it set in its server-side env.")
+	}
+	if errors.Is(err, oidc.ErrIncompatibleIssuer) {
+		return "", envelope.NewError(envelope.ErrBackendIncompatible,
+			"The configured backend's discovery document is incompatible with Endstate Backup.").
+			WithRemediation("Verify ENDSTATE_OIDC_ISSUER_URL points at a substrate-compatible backend.")
+	}
+	if errors.Is(err, oidc.ErrDiscoveryTransport) && c.oc.HasCachedDiscovery() {
+		return c.issuer + "/api/backups", nil
+	}
+	return "", envelope.NewError(envelope.ErrBackendUnreachable,
+		"Could not fetch OIDC discovery before contacting the Endstate backup service.").
+		WithRemediation("Check your network connection or override ENDSTATE_OIDC_ISSUER_URL.")
 }
 
-func (c *Client) url(ctx context.Context, suffix string) string {
-	return c.backupBaseURL(ctx) + suffix
+func (c *Client) url(ctx context.Context, suffix string) (string, *envelope.Error) {
+	base, err := c.backupBaseURL(ctx)
+	if err != nil {
+		return "", err
+	}
+	return base + suffix, nil
 }
 
 func containsManifestURL(urls []PresignedURL) bool {

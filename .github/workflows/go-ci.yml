@@ -14,6 +14,7 @@ jobs:
     # Keep this exact stable check name: branch protection may require it.
     name: Go Tests
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         # v5.0.0
@@ -29,7 +30,37 @@ jobs:
       - name: Vet
         run: cd go-engine && go vet ./...
       - name: Test
-        run: cd go-engine && go test ./...
+        shell: pwsh
+        run: |
+          cd go-engine
+          $harness = 'github.com/Artexis10/endstate/go-engine/internal/validationharness'
+          $allPackages = @(go list ./...)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @($allPackages | Where-Object { $_ -ne $harness })
+          go test -timeout 8m @packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The harness repeatedly hashes the repository boundary. Run it alone
+          # so concurrent package I/O cannot starve its Windows safety checks.
+          $freshEnginePattern = '^TestRunFreshBuiltEngine'
+          go test -timeout 3m ./internal/validationharness -skip $freshEnginePattern
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Each real-engine case gets an independent package deadline in
+          # addition to the child engine command's stricter sidecar deadline.
+          $freshEngineTests = @(
+            'TestRunFreshBuiltEngineReviewedMultiFileCaptureContracts',
+            'TestRunFreshBuiltEngineTrackedGitDefaultV1AvoidsRawHarnessIO',
+            'TestRunFreshBuiltEngineTrackedNotepadDefaultV1',
+            'TestRunFreshBuiltEngineTrackedSchemaV1FileMerges',
+            'TestRunFreshBuiltEngineRegistryRoundtrips',
+            'TestRunFreshBuiltEngineTrackedKubectlInstallV1',
+            'TestRunFreshBuiltEngineTrackedMGBACaptureV1',
+            'TestRunFreshBuiltEngineTrackedRestoreContractV1',
+            'TestRunFreshBuiltEngineTrackedSchemaV2'
+          )
+          foreach ($test in $freshEngineTests) {
+            go test -timeout 3m ./internal/validationharness -run ('^' + $test + '$')
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
   build-windows:
     name: Build Validation Binaries

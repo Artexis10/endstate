@@ -109,6 +109,8 @@ When `success` is `false`, the `error` field contains:
 | `CONFIRMATION_REQUIRED` | `rebuild` was invoked for a live run (restore on, not `--dry-run`) without `--confirm`. Raised before any mutation, so the refusal has no side effects. Additive in schema 1.x. |
 | `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`, or `import --from <source>` for an unrecognised source). Additive in schema 1.x. |
 | `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
+| `BACKUP_SETUP_REQUIRED` | Scheduled backup needs an existing Cloud backup row; save the first version manually before automatic delivery can start. Additive in schema 1.x. |
+| `BACKUP_UPLOAD_UNCERTAIN` | A legacy scheduled create may have reached Cloud but lacks a safe replay key; automatic retry is suppressed. Check Cloud versions, then run `endstate schedule discard-upload --artifact-sha256 <sha> --confirm` to remove that uncertain retry record while retaining its local capture. Additive in schema 1.x. |
 
 ### Internal disposable validation mode
 
@@ -286,6 +288,11 @@ endstate capabilities --json
 > **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the supported package backends in deterministic registry order. Windows reports `{ "os": "windows", "drivers": ["winget", "chocolatey"] }`; Winget remains its default. Linux reports the Nix realizer, and macOS reports Nix plus the additive Brew driver. On a host with no implemented backend, `drivers` is an empty array (`[]`). Consumers MUST NOT infer that every advertised optional driver is currently installed.
 
 `features.profileInspection` is an additive boolean. When true, `profile inspect <manifest-path> --json` is supported. Consumers MUST use this feature flag rather than probing a generic subcommand shape.
+
+`features.hostedBackup.providerKind` is an additive string with one of two
+values: `endstate-cloud` for the normalized managed issuer, or `self-hosted`
+for every other effective issuer. Consumers MUST fail closed for managed-only
+offers when the field is absent or unrecognized.
 
 ---
 
@@ -1302,13 +1309,14 @@ With no `--to`, rollback finds the newest non-rollback generation and selects ev
 ## Command: `schedule`
 
 Manages the Endstate scheduled drift-check feature via Windows Task Scheduler.
-Four subcommands: `enable`, `disable`, `status`, `run`. Additive in schema 1.x.
+Five subcommands: `enable`, `disable`, `status`, `run`, `discard-upload`. Additive in schema 1.x.
 
 ```powershell
-endstate schedule enable --manifest ./manifest.jsonc [--interval daily|weekly] [--time HH:MM] [--auto-push] [--json]
+endstate schedule enable --manifest ./manifest.jsonc [--interval daily|weekly] [--time HH:MM] [--auto-push] [--backup-id <id>] [--json]
 endstate schedule disable [--json]
 endstate schedule status [--json]
 endstate schedule run [--manifest <path>] [--root <path>] [--json]
+endstate schedule discard-upload --artifact-sha256 <sha> --confirm [--root <path>] [--json]
 ```
 
 ### Platform gating
@@ -1350,6 +1358,12 @@ The task is removed (`schtasks /Delete /F`) and `state/schedule/config.json` is 
 
 ### `schedule status` response
 
+`capabilities.data.features.schedule.bundleManifestSupported` is additive and
+true only when this engine can safely use captured `.endstate`/`.zip` bundle
+artifacts as schedule baselines. GUI clients must require it before passing a
+bundle to schedule enable; absent means fail closed or retain the older sidecar
+path.
+
 ```json
 {
   "success": true,
@@ -1360,10 +1374,12 @@ The task is removed (`schtasks /Delete /F`) and `state/schedule/config.json` is 
     "time": "09:00",
     "autoPush": false,
     "taskName": "Endstate\\DriftCheck",
+    "pendingUpload": { "pending": false },
     "lastRun": {
       "schemaVersion": "1.0",
       "runId": "schedule-20260710-090000",
       "timestampUtc": "2026-07-10T09:00:00Z",
+      "status": "completed",
       "verify": {
         "summary": { "total": 10, "pass": 9, "fail": 1 },
         "drifted": [
@@ -1377,7 +1393,18 @@ The task is removed (`schtasks /Delete /F`) and `state/schedule/config.json` is 
 }
 ```
 
-`lastRun` is `null` when the schedule has never run. Clients use `lastRun` to distinguish: never-run, last-run-succeeded-no-drift, last-run-found-drift, and last-run-failed (hard error in `lastRun.error`).
+`pendingUpload` is additive cloud-delivery truth: it exposes `pending`, the
+oldest queued artifact SHA-256 when pending, `count` for the durable ordered
+local upload queue, and the last stable auto-backup outcome
+(`pushed`, `skipped`, `setup_required`, `upload_uncertain`, `auth_required`,
+`subscription_required`, `offline`, or `error`) without disclosing a local
+artifact path. `lastRun` is `null` when the schedule has
+never run. Clients use both fields to distinguish a fresh local baseline
+awaiting Cloud delivery from a healthy run. A `lastRun.status` of `running`
+means the engine atomically replaced an earlier result after acquiring the
+schedule lock but has not reached a terminal write; clients MUST treat it as
+non-healthy rather than reusing prior verification truth. Terminal writes use
+`completed` or `failed`.
 
 ### `schedule run` response
 
@@ -1416,8 +1443,13 @@ No NDJSON events are emitted by `schedule run` (headless; event contract v1 is u
 
 Both files are written atomically (temp+rename):
 
-- `state/schedule/config.json` — `{schemaVersion, enabled, manifest, interval, time, autoPush, taskName, root, registeredAt}`
-- `state/schedule/last-run.json` — `{schemaVersion, runId, timestampUtc, verify, autoBackup, error}`
+- `state/schedule/config.json` — `{schemaVersion, enabled, manifest, interval, time, autoPush, taskName, root, registeredAt, pendingUploads?, fallbackManifest?}`. `pendingUploads` is ordered capture history awaiting Cloud delivery; legacy `pendingArtifact` and `pendingSha256` remain mirrored to its first item during the compatibility window.
+- `state/schedule/last-run.json` — `{schemaVersion, runId, timestampUtc, status?, verify, autoBackup, error}`. A `running` status is persisted under `run.lock` before verification, capture, or Cloud work; terminal writes replace it with `completed` or `failed`.
+
+If a legacy singular pending artifact was also the configured local baseline and
+is corrupt or absent, the scheduler quarantines it, publishes a fresh local
+baseline, and queues that capture before verification continues. It does not
+leave future runs pinned to an invalid profile path.
 
 ---
 

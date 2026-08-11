@@ -19,8 +19,10 @@
 package backup
 
 import (
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/auth"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
@@ -29,11 +31,40 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/backup/storage"
 )
 
-// IssuerURL returns the configured OIDC issuer URL with no trailing slash.
-func IssuerURL() string { return envOrDefault("ENDSTATE_OIDC_ISSUER_URL", oidc.DefaultIssuerURL) }
+// IssuerURL returns the configured OIDC issuer in the canonical form used for
+// OIDC discovery, JWT issuer validation, and provider classification.
+func IssuerURL() string {
+	raw := envOrDefault("ENDSTATE_OIDC_ISSUER_URL", oidc.DefaultIssuerURL)
+	if normalized := normalizedIssuer(raw); normalized != "" {
+		return normalized
+	}
+	return raw
+}
 
 // Audience returns the configured JWT audience claim.
 func Audience() string { return envOrDefault("ENDSTATE_OIDC_AUDIENCE", oidc.DefaultAudience) }
+
+// ProviderKind classifies the effective issuer for the public capabilities
+// handshake. Only the normalized production issuer is Endstate Cloud; every
+// other value, including an invalid override, is self-hosted so consumers fail
+// closed for managed-only offers.
+func ProviderKind() string {
+	if normalizedIssuer(IssuerURL()) == normalizedIssuer(oidc.DefaultIssuerURL) {
+		return "endstate-cloud"
+	}
+	return "self-hosted"
+}
+
+func normalizedIssuer(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	u.Path = strings.TrimRight(u.Path, "/")
+	return u.String()
+}
 
 // Concurrency returns the upload/download worker count, clamped to [1,16].
 func Concurrency() int {

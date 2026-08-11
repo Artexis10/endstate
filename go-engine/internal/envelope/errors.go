@@ -57,6 +57,11 @@ const (
 	// ErrScheduleDisabled is returned when schedule run is invoked but no schedule is
 	// enabled; the caller should run 'schedule enable --manifest <path>' first.
 	ErrScheduleDisabled ErrorCode = "SCHEDULE_DISABLED"
+	// ErrBackupSetupRequired is returned by automatic backup before the first
+	// backup row exists: CreateBackup is not replay-safe and must be completed
+	// manually before scheduled delivery can resume.
+	ErrBackupSetupRequired   ErrorCode = "BACKUP_SETUP_REQUIRED"
+	ErrBackupUploadUncertain ErrorCode = "BACKUP_UPLOAD_UNCERTAIN"
 
 	// Hosted-backup error codes. Mapped from substrate backend HTTP responses
 	// per docs/contracts/hosted-backup-contract.md and cli-json-contract.md.

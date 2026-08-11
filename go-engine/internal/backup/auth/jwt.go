@@ -48,10 +48,32 @@ type JWKSResolver interface {
 // On signature failure the JWKS cache is invalidated so the next call
 // refreshes from the backend (handles key rotation).
 func Verify(ctx context.Context, tokenStr string, resolver JWKSResolver, opts VerifyOptions) (*Claims, error) {
+	claims, err := verifyOnce(tokenStr, opts)
+	if err == nil {
+		return claims, nil
+	}
+	if !isKeyVerificationError(err) {
+		return nil, err
+	}
+
+	// A signature/kid miss can be a normal signing-key rotation. Invalidate
+	// and fetch exactly once; a second failure is returned as a real rejected
+	// token rather than causing an unbounded refetch loop.
+	resolver.InvalidateJWKS()
+	fresh, refreshErr := resolver.JWKS(ctx)
+	if refreshErr != nil {
+		return nil, fmt.Errorf("auth: refetch JWKS after verification failure: %w", refreshErr)
+	}
+	opts.JWKS = fresh
+	return verifyOnce(tokenStr, opts)
+}
+
+func verifyOnce(tokenStr string, opts VerifyOptions) (*Claims, error) {
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"EdDSA"}),
 		jwt.WithIssuer(opts.ExpectedIssuer),
 		jwt.WithAudience(opts.ExpectedAudience),
+		jwt.WithExpirationRequired(),
 		jwt.WithLeeway(60*time.Second),
 	)
 
@@ -61,11 +83,6 @@ func Verify(ctx context.Context, tokenStr string, resolver JWKSResolver, opts Ve
 
 	tok, err := parser.ParseWithClaims(tokenStr, &Claims{}, keyFunc)
 	if err != nil {
-		// Signature failures are most often a rotated key; invalidate the
-		// JWKS cache so the next request fetches fresh keys.
-		if errors.Is(err, jwt.ErrTokenSignatureInvalid) || errors.Is(err, jwt.ErrTokenUnverifiable) {
-			resolver.InvalidateJWKS()
-		}
 		return nil, err
 	}
 	if !tok.Valid {
@@ -90,6 +107,10 @@ func Verify(ctx context.Context, tokenStr string, resolver JWKSResolver, opts Ve
 		return nil, jwt.ErrTokenNotValidYet
 	}
 	return claims, nil
+}
+
+func isKeyVerificationError(err error) bool {
+	return errors.Is(err, jwt.ErrTokenSignatureInvalid) || errors.Is(err, jwt.ErrTokenUnverifiable)
 }
 
 // lookupKey finds the JWK matching the token's `kid` and returns its

@@ -6,7 +6,14 @@
 //
 //   - bearer-token injection via a TokenProvider
 //   - JSON request/response marshaling
-//   - X-Endstate-API-Version checking on every response
+//   - X-Endstate-API-Version advertised on every request and checked on
+//     every response. The request side is not cosmetic: substrate reads
+//     the client's advertised minor to decide whether a created version
+//     must be committed before it becomes durable (contract §7, §8), and
+//     it fails closed — an absent or unparseable header means "no commit
+//     required", which would silently disable the two-phase commit while
+//     appearing to work. It is set here, in the single place that builds
+//     requests, so no call site can omit it.
 //   - status → envelope.ErrorCode mapping
 //   - retry with exponential backoff and jitter on 5xx + transport errors
 //   - one-shot 401 → refresh-then-retry hook
@@ -20,12 +27,16 @@ package client
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -49,7 +60,8 @@ type TokenProvider interface {
 type Anonymous struct{}
 
 // AccessToken returns an empty string with no error.
-func (Anonymous) AccessToken(context.Context) (string, error)        { return "", nil }
+func (Anonymous) AccessToken(context.Context) (string, error) { return "", nil }
+
 // RefreshAccessToken returns an empty string with no error.
 func (Anonymous) RefreshAccessToken(context.Context) (string, error) { return "", nil }
 
@@ -65,10 +77,10 @@ type Client struct {
 
 // Options configures a new Client.
 type Options struct {
-	HTTPClient *http.Client    // optional; default 60s timeout
-	Tokens     TokenProvider   // required; use Anonymous{} for unauth flows
-	Retry      *RetryPolicy    // optional; defaults to DefaultRetryPolicy
-	Logger     *slog.Logger    // optional; defaults to slog.Default
+	HTTPClient *http.Client  // optional; default 60s timeout
+	Tokens     TokenProvider // required; use Anonymous{} for unauth flows
+	Retry      *RetryPolicy  // optional; defaults to DefaultRetryPolicy
+	Logger     *slog.Logger  // optional; defaults to slog.Default
 	Now        func() time.Time
 }
 
@@ -76,7 +88,7 @@ type Options struct {
 func New(opts Options) *Client {
 	hc := opts.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 60 * time.Second}
+		hc = &http.Client{Timeout: 60 * time.Second, CheckRedirect: blockCrossOriginRedirect}
 	}
 	rp := DefaultRetryPolicy()
 	if opts.Retry != nil {
@@ -96,6 +108,38 @@ func New(opts Options) *Client {
 	}
 }
 
+var errCrossOriginRedirect = errors.New("backup client: cross-origin redirect blocked")
+
+// blockCrossOriginRedirect prevents a self-hosted endpoint from replaying a
+// request body or bearer credential to another origin. Same-origin redirects
+// remain supported for normal endpoint routing.
+func blockCrossOriginRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 || sameOrigin(req.URL, via[0].URL) {
+		return nil
+	}
+	return errCrossOriginRedirect
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
+}
+
 // Request carries the per-call options for Do.
 type Request struct {
 	Method   string      // GET, POST, DELETE, PUT
@@ -103,6 +147,15 @@ type Request struct {
 	Body     interface{} // optional JSON-marshaled body
 	ReadOnly bool        // version-mismatch tolerance for minor bumps
 	Headers  http.Header // additional headers (caller-supplied)
+	// RetrySafe permits a mutating request to be replayed after a transport
+	// or retryable backend failure. The client assigns one operation ID and
+	// sends it on every attempt so the backend can deduplicate the replay.
+	// Mutating requests are deliberately one-shot unless their endpoint is
+	// documented as idempotent or the caller has explicitly opted in.
+	RetrySafe bool
+	// OperationID is an optional caller-supplied idempotency key. When a
+	// retry-safe mutation omits it, Do generates one for this invocation.
+	OperationID string
 
 	// SkipAuthRefresh disables the one-shot 401 → refresh-then-retry hop
 	// for this call. Required for the refresh endpoint itself: substrate
@@ -122,6 +175,10 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 	var lastAPIErr *APIError
 	var lastTransportErr error
 	refreshed := false
+	operationID := req.OperationID
+	if req.RetrySafe && isMutatingMethod(req.Method) && operationID == "" {
+		operationID = newOperationID()
+	}
 
 	for attempt := 0; attempt <= c.retry.MaxRetries; attempt++ {
 		body, err := encodeBody(req.Body)
@@ -136,6 +193,14 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 			httpReq.Header.Set("Content-Type", "application/json")
 		}
 		httpReq.Header.Set("Accept", "application/json")
+		// Advertise the engine's schema version so the backend can
+		// negotiate per-client behaviour (contract §8, §11). A 2.1 client
+		// tells substrate its created versions stay invisible until
+		// committed; a 2.0 client keeps the create-is-durable semantics.
+		httpReq.Header.Set(versionHeader, EngineSchemaVersion())
+		if operationID != "" {
+			httpReq.Header.Set("X-Endstate-Operation-ID", operationID)
+		}
 		for k, vs := range req.Headers {
 			for _, v := range vs {
 				httpReq.Header.Add(k, v)
@@ -161,7 +226,7 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 		resp, err := c.http.Do(httpReq)
 		if err != nil {
 			lastTransportErr = err
-			if attempt < c.retry.MaxRetries {
+			if c.canRetry(req) && attempt < c.retry.MaxRetries {
 				wait := c.retry.nextWait(attempt, "", c.rng)
 				c.logger.Warn("backup: transport error, retrying",
 					"err", err.Error(), "attempt", attempt+1, "wait", wait)
@@ -183,6 +248,10 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 		// Suppressed via SkipAuthRefresh on the refresh endpoint itself so we
 		// don't recurse back into RefreshAccessToken if the backend rejects
 		// the stale bearer.
+		// A 401 proves the backend rejected the request before performing the
+		// operation. One refresh and resend is therefore safe even for a
+		// mutation that is not otherwise safe to replay after a transport/5xx
+		// ambiguity.
 		if apiErr.Code == envelope.ErrAuthRequired && !refreshed && !req.SkipAuthRefresh {
 			if _, rerr := c.tokens.RefreshAccessToken(ctx); rerr == nil {
 				refreshed = true
@@ -192,7 +261,7 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 			return apiErr.AsEnvelopeError()
 		}
 
-		if !IsRetryable(apiErr) || attempt >= c.retry.MaxRetries {
+		if !c.canRetry(req) || !IsRetryable(apiErr) || attempt >= c.retry.MaxRetries {
 			return apiErr.AsEnvelopeError()
 		}
 
@@ -212,6 +281,31 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 		return mapTransportError(lastTransportErr)
 	}
 	return envelope.NewError(envelope.ErrInternalError, "client: retries exhausted")
+}
+
+func (c *Client) canRetry(req Request) bool {
+	// Some substrate endpoints use POST for queries. ReadOnly is the semantic
+	// contract for those calls, so they retain normal retry and 401-refresh
+	// behaviour without minting an operation ID. Actual mutations are one-shot
+	// unless their caller has explicitly declared them retry-safe.
+	return req.ReadOnly || !isMutatingMethod(req.Method) || req.RetrySafe
+}
+
+func isMutatingMethod(method string) bool {
+	switch strings.ToUpper(method) {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func newOperationID() string {
+	var raw [16]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("op-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(raw[:])
 }
 
 // processResponse handles version + status mapping for a single response.
@@ -348,8 +442,8 @@ func (c *Client) waitOrCancel(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-func mapTransportError(err error) *envelope.Error {
+func mapTransportError(_ error) *envelope.Error {
 	return envelope.NewError(envelope.ErrBackendUnreachable,
-		"Could not reach the Endstate backup service: "+err.Error()).
+		"Could not reach the Endstate backup service.").
 		WithRemediation(defaultRemediation(envelope.ErrBackendUnreachable))
 }

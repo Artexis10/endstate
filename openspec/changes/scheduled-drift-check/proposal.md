@@ -28,5 +28,5 @@ A scheduled drift check makes Endstate continuously valuable without violating t
 - `go-engine/cmd/endstate/main.go` — parse/dispatch + help (protected area: this change is the explicit instruction).
 - `go-engine/internal/commands/capabilities.go` — `features.schedule`, `commands.schedule`.
 - Contract docs: `docs/contracts/cli-json-contract.md` (new "Command: schedule" section + commands table), `docs/contracts/gui-integration-contract.md` (capabilities example).
-- **Consumer (separate `endstate-gui` change):** "Continuous protection" settings card, launch-time `schedule status` fetch + re-assert of `enable` (self-heals task path after app updates), drift chip on the intent landing. All drift logic stays in the CLI.
+- **Consumer (separate `endstate-gui` change):** scheduled drift-check settings card, launch-time `schedule status` fetch + re-assert of `enable` (self-heals task path after app updates), drift chip on the intent landing. All drift logic stays in the CLI.
 - Backward-compatible: purely additive surface; machines without the feature enabled are unaffected.

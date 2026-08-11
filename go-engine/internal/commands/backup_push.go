@@ -37,6 +37,7 @@ func runBackupPush(flags BackupFlags) (interface{}, *envelope.Error) {
 		Session:   st.Session,
 		Events:    em,
 		IfChanged: flags.IfChanged,
+		Scheduled: flags.ScheduledCreate,
 	}, flags.BackupID, flags.Profile, flags.Name)
 	if envErr != nil {
 		return nil, envErr

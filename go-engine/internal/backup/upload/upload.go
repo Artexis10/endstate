@@ -8,13 +8,20 @@
 //
 // Pipeline (contract §3, §7, §8):
 //
-//   profile → tar → 4 MiB chunks → AES-256-GCM (chunkIndex AAD)
-//        ↓
-//   manifest{versionId, chunks[], wrappedDEK, kdf} → AES-256-GCM (0xFFFFFFFF AAD)
-//        ↓
-//   storage.CreateVersion → presigned PUT URLs (manifest at chunkIndex=-1)
-//        ↓
-//   PUT each chunk + manifest in parallel, retry once on 5xx
+//	profile → tar → 4 MiB chunks → AES-256-GCM (chunkIndex AAD)
+//	     ↓
+//	manifest{versionId, chunks[], wrappedDEK, kdf} → AES-256-GCM (0xFFFFFFFF AAD)
+//	     ↓
+//	storage.CreateVersion → presigned PUT URLs (manifest at chunkIndex=-1)
+//	     ↓
+//	PUT each chunk + manifest in parallel, retry once on 5xx
+//	     ↓
+//	storage.CommitVersion → the generation becomes durable (contract §8)
+//
+// The commit is the last step, and it is what makes a generation a restore
+// target. If any chunk or the manifest fails to upload, no commit is sent
+// and the push fails — a partially uploaded generation is never reported
+// as protected.
 //
 // The package never sees plaintext outside this process: chunks are
 // encrypted client-side before they hit any presigned URL. The DEK is
@@ -27,7 +34,9 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -62,17 +71,92 @@ type PushResult struct {
 // from a `*backup.Stack` in the command handler; the test suite injects a
 // stack pointing at httptest servers.
 type Dependencies struct {
-	Storage     *storage.Client
-	Session     *auth.SessionStore
-	Events      *events.Emitter
-	HTTPClient  *http.Client // for presigned PUT to R2; nil → http.DefaultClient
-	Concurrency int          // bounded parallelism for chunk PUTs; <1 → backup.Concurrency()
-	UploadRetry int          // retries on 5xx per chunk; <0 → 1
-	Now         func() time.Time
+	Storage         *storage.Client
+	Session         *auth.SessionStore
+	Events          *events.Emitter
+	HTTPClient      *http.Client  // for presigned PUT to R2; nil → http.DefaultClient
+	Concurrency     int           // bounded parallelism for chunk PUTs; <1 → backup.Concurrency()
+	UploadRetry     int           // retries on 5xx per chunk; <0 → 1
+	TransferTimeout time.Duration // per-presigned-PUT deadline; <=0 → env/default
+	Now             func() time.Time
 	// IfChanged enables content-hash dedup: skip the upload (mint no new version)
 	// when the candidate's plaintext content matches the latest version's
 	// ContentSHA256. Best-effort — a failed/absent peek falls through to upload.
 	IfChanged bool
+	// Scheduled holds durable replay state for an automatic push. It is nil for
+	// interactive pushes, whose prepared bundle only needs to live in memory.
+	Scheduled *ScheduledCreate
+}
+
+// ScheduledCreate is the queue-owned state required to make an automatic
+// create-version mutation restart-safe. Persist must atomically update that
+// queue before the first create POST is attempted.
+type ScheduledCreate struct {
+	StateDir            string
+	BackupID            string
+	OperationID         string
+	CreateSpool         string
+	LegacyCreateStarted bool
+	Persist             func(ScheduledCreate) error
+}
+
+// PreparedCreate is the durable, byte-exact state needed to replay a
+// capability-negotiated create-version request after a scheduled restart.
+// It deliberately contains ciphertext only; plaintext and DEK never touch the
+// spool.
+type PreparedCreate struct {
+	SchemaVersion     int                     `json:"schemaVersion"`
+	BackupID          string                  `json:"backupId"`
+	OperationID       string                  `json:"operationId"`
+	EncryptedManifest []byte                  `json:"encryptedManifest"`
+	ManifestSHA256    string                  `json:"manifestSha256"`
+	Chunks            [][]byte                `json:"chunks"`
+	ChunkMetadata     []storage.ChunkMetaWire `json:"chunkMetadata"`
+}
+
+func writePreparedCreate(path string, prepared PreparedCreate) error {
+	if err := validatePreparedCreate(prepared); err != nil {
+		return err
+	}
+	data, err := json.Marshal(prepared)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func readPreparedCreate(path string) (PreparedCreate, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return PreparedCreate{}, err
+	}
+	var prepared PreparedCreate
+	if err := json.Unmarshal(data, &prepared); err != nil {
+		return PreparedCreate{}, err
+	}
+	return prepared, validatePreparedCreate(prepared)
+}
+
+func validatePreparedCreate(prepared PreparedCreate) error {
+	manifestSum := sha256.Sum256(prepared.EncryptedManifest)
+	if prepared.SchemaVersion != 1 || prepared.BackupID == "" || prepared.OperationID == "" || len(prepared.EncryptedManifest) == 0 || !strings.EqualFold(prepared.ManifestSHA256, hex.EncodeToString(manifestSum[:])) || len(prepared.Chunks) != len(prepared.ChunkMetadata) {
+		return errors.New("invalid scheduled create spool")
+	}
+	for i, chunk := range prepared.Chunks {
+		meta := prepared.ChunkMetadata[i]
+		sum := sha256.Sum256(chunk)
+		if meta.Index != uint32(i) || meta.EncryptedSize != int64(len(chunk)) || !strings.EqualFold(meta.SHA256, hex.EncodeToString(sum[:])) {
+			return errors.New("scheduled create spool does not match chunk metadata")
+		}
+	}
+	return nil
 }
 
 // PushVersion executes the upload pipeline. Inputs:
@@ -97,58 +181,110 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 	}
 	defer wipe(dek)
 
-	resolvedBackupID, envErr := resolveBackupID(ctx, deps.Storage, backupID, name, deviceLabel())
-	if envErr != nil {
-		return nil, envErr
+	scheduled := deps.Scheduled
+	if scheduled != nil && scheduled.LegacyCreateStarted {
+		return nil, envelope.NewError(envelope.ErrBackupUploadUncertain,
+			"legacy-create-ambiguous: scheduled create response was not confirmed; it will not be retried automatically").
+			WithRemediation("Cloud may have accepted the version. Check Cloud versions, then run `endstate schedule discard-upload --artifact-sha256 <sha> --confirm` to stop retrying this local queue item; the local capture is retained.")
 	}
 
-	tarBytes, terr := tarProfile(profilePath)
-	if terr != nil {
-		return nil, envelope.NewError(envelope.ErrInternalError, "backup push: tar profile: "+terr.Error()).
-			WithRemediation("Verify --profile points at a readable file or directory.")
-	}
+	resolvedBackupID := backupID
+	operationID := ""
+	var bundle *encBundle
+	if scheduled != nil && scheduled.CreateSpool != "" {
+		if !isScheduledSpool(scheduled.StateDir, scheduled.CreateSpool) {
+			return nil, envelope.NewError(envelope.ErrInternalError, "scheduled create spool is outside the schedule state directory")
+		}
+		prepared, readErr := readPreparedCreate(scheduled.CreateSpool)
+		if readErr != nil || prepared.BackupID != scheduled.BackupID || prepared.OperationID != scheduled.OperationID {
+			return nil, envelope.NewError(envelope.ErrInternalError, "scheduled create spool is corrupt; refusing to regenerate under the same operation ID")
+		}
+		if !deps.Storage.SupportsVersionCreateOperationReplay(ctx) {
+			return nil, envelope.NewError(envelope.ErrBackendIncompatible,
+				"scheduled create spool requires version-create-operation-replay-v1; refusing to downgrade a persisted operation ID")
+		}
+		resolvedBackupID, operationID = prepared.BackupID, prepared.OperationID
+		bundle = &encBundle{encrypted: prepared.Chunks, encManifest: prepared.EncryptedManifest, chunkMeta: prepared.ChunkMetadata, chunkCount: len(prepared.Chunks)}
+	} else {
+		var envErr *envelope.Error
+		if scheduled != nil {
+			resolvedBackupID, envErr = resolveScheduledBackupID(ctx, deps.Storage, scheduled.BackupID)
+		} else {
+			resolvedBackupID, envErr = resolveBackupID(ctx, deps.Storage, backupID, name, deviceLabel())
+		}
+		if envErr != nil {
+			return nil, envErr
+		}
 
-	// Deterministic plaintext content fingerprint (tarProfile zeroes mod-times).
-	// Stored in the manifest and compared by --if-changed.
-	contentSum := sha256.Sum256(tarBytes)
-	contentSHA := hex.EncodeToString(contentSum[:])
-
-	// Content-hash dedup (--if-changed): if the latest version's plaintext content
-	// matches this candidate, skip the upload entirely — no new version is minted.
-	// Best-effort: a failed or absent peek falls through to a normal upload, so a
-	// transient hiccup never blocks a backup ("when in doubt, back up"). Versions
-	// written before ContentSHA256 existed have an empty value and never match.
-	if deps.IfChanged {
-		if latest, _ := download.LatestManifest(ctx, download.Dependencies{
-			Storage:    deps.Storage,
-			Session:    deps.Session,
-			HTTPClient: deps.HTTPClient,
-		}, resolvedBackupID); latest != nil && latest.ContentSHA256 == contentSHA {
-			return &PushResult{BackupID: resolvedBackupID, VersionID: latest.VersionID, Skipped: true}, nil
+		tarBytes, terr := tarProfile(profilePath)
+		if terr != nil {
+			return nil, envelope.NewError(envelope.ErrInternalError, "backup push: tar profile: "+terr.Error()).
+				WithRemediation("Verify --profile points at a readable file or directory.")
+		}
+		contentSum := sha256.Sum256(tarBytes)
+		contentSHA := hex.EncodeToString(contentSum[:])
+		if deps.IfChanged {
+			if latest, _ := download.LatestManifest(ctx, download.Dependencies{Storage: deps.Storage, Session: deps.Session, HTTPClient: deps.HTTPClient}, resolvedBackupID); latest != nil && latest.ContentSHA256 == contentSHA {
+				return &PushResult{BackupID: resolvedBackupID, VersionID: latest.VersionID, Skipped: true}, nil
+			}
+		}
+		var bErr *envelope.Error
+		bundle, bErr = buildBundle(deps, dek, tarBytes, contentSHA)
+		if bErr != nil {
+			return nil, bErr
+		}
+		if deps.Storage.SupportsVersionCreateOperationReplay(ctx) {
+			operationID = newUUID()
+		}
+		if scheduled != nil {
+			if operationID != "" {
+				spool := filepath.Join(scheduled.StateDir, "schedule", "create-spool", operationID+".json")
+				manifestSum := sha256.Sum256(bundle.encManifest)
+				prepared := PreparedCreate{SchemaVersion: 1, BackupID: resolvedBackupID, OperationID: operationID, EncryptedManifest: bundle.encManifest, ManifestSHA256: hex.EncodeToString(manifestSum[:]), Chunks: bundle.encrypted, ChunkMetadata: bundle.chunkMeta}
+				if err := writePreparedCreate(spool, prepared); err != nil {
+					return nil, envelope.NewError(envelope.ErrInternalError, "write scheduled create spool: "+err.Error())
+				}
+				scheduled.BackupID, scheduled.OperationID, scheduled.CreateSpool = resolvedBackupID, operationID, spool
+			} else {
+				scheduled.BackupID, scheduled.LegacyCreateStarted = resolvedBackupID, true
+			}
+			if scheduled.Persist == nil {
+				return nil, envelope.NewError(envelope.ErrInternalError, "scheduled create state cannot be persisted")
+			}
+			if err := scheduled.Persist(*scheduled); err != nil {
+				return nil, envelope.NewError(envelope.ErrInternalError, "persist scheduled create state: "+err.Error())
+			}
 		}
 	}
 
 	deps.Events.EmitPhase("backup-push")
-
-	// Bundle the profile (tar already done above for the --if-changed hash):
-	// chunk → encrypt → manifest → encrypt manifest. Shared with `backup
-	// estimate` via buildBundle so the two can never disagree on size.
-	bundle, bErr := buildBundle(deps, dek, tarBytes, contentSHA)
-	if bErr != nil {
-		return nil, bErr
-	}
 	chunkCount := bundle.chunkCount
 	encrypted := bundle.encrypted
 	encManifest := bundle.encManifest
 	chunkMeta := bundle.chunkMeta
 
-	resp, cvErr := deps.Storage.CreateVersion(ctx, resolvedBackupID, encManifest, chunkMeta)
+	resp, cvErr := deps.Storage.CreateVersionWithReplay(ctx, resolvedBackupID, encManifest, chunkMeta, operationID)
 	if cvErr != nil {
+		if scheduled != nil && scheduled.LegacyCreateStarted && definiteCreatePreSendFailure(cvErr) {
+			scheduled.LegacyCreateStarted = false
+			if scheduled.Persist == nil || scheduled.Persist(*scheduled) != nil {
+				return nil, envelope.NewError(envelope.ErrInternalError, "persist scheduled legacy create retry state")
+			}
+		}
+		deps.Events.EmitSummary("backup-push", 0, 0, 0, 0)
 		return nil, cvErr
+	}
+	// The replay protocol returns this terminal acknowledgement when a prior
+	// create + upload + commit completed but its response was lost. There are
+	// deliberately no upload URLs to consume in this state.
+	if resp.AlreadyCommitted {
+		deps.Events.EmitSummary("backup-push", 0, 0, 0, 0)
+		return &PushResult{BackupID: resolvedBackupID, VersionID: resp.VersionID}, nil
 	}
 
 	manifestURL := storage.FindManifestURL(resp.UploadURLs)
 	if manifestURL == nil {
+		deps.Events.EmitSummary("backup-push", 0, 0, 0, 0)
 		return nil, envelope.NewError(envelope.ErrBackendIncompatible,
 			fmt.Sprintf("backup push: substrate response missing manifest URL (chunkIndex == %d)", storage.ManifestChunkIndex)).
 			WithRemediation("Update the engine; this typically means a substrate response shape changed.")
@@ -168,29 +304,104 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 	}
 
 	work := make([]uploadItem, 0, chunkCount+1)
-	work = append(work, uploadItem{index: storage.ManifestChunkIndex, url: manifestURL.PresignedURL, data: encManifest})
+	work = append(work, newUploadItem(storage.ManifestChunkIndex, manifestURL.PresignedURL, encManifest, resp.RequiresCommit, deps.TransferTimeout))
 	for i, blob := range encrypted {
 		u := storage.FindChunkURL(resp.UploadURLs, uint32(i))
 		if u == nil {
+			deps.Events.EmitSummary("backup-push", 0, 0, 0, 0)
 			return nil, envelope.NewError(envelope.ErrBackendIncompatible,
 				fmt.Sprintf("backup push: no presigned URL for chunk index %d", i)).
 				WithRemediation("Update the engine; this typically means a substrate response shape changed.")
 		}
-		work = append(work, uploadItem{index: i, url: u.PresignedURL, data: blob})
+		work = append(work, newUploadItem(i, u.PresignedURL, blob, resp.RequiresCommit, deps.TransferTimeout))
 	}
 
 	successCount, failedCount, perr := putParallel(ctx, httpClient, work, concurrency, retries, chunkCount, deps.Events)
 	if perr != nil {
-		deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, failedCount)
-		return nil, envelope.NewError(envelope.ErrBackendUnreachable,
+		total := chunkCount + 1
+		_, skipped, failedCount := uploadSummary(total, successCount, failedCount)
+		deps.Events.EmitSummary("backup-push", total, successCount, skipped, failedCount)
+		return nil, envelope.NewError(uploadFailureCode(perr),
 			"backup push: chunk upload failed: "+perr.Error()).
-			WithRemediation("Re-run `endstate backup push`; a fresh versionId will be minted. The half-uploaded version is garbage-collected by substrate.")
+			WithRemediation(uncommittedRemediation)
+	}
+
+	// A pre-2.1 server omits requiresCommit (or sends false), which means
+	// creation itself was the durable boundary. Do not probe a legacy server's
+	// commit route: it would turn an already-durable generation into an
+	// ambiguous extra network failure.
+	if !resp.RequiresCommit {
+		deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, 0)
+		return &PushResult{BackupID: resolvedBackupID, VersionID: resp.VersionID}, nil
+	}
+
+	// Commit LAST — after every chunk and the manifest are durably PUT.
+	// This is the only point at which the generation becomes a restore
+	// target (contract §7, §8). A commit failure means the generation is
+	// NOT protected, so the push fails; the uncommitted version is never
+	// listed, never counted against quota, and never selected by
+	// manifest.SelectLatest.
+	//
+	// Once the create response required a commit, every commit error —
+	// including 404, authorization rejection, timeout, and cancellation —
+	// means the generation is not durable. There is no legacy fallback in
+	// this state.
+	if err := ctx.Err(); err != nil {
+		deps.Events.EmitSummary("backup-push", chunkCount+2, successCount, 0, 1)
+		return nil, envelope.NewError(envelope.ErrBackendUnreachable,
+			"backup push: cancelled before the required commit: "+err.Error()).
+			WithRemediation(uncommittedRemediation)
+	}
+	if _, cErr := deps.Storage.CommitVersion(ctx, resolvedBackupID, resp.VersionID); cErr != nil {
+		// The commit is the extra unit of work on this path: every blob
+		// succeeded and the commit is the one that failed. Counting it
+		// keeps the event contract's `total = success + skipped + failed`
+		// guarantee exact (successCount is chunkCount+1 here).
+		deps.Events.EmitSummary("backup-push", chunkCount+2, successCount, 0, 1)
+		return nil, envelope.NewError(cErr.Code,
+			"backup push: upload finished but the version could not be committed, so it is NOT protected: "+cErr.Message).
+			WithDetail(map[string]string{"backupId": resolvedBackupID, "versionId": resp.VersionID}).
+			WithRemediation(uncommittedRemediation)
 	}
 
 	deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, 0)
 
 	return &PushResult{BackupID: resolvedBackupID, VersionID: resp.VersionID}, nil
 }
+
+// uploadSummary assigns every upload item to exactly one terminal event
+// bucket, even when several workers observe an early cancellation together.
+func uploadSummary(total, success, failed int) (int, int, int) {
+	if total < 0 {
+		total = 0
+	}
+	if success < 0 {
+		success = 0
+	}
+	if success > total {
+		success = total
+	}
+	if failed < 0 {
+		failed = 0
+	}
+	if failed > total-success {
+		failed = total - success
+	}
+	return success, total - success - failed, failed
+}
+
+// uncommittedRemediation describes what actually happens to a generation
+// whose upload did not reach a successful commit.
+//
+// The previous text claimed "the half-uploaded version is garbage-collected
+// by substrate", which was false: before the commit endpoint existed,
+// CreateVersion made the row durable immediately, so a partial generation
+// stayed listed, counted against quota, and could be picked as the restore
+// target. This string states the real behaviour on both backend versions.
+const uncommittedRemediation = "Re-run `endstate backup push`; a fresh versionId is minted. " +
+	"This generation was never committed, so it is not protected and is not a restore target. " +
+	"On a schema 2.1 backend an uncommitted version stays invisible to listing, quota, and restore, and the backend reclaims it. " +
+	"On an older 2.0 backend the partial version may still be listed — remove it with `endstate backup delete-version --backup-id <id> --version-id <id> --confirm`."
 
 // encBundle is the fully client-side, encrypted result of bundling a profile —
 // the encrypted chunks plus the encrypted manifest — i.e. the exact set of
@@ -317,6 +528,43 @@ func EstimateSize(deps Dependencies, profilePath string) (*SizeEstimate, *envelo
 type backupResolverStore interface {
 	ListBackups(ctx context.Context) ([]storage.Backup, *envelope.Error)
 	CreateBackup(ctx context.Context, name string) (string, *envelope.Error)
+}
+
+// resolveScheduledBackupID never creates a backup row. CreateBackup is a
+// separate non-idempotent mutation, so automatic replay is only safe once the
+// queue has a resolved existing backup ID.
+func resolveScheduledBackupID(ctx context.Context, store backupResolverStore, backupID string) (string, *envelope.Error) {
+	if strings.TrimSpace(backupID) != "" {
+		return backupID, nil
+	}
+	backups, err := store.ListBackups(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(backups) != 1 || strings.TrimSpace(backups[0].ID) == "" {
+		return "", envelope.NewError(envelope.ErrBackupSetupRequired,
+			"scheduled backup requires exactly one existing Cloud backup; configure --backup-id when multiple backups exist").
+			WithRemediation("Save a version manually first, or configure schedule enable --backup-id <id>.")
+	}
+	return backups[0].ID, nil
+}
+
+func definiteCreatePreSendFailure(err *envelope.Error) bool {
+	switch err.Code {
+	case envelope.ErrAuthRequired, envelope.ErrSubscriptionRequired, envelope.ErrRateLimited, envelope.ErrNotFound, envelope.ErrStorageQuotaExceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+func isScheduledSpool(stateDir, path string) bool {
+	if strings.TrimSpace(stateDir) == "" || strings.TrimSpace(path) == "" {
+		return false
+	}
+	root := filepath.Clean(filepath.Join(stateDir, "schedule", "create-spool"))
+	rel, err := filepath.Rel(root, filepath.Clean(path))
+	return err == nil && rel != "." && rel != "" && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
 }
 
 // resolveBackupID picks a backup id to write a version against:
@@ -478,9 +726,23 @@ func chunkBytes(b []byte, n int) [][]byte {
 }
 
 type uploadItem struct {
-	index int
-	url   string
-	data  []byte
+	index           int
+	url             string
+	data            []byte
+	requireCreate   bool
+	checksumSHA256  string
+	checksumHex     string
+	transferTimeout time.Duration
+}
+
+func newUploadItem(index int, url string, data []byte, requireCreate bool, transferTimeout time.Duration) uploadItem {
+	item := uploadItem{index: index, url: url, data: data, requireCreate: requireCreate, transferTimeout: transferTimeout}
+	if requireCreate {
+		sum := sha256.Sum256(data)
+		item.checksumSHA256 = base64.StdEncoding.EncodeToString(sum[:])
+		item.checksumHex = hex.EncodeToString(sum[:])
+	}
+	return item
 }
 
 // putParallel uploads each item to its presigned URL with bounded
@@ -611,19 +873,36 @@ func putWithRetry(ctx context.Context, hc *http.Client, it uploadItem, retries, 
 }
 
 func putOnce(ctx context.Context, hc *http.Client, it uploadItem) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, it.url, bytes.NewReader(it.data))
+	requestCtx, cancel := backup.WithTransferTimeout(ctx, it.transferTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPut, it.url, bytes.NewReader(it.data))
 	if err != nil {
-		return err
+		return backup.RedactTransportError(err)
+	}
+	if it.requireCreate {
+		req.Header.Set("If-None-Match", "*")
+		if it.checksumSHA256 != "" {
+			req.Header.Set("x-amz-checksum-sha256", it.checksumSHA256)
+			req.Header.Set("x-amz-meta-endstate-sha256", it.checksumHex)
+		}
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = int64(len(it.data))
-	resp, err := hc.Do(req)
+	resp, err := backup.PresignedClient(hc).Do(req)
 	if err != nil {
-		return err
+		return backup.RedactTransportError(err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode/100 == 2 {
+		return nil
+	}
+	// A checksum-bound create-only retry that receives 412 has observed the
+	// object created by its own earlier ambiguous attempt. Substrate signs and
+	// verifies x-amz-checksum-sha256 on these URLs, so this is not a blind
+	// precondition-success shortcut. Legacy PUTs have neither bound and retain
+	// their established 412 failure behaviour.
+	if resp.StatusCode == http.StatusPreconditionFailed && it.requireCreate && it.checksumSHA256 != "" && it.checksumHex != "" {
 		return nil
 	}
 	return &putError{status: resp.StatusCode}
@@ -636,11 +915,21 @@ func (e *putError) Error() string {
 }
 
 func isRetryable(err error) bool {
+	if backup.IsTransportError(err) {
+		return true
+	}
 	var pe *putError
 	if errors.As(err, &pe) {
 		return pe.status >= 500 && pe.status < 600
 	}
 	return false
+}
+
+func uploadFailureCode(err error) envelope.ErrorCode {
+	if backup.IsTransportError(err) || errors.Is(err, context.DeadlineExceeded) {
+		return envelope.ErrBackendUnreachable
+	}
+	return envelope.ErrBackendError
 }
 
 func itemID(idx int) string {

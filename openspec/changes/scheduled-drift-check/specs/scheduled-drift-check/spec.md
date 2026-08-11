@@ -1,8 +1,36 @@
 ## ADDED Requirements
 
+### Requirement: Scheduled Cloud delivery does not repeat ambiguous mutations
+
+The scheduler SHALL not repeat an ambiguous Cloud create mutation. When
+discovery explicitly advertises `version-create-operation-replay-v1`, it SHALL persist the resolved existing backup ID, operation ID, and
+byte-exact encrypted create payload before its first create-version POST. A
+restart SHALL reuse that payload and SHALL fail closed if the persisted spool
+is corrupt or the capability later disappears. Without that capability it
+SHALL record legacy create-started before the POST and SHALL not automatically
+repeat an ambiguous response; definite pre-mutation 4xx failures clear the
+marker. If no existing backup row is available, it SHALL return
+`BACKUP_SETUP_REQUIRED` with auto-backup outcome `setup_required` rather than
+attempting `CreateBackup`.
+
+#### Scenario: Terminal replay drains before cleanup
+
+- **WHEN** a replay returns `alreadyCommitted: true`
+- **THEN** the queue removal SHALL be persisted before its ciphertext spool is
+  deleted
+- **AND** the engine SHALL send no object PUTs
+
+#### Scenario: Explicit legacy-create resolution
+
+- **WHEN** a pending upload has `legacyCreateStarted: true` after an uncertain create
+- **THEN** `schedule discard-upload --artifact-sha256 <sha> --confirm` SHALL remove only that queue record under `run.lock`
+- **AND** it SHALL preserve the local artifact and baseline while reporting that Cloud may already contain the version
+
 ### Requirement: Drift checks are scheduler-invoked, not resident
 
 The engine SHALL provide scheduled drift checking without any resident process. `schedule enable` SHALL register an OS scheduled task (Windows Task Scheduler, task name `Endstate\DriftCheck`) that invokes a short-lived `endstate schedule run` and exits. Registration SHALL be idempotent: re-running `enable` SHALL re-assert the task with the current executable path and configuration. `schedule disable` SHALL remove the task and mark the persisted config disabled without deleting it.
+
+`schedule enable` SHALL canonicalise explicit `--manifest` and `--root` paths to absolute-clean values before persisting or registering the task. An optional `--backup-id` SHALL be persisted and used for every scheduled Cloud delivery. When absent, the engine SHALL select an existing backup only if exactly one exists; zero or multiple backups SHALL return `BACKUP_SETUP_REQUIRED` and SHALL never select a positional list entry.
 
 #### Scenario: Enable registers an idempotent task
 - **WHEN** `schedule enable --manifest <path> --interval daily --time 09:00` is invoked twice
@@ -30,7 +58,13 @@ Because scheduler-executed actions cannot set environment variables, `schedule e
 
 ### Requirement: schedule run verifies, optionally pushes, and records its result
 
-`schedule run` SHALL verify the machine against the configured manifest in-process and write its outcome atomically to `state/schedule/last-run.json`. Detected drift SHALL NOT cause a non-zero exit (drift is data). When the config enables auto-push, the run SHALL capture and push with if-changed semantics using the persisted keychain session, recording the outcome; it SHALL never prompt interactively. Hard failures (missing manifest, auth required, subscription lapsed) SHALL be recorded in `last-run.json` with a stable error code. Scheduled runs SHALL emit no NDJSON events.
+`schedule run` SHALL verify the machine against the configured manifest in-process and write its outcome atomically to `state/schedule/last-run.json`. After acquiring `run.lock` and before reading configuration, verification, capture, or Cloud work, it SHALL atomically replace any prior result with `{status: "running"}` for the new run. Terminal writes SHALL replace that marker with `status: "completed"` or `status: "failed"`; clients SHALL treat `running` as non-healthy. Detected drift SHALL NOT cause a non-zero exit (drift is data). When the config enables auto-push, every detected drift SHALL first publish a fresh local baseline and append it to an ordered durable upload queue, then retry queued captures oldest-first with if-changed semantics using the persisted keychain session. Authentication and transport failure SHALL leave queued local captures intact and SHALL never prompt interactively; corrupt queue entries SHALL be quarantined without blocking later entries. Hard failures (missing manifest, auth required, subscription lapsed, last-run persistence failure) SHALL be reported with a stable error code. Scheduled runs SHALL emit no NDJSON events.
+
+#### Scenario: Interrupted run does not retain an earlier healthy result
+
+- **WHEN** a run has acquired `run.lock` and is interrupted before terminal persistence
+- **THEN** `last-run.json` reports the new run with `status: "running"`
+- **AND** it SHALL not expose the previous healthy verification result
 
 #### Scenario: Drift is recorded, exit stays zero
 - **WHEN** `schedule run` finds 3 items drifted from the configured manifest

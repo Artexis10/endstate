@@ -26,12 +26,18 @@ const (
 // stubResolver is a JWKSResolver that returns a fixed JWKS and counts
 // invalidations.
 type stubResolver struct {
-	keys           *oidc.JWKS
-	invalidations  int
+	keys          *oidc.JWKS
+	rotated       *oidc.JWKS
+	invalidations int
 }
 
 func (s *stubResolver) JWKS(context.Context) (*oidc.JWKS, error) { return s.keys, nil }
-func (s *stubResolver) InvalidateJWKS()                          { s.invalidations++ }
+func (s *stubResolver) InvalidateJWKS() {
+	s.invalidations++
+	if s.rotated != nil {
+		s.keys = s.rotated
+	}
+}
 
 // signTestToken mints an Ed25519-signed access token with the supplied
 // claim overrides.
@@ -210,5 +216,28 @@ func TestVerify_RotatedKid(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error when no matching kid")
+	}
+}
+
+func TestVerify_RefetchesJWKSOnceAfterRotation(t *testing.T) {
+	oldPub, _ := newKeyPair(t)
+	newPub, newPriv := newKeyPair(t)
+	resolver := &stubResolver{
+		keys:    testJWKS(t, "old", oldPub),
+		rotated: testJWKS(t, "new", newPub),
+	}
+	tokenStr := signTestToken(t, "new", newPriv, nil)
+
+	claims, err := auth.Verify(context.Background(), tokenStr, resolver, auth.VerifyOptions{
+		ExpectedIssuer: testIssuer, ExpectedAudience: testAudience, JWKS: resolver.keys, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Verify after rotation: %v", err)
+	}
+	if claims.Subject != "user-1" {
+		t.Errorf("sub = %q, want user-1", claims.Subject)
+	}
+	if resolver.invalidations != 1 {
+		t.Errorf("invalidations = %d, want exactly one refetch", resolver.invalidations)
 	}
 }

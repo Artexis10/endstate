@@ -5,6 +5,7 @@ package commands
 
 import (
 	"github.com/Artexis10/endstate/go-engine/internal/backup"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/upload"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
@@ -54,6 +55,9 @@ type BackupFlags struct {
 	// IfChanged is the --if-changed flag (push): skip the upload (mint no new
 	// version) when the candidate content matches the latest version's hash.
 	IfChanged bool
+
+	// ScheduledCreate is internal queue state used only by schedule run.
+	ScheduledCreate *upload.ScheduledCreate
 
 	// To is the --to flag (pull), the directory the decrypted profile is
 	// written into.

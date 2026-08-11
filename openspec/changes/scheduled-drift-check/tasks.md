@@ -29,6 +29,6 @@
 ## 5. GUI (separate endstate-gui change, after engine ships)
 
 - [ ] 5.1 `schedule-bridge.ts` (mirrors backup-bridge), types for `ScheduleStatusData`
-- [ ] 5.2 Settings "Continuous protection" card (toggle + time; auto-push sub-toggle gated on `autoBackupAvailable`; requires a saved capture)
+- [ ] 5.2 Scheduled drift-check settings card (toggle + time; auto-push sub-toggle gated on `autoBackupAvailable`; requires a saved capture)
 - [ ] 5.3 Launch: fetch `schedule status`, re-assert `schedule enable` when on (self-heal), drift chip on intent-landing "Save this computer" card
 - [ ] 5.4 Vitest coverage per `backup-bridge.test.ts` patterns

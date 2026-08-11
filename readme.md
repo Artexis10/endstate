@@ -16,7 +16,7 @@ Website: <https://substratesystems.io/endstate> · Download: <https://substrates
 
 ## Starter setups
 
-Ready-to-apply manifests for common machine types. Each one installs a curated set of mainstream apps via winget — no configuration is written, so they are safe to apply on any machine.
+Ready-to-apply manifests for common machine types. Each one installs a curated set of mainstream apps via WinGet — no configuration is written, so they are safe to apply on a compatible Windows PC.
 
 | Pack | What's inside | File |
 |------|--------------|------|
@@ -313,19 +313,24 @@ Endstate prioritizes safety over speed:
 
 ---
 
-## Hosted Backup (optional, paid tier)
+## Endstate Cloud (optional, paid tier)
 
-End-to-end encrypted profile backups via Endstate Cloud (or any self-host
-backend implementing `docs/contracts/hosted-backup-contract.md`). The
-engine derives keys client-side via Argon2id, encrypts each chunk with
-AES-256-GCM, ships the chunks to Cloudflare R2 via short-lived presigned
-URLs, and persists the refresh token + the unwrapped DEK in the OS
-keychain so subsequent `push` / `pull` operations don't re-prompt for
-the passphrase.
+Endstate Cloud is the managed service Endstate operates: end-to-end
+encrypted profile backups you can push from one machine and pull on
+another. It is entirely optional — backing up to a location you control
+is free, and always will be. The same protocol is open, so you can run
+your own backend instead (see
+`docs/contracts/hosted-backup-contract.md`).
 
-**Endstate cannot decrypt user data uploaded to Hosted Backup.** This is
-a structural property: only the user's passphrase and recovery key can
-unlock the data. See contract §1 for the trust model.
+The engine derives keys client-side via Argon2id, encrypts each chunk
+with AES-256-GCM, ships the chunks to Cloudflare R2 via short-lived
+presigned URLs, and persists the refresh token + the unwrapped DEK in
+the OS keychain so subsequent `push` / `pull` operations don't re-prompt
+for the passphrase.
+
+**Endstate cannot decrypt user data uploaded to Endstate Cloud.** This
+is a structural property: only the user's passphrase and recovery key
+can unlock the data. See contract §1 for the trust model.
 
 ### Configuration
 
@@ -396,7 +401,9 @@ endstate account delete --confirm
 
 The capabilities response (`endstate capabilities --json`) advertises
 the configured issuer and audience under `data.features.hostedBackup`,
-so the GUI can gate hosted-backup UI on a single handshake.
+so the GUI can gate its Endstate Cloud UI on a single handshake. The
+`hostedBackup` key name is a locked wire identifier and does not change
+with the public naming.
 
 ---
 
@@ -429,9 +436,9 @@ cd go-engine && go test -v ./...
 
 ## Status
 
-Endstate is stable and actively released — see [Releases](https://github.com/Artexis10/endstate/releases) for the latest version. The CLI contract (JSON schema 1.0) is locked. Capture, apply, verify, restore, hosted backup, and drift detection are production-ready. Winget is the primary Windows driver, with macOS/Linux (Nix) in progress.
+Endstate is stable and actively released — see [Releases](https://github.com/Artexis10/endstate/releases) for the latest version. The CLI contract (JSON schema 1.0) is locked. Capture, apply, verify, restore, and drift detection are production-ready. Endstate Cloud generations are durable only after their explicit commit succeeds; the managed recovery claim remains gated on a recorded clean-Windows recovery-drill receipt. Winget is the primary Windows driver, with macOS/Linux (Nix) in progress.
 
-> A desktop GUI is available as a separate free, open-source app built on top of Endstate's core, with an optional paid hosted-backup tier — [substratesystems.io/endstate](https://substratesystems.io/endstate)
+> A desktop GUI is available as a separate free, open-source app built on top of Endstate's core, with an optional paid Endstate Cloud tier — [substratesystems.io/endstate](https://substratesystems.io/endstate)
 
 ---
 

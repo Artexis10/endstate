@@ -202,6 +202,7 @@ endstate capabilities --json
         "minSchemaVersion": "1.0",
         "issuerUrl": "https://auth.example.com",
         "audience": "endstate-backup",
+        "providerKind": "self-hosted",
         "rename": true,
         "ifChanged": true
       },
@@ -222,6 +223,12 @@ endstate capabilities --json
 > **Note:** `features.hostedBackup.ifChanged` is the canonical GUI gate for the
 > conditional auto-backup flow (`backup push --if-changed`). The GUI MUST check
 > this field rather than probing `commands.backup.flags` for `--if-changed`.
+
+`features.hostedBackup.providerKind` is the managed-offer discriminator. Its
+only values are `endstate-cloud` (the normalized Endstate Cloud issuer) and
+`self-hosted` (every configured alternative). The GUI MUST treat an absent or
+unknown value as ineligible for Endstate Cloud invitations and subscription
+offers; it may still present ordinary self-hosted backup controls.
 
 For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, and `commands.rebuild.flags` advertise repeatable `--restore-target`. The GUI must capability-gate target selection rather than assuming a CLI version supports it.
 

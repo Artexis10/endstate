@@ -102,8 +102,8 @@ func TestBackupPush_IfChanged_UploadsChanged(t *testing.T) {
 	if res.Skipped {
 		t.Errorf("Skipped = true, want false (content changed)")
 	}
-	if res.VersionID != "v-pushed" {
-		t.Errorf("VersionID = %q, want v-pushed", res.VersionID)
+	if res.VersionID == "" || res.VersionID == "v-pushed" {
+		t.Errorf("VersionID = %q, want a distinct new version", res.VersionID)
 	}
 }
 
