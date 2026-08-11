@@ -8,6 +8,8 @@ Listed in chronological order. Earliest supporters first.
 
 <!-- Names will be appended here as supporters opt in via the Support Endstate purchase flow. -->
 
+- James E. Howard
+
 ---
 
 Supporting Endstate is optional, and being listed here is opt-in. Endstate is fully free either way — see [PRINCIPLES.md](PRINCIPLES.md).
