@@ -31,7 +31,13 @@ func (loader configRestoreCatalogLoader) LoadConfigRestoreCatalog(
 
 // loadConfigRestoreCatalogFn is the single injectable disk-read seam for a
 // command-scoped config restore runtime.
-var loadConfigRestoreCatalogFn configRestoreCatalogLoader = modules.GetCatalogWithDiagnostics
+var loadConfigRestoreCatalogFn configRestoreCatalogLoader = func(repoRoot string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+	catalog, diagnostics, err := modules.GetCatalogWithDiagnostics(repoRoot)
+	if err != nil {
+		return nil, diagnostics, err
+	}
+	return modules.FilterCatalogForPlatform(catalog, captureGOOSFn()), diagnostics, nil
+}
 
 // configCatalogSnapshot owns one trusted in-memory catalog for a command. Its
 // module declarations are never exposed directly: command consumers receive

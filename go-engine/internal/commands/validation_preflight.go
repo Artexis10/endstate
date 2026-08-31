@@ -116,6 +116,12 @@ func validationModuleAuthorityIsPinned(mod *modules.Module) bool {
 	if err != nil {
 		return false
 	}
+	if mod.SourceSchemaVersion == 3 {
+		pinned = modules.ProjectModuleForPlatform(pinned, mod.Platform)
+		if pinned == nil {
+			return false
+		}
+	}
 	liveDeclarations, pinnedDeclarations := *mod, *pinned
 	liveDeclarations.FilePath, liveDeclarations.ModuleDir = "", ""
 	pinnedDeclarations.FilePath, pinnedDeclarations.ModuleDir = "", ""

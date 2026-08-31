@@ -318,10 +318,14 @@ var resolveRepoRootFn = config.ResolveRepoRoot
 // user profile directory.
 var resolveProfileDirFn = config.ProfileDir
 
-// loadModuleCatalogFn loads the module catalog from the given repo root. It
-// defaults to modules.GetCatalog and can be replaced in tests.
+// loadModuleCatalogFn loads only the current host's executable module
+// projections from the given repo root and can be replaced in tests.
 var loadModuleCatalogFn = func(repoRoot string) (map[string]*modules.Module, error) {
-	return modules.GetCatalog(repoRoot)
+	catalog, err := modules.GetCatalog(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	return modules.FilterCatalogForPlatform(catalog, captureGOOSFn()), nil
 }
 
 // matchModulesForAppsFn is the narrow matching boundary used after capture.
