@@ -16,8 +16,8 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
 
-// discoverLinuxFn is the read-only ordinary-machine inventory boundary. Tests
-// replace it with hermetic native-package/config evidence.
+// discoverLinuxFn is the cross-platform-compiled, read-only ordinary-machine
+// inventory boundary. Tests replace it with hermetic native-package/config evidence.
 var discoverLinuxFn = func(ctx context.Context, request discovery.Request, r realizer.Realizer) (discovery.Result, error) {
 	var extra []discovery.Adapter
 	if r != nil {
@@ -102,7 +102,7 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 		flags.linuxHomeManagerFiles = make([]bundle.HomeManagerFileCapturePlan, 0, len(result.SettingsFiles))
 		for _, plan := range result.SettingsFiles {
 			flags.linuxHomeManagerFiles = append(flags.linuxHomeManagerFiles, bundle.HomeManagerFileCapturePlan{
-				CandidateID: plan.CandidateID, Target: plan.Target, Source: plan.Source,
+				CandidateID: plan.CandidateID, Codec: plan.Codec, Target: plan.Target, Source: plan.Source,
 				Optional: plan.Optional, ObservedSize: plan.ObservedSize, ObservedSHA256: plan.ObservedSHA256,
 			})
 		}

@@ -78,13 +78,13 @@
 
 ## 8. Home Manager-derived breadth and Linux settings parity
 
-- [ ] 8.1 Build a deterministic release-time Home Manager harvester from the pinned `docs-json`, declaration/source hashes, and pure per-program `home.file` target probes; prove it never runs on the capture path
-- [ ] 8.2 Add the frozen adapter-registry schema and validator for exact input revisions, engine-owned target coordinates, option metadata, source hashes, and one reviewed `typed-roundtrip`/`file-roundtrip`/`curated-codec`/`excluded` disposition
-- [ ] 8.3 Generate an applicability matrix joining every existing Windows app module with Linux package/catalog evidence and the pinned Home Manager corpus; fail release validation on unclassified applicable counterparts
+- [x] 8.1 Build a deterministic release-time Home Manager harvester from the pinned `docs-json`, declaration/source hashes, and pure per-program `home.file` target probes; prove it never runs on the capture path
+- [x] 8.2 Add the frozen adapter-registry schema and validator for exact input revisions, engine-owned target coordinates, option metadata, source hashes, and one reviewed `typed-roundtrip`/`file-roundtrip`/`curated-codec`/`excluded` disposition
+- [x] 8.3 Generate an applicability matrix joining every existing Windows app module with Linux package/catalog evidence and the pinned Home Manager corpus; fail release validation on unclassified applicable counterparts
 - [ ] 8.4 Add registry drift diagnostics that invalidate reviews on changed declarations, option types, targets, or source hashes and emit a bounded human-review diff
 - [ ] 8.5 Implement reviewed typed round-trip codecs for direct structured Home Manager settings surfaces and require decode → emit → Home Manager render → decode equivalence fixtures
-- [ ] 8.6 Implement bounded safe file-round-trip adapters through staged Home Manager `home.file` placement for generators without a proven typed inverse
-- [ ] 8.7 Implement curated-codec and explicit-exclusion overrides for multi-file/default-merging/scripted/sensitive modules; reject runtime strategy inference
+- [x] 8.6 Implement bounded safe file-round-trip adapters through staged Home Manager `home.file` placement for generators without a proven typed inverse
+- [x] 8.7 Implement curated-codec and explicit-exclusion overrides for multi-file/default-merging/scripted/sensitive modules; reject runtime strategy inference
 - [ ] 8.8 Add live discovery and round-trip Linux variants for Git, Bash, Zsh, and SSH config while excluding credentials, private keys, histories, and agent state
 - [ ] 8.9 Add live discovery and round-trip Linux variants for tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, and fd
 - [ ] 8.10 Add live discovery and round-trip Linux variants for Neovim, Helix, WezTerm, Kitty, and Alacritty with plugin/cache/state and portable-config-only boundaries

@@ -5,6 +5,399 @@
     "homeManagerRevision": "65258d5c65a250189fde2e35f490d15e064c4c62"
   },
   "docsJsonSha256": "f609ca1cd712e200dcda099b022b5a3e6b34af53cf866fdb5d0b51c8da95e216",
+  "programs": [
+    "abaddon",
+    "abook",
+    "acd-cli",
+    "aerc",
+    "aerospace",
+    "afew",
+    "ahoviewer",
+    "aiac",
+    "aichat",
+    "aider-chat",
+    "airlift",
+    "alacritty",
+    "algia",
+    "aliae",
+    "alistral",
+    "alot",
+    "am2rlauncher",
+    "amber",
+    "amfora",
+    "amoco",
+    "amp",
+    "andcli",
+    "animdl",
+    "anime-downloader",
+    "anki",
+    "antigravity",
+    "antigravity-cli",
+    "anup",
+    "anvil-editor",
+    "anyrun",
+    "aperture",
+    "aphorme",
+    "aria2",
+    "aria2p",
+    "asciinema",
+    "ashell",
+    "astroid",
+    "atool",
+    "atuin",
+    "autojump",
+    "autorandr",
+    "awscli",
+    "bacon",
+    "bash",
+    "bashmount",
+    "bat",
+    "beets",
+    "bemenu",
+    "bluetuith",
+    "borgmatic",
+    "bottom",
+    "boxxy",
+    "broot",
+    "browserpass",
+    "btop",
+    "bun",
+    "calibre",
+    "carapace",
+    "cargo",
+    "cava",
+    "cavalier",
+    "chawan",
+    "chromium",
+    "claude-code",
+    "clock-rs",
+    "cmus",
+    "codex",
+    "command-not-found",
+    "comodoro",
+    "cudatext",
+    "cursor",
+    "darcs",
+    "dbeaver",
+    "delta",
+    "desktoppr",
+    "diff-highlight",
+    "diff-so-fancy",
+    "difftastic",
+    "dircolors",
+    "direnv",
+    "discocss",
+    "discord",
+    "distrobox",
+    "docker-cli",
+    "earthly",
+    "ec",
+    "eclipse",
+    "element-desktop",
+    "emacs",
+    "equibop",
+    "eww",
+    "eza",
+    "fabric-ai",
+    "fastfetch",
+    "fd",
+    "feedr",
+    "feh",
+    "firefox",
+    "firefoxpwa",
+    "fish",
+    "flashspace",
+    "floorp",
+    "foliate",
+    "foot",
+    "formiko",
+    "freetube",
+    "fresh-editor",
+    "fuzzel",
+    "fzf",
+    "gallery-dl",
+    "gcc",
+    "gh",
+    "gh-dash",
+    "ghostty",
+    "git",
+    "git-cliff",
+    "git-credential-keepassxc",
+    "git-credential-oauth",
+    "git-worktree-switcher",
+    "github-copilot-cli",
+    "gitui",
+    "gnome-shell",
+    "gnome-terminal",
+    "go",
+    "goto",
+    "gpg",
+    "gradle",
+    "granted",
+    "grep",
+    "grype",
+    "gurk-rs",
+    "halloy",
+    "havoc",
+    "helix",
+    "hexchat",
+    "himalaya",
+    "home-manager",
+    "hstr",
+    "htop",
+    "hwatch",
+    "hyfetch",
+    "hyprlock",
+    "hyprpanel",
+    "hyprshot",
+    "i3bar-river",
+    "i3blocks",
+    "i3status",
+    "i3status-rust",
+    "iamb",
+    "imv",
+    "infat",
+    "info",
+    "inori",
+    "intelli-shell",
+    "ion",
+    "irssi",
+    "java",
+    "jetbrains-remote",
+    "jjui",
+    "joplin-desktop",
+    "joshuto",
+    "jq",
+    "jqp",
+    "jrnl",
+    "jujutsu",
+    "k9s",
+    "kakoune",
+    "keepassxc",
+    "keychain",
+    "khal",
+    "khard",
+    "kickoff",
+    "kiro",
+    "kitty",
+    "kodi",
+    "kraftkit",
+    "kubecolor",
+    "kubeswitch",
+    "lapce",
+    "lazydocker",
+    "lazygit",
+    "lazysql",
+    "lazyworktree",
+    "ledger",
+    "less",
+    "lesspipe",
+    "lf",
+    "librewolf",
+    "lieer",
+    "looking-glass-client",
+    "lsd",
+    "lutris",
+    "macchina",
+    "man",
+    "mangohud",
+    "matplotlib",
+    "mbsync",
+    "mc",
+    "mcfly",
+    "mcp",
+    "meli",
+    "mercurial",
+    "mergiraf",
+    "micro",
+    "mise",
+    "mistral-vibe",
+    "mods",
+    "mpv",
+    "mpvpaper",
+    "mr",
+    "msmtp",
+    "mu",
+    "mujmap",
+    "mullvad-vpn",
+    "mypy",
+    "navi",
+    "ncmpcpp",
+    "ncspot",
+    "ne",
+    "neomutt",
+    "neovide",
+    "neovim",
+    "newsboat",
+    "nh",
+    "nheko",
+    "nix-index",
+    "nix-init",
+    "nix-search-tv",
+    "nix-your-shell",
+    "nnn",
+    "nom",
+    "noti",
+    "notmuch",
+    "npm",
+    "numbat",
+    "nushell",
+    "nvchecker",
+    "nyxt",
+    "obs-studio",
+    "obsidian",
+    "offlineimap",
+    "oh-my-posh",
+    "onagre",
+    "onedrive",
+    "onlyoffice",
+    "opam",
+    "opencode",
+    "openstackclient",
+    "opkssh",
+    "pandoc",
+    "papis",
+    "parallel",
+    "password-store",
+    "patdiff",
+    "pay-respects",
+    "pazi",
+    "pet",
+    "pgcli",
+    "pianobar",
+    "pidgin",
+    "pimsync",
+    "pistol",
+    "piston-cli",
+    "pls",
+    "poetry",
+    "powerline-go",
+    "pqiv",
+    "prismlauncher",
+    "ptyxis",
+    "pubs",
+    "pyenv",
+    "pylint",
+    "pyradio",
+    "pywal",
+    "qalculate",
+    "qcal",
+    "quickshell",
+    "qutebrowser",
+    "radicle",
+    "radio-active",
+    "radio-cli",
+    "ranger",
+    "rbenv",
+    "rbw",
+    "rclone",
+    "readline",
+    "rectangle",
+    "retext",
+    "retroarch",
+    "riff",
+    "rio",
+    "ripgrep",
+    "ripgrep-all",
+    "rizin",
+    "rmpc",
+    "rofi",
+    "rtorrent",
+    "ruff",
+    "sagemath",
+    "sapling",
+    "satty",
+    "sbt",
+    "scmpuff",
+    "screen",
+    "script-directory",
+    "senpai",
+    "sesh",
+    "sftpman",
+    "sheldon",
+    "sherlock",
+    "sioyek",
+    "sketchybar",
+    "skim",
+    "sm64ex",
+    "smug",
+    "spotify-player",
+    "sqls",
+    "ssh",
+    "starship",
+    "streamlink",
+    "superfile",
+    "swappy",
+    "sway-easyfocus",
+    "swayimg",
+    "swaylock",
+    "swayr",
+    "t3code",
+    "taskwarrior",
+    "tealdeer",
+    "television",
+    "terminator",
+    "termite",
+    "tex-fmt",
+    "texlive",
+    "thunderbird",
+    "timidity",
+    "tint2",
+    "tiny",
+    "tirith",
+    "tmate",
+    "tmux",
+    "todoman",
+    "tofi",
+    "topgrade",
+    "translate-shell",
+    "tray-tui",
+    "trippy",
+    "ttyper",
+    "twitch-tui",
+    "ty",
+    "urxvt",
+    "uv",
+    "vdirsyncer",
+    "vesktop",
+    "vicinae",
+    "vifm",
+    "vim",
+    "vim-vint",
+    "vinegar",
+    "visidata",
+    "vivid",
+    "vscode",
+    "vscodium",
+    "w3m",
+    "wallust",
+    "watson",
+    "waveterm",
+    "waybar",
+    "waylogout",
+    "wayprompt",
+    "wezterm",
+    "windsurf",
+    "wleave",
+    "wlogout",
+    "wofi",
+    "workstyle",
+    "xmobar",
+    "xplr",
+    "yambar",
+    "yarn",
+    "yazi",
+    "yofi",
+    "yt-dlp",
+    "z-lua",
+    "zapzap",
+    "zathura",
+    "zed-editor",
+    "zellij",
+    "zk",
+    "zoxide",
+    "zsh"
+  ],
   "entries": [
     {
       "id": "alacritty",
@@ -21,7 +414,10 @@
               "live_config_reload": false
             }
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/alacritty/alacritty.toml"
+        ]
       },
       "options": [
         {
@@ -41,7 +437,7 @@
       "sourceHashes": {
         "modules/programs/alacritty.nix": "d0b39108757cb17cc56960c60331e36ae9f1dddaef9333c31e69b73b7e0279d1"
       },
-      "reviewFingerprint": "83843ef6aaa040e90fbce55b9e20b4cc9e801d1aed461e4a7ab409ab1a425fcf"
+      "reviewFingerprint": "c0d1d2c5e874065ee7f1651d64cbd2eecc3657dcb85494c65a489292c6f10e90"
     },
     {
       "id": "atuin",
@@ -55,7 +451,10 @@
           "programs.atuin.settings": {
             "auto_sync": false
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/atuin/config.toml"
+        ]
       },
       "options": [
         {
@@ -75,7 +474,7 @@
       "sourceHashes": {
         "modules/programs/atuin.nix": "0ac54b6f7af665aea6877220d6a95e5676cf0775e2f7347b496b1da99f49a91d"
       },
-      "reviewFingerprint": "263e85cfdc44600424a72c48baad343621199688c9f2a98274b848387e1fa40d"
+      "reviewFingerprint": "5438ada7b416ce13df79c37adbb80d6ba6058c59979ac24b1fe33bb282fadfd7"
     },
     {
       "id": "bash",
@@ -113,7 +512,10 @@
           "programs.bat.config": {
             "theme": "TwoDark"
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/bat/config"
+        ]
       },
       "options": [
         {
@@ -133,7 +535,45 @@
       "sourceHashes": {
         "modules/programs/bat.nix": "997b0dab7d2b24c7231dc618b6c012d7dd8ec09aaf967b9c98f12470f94d75a7"
       },
-      "reviewFingerprint": "a023d7fe9e474cbe59d18103d67e7e231a25cac65581ea4ba79c9f6eb5aff9e7"
+      "reviewFingerprint": "4299011cf95a3b8d5a1625dc23eb2d0e3f8b6018243514a9bdf374714dcc559e"
+    },
+    {
+      "id": "btop",
+      "program": "btop",
+      "displayName": "btop++",
+      "packageId": "btop",
+      "moduleId": "apps.btop",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.btop.settings": {
+            "theme_background": false
+          }
+        },
+        "targets": [
+          "${xdg.config}/btop/btop.conf"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.btop.settings",
+          "type": "attribute set of (boolean or floating point number or signed integer or string)",
+          "declarations": [
+            "modules/programs/btop.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/btop/btop.conf",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/btop.nix": "511b2170036c14d8a3e1e33391c64788dcaa139c535792fcb5e214f7099dfa9f"
+      },
+      "reviewFingerprint": "57cd122f333071d502a947ade311a37f10cd78223e640273fff86c7256a1879f"
     },
     {
       "id": "direnv",
@@ -181,6 +621,46 @@
       "reviewFingerprint": "65be836f225ee31d745315485db971e51e3c2790d402a2530336fb99f57535b8"
     },
     {
+      "id": "fastfetch",
+      "program": "fastfetch",
+      "displayName": "Fastfetch",
+      "packageId": "fastfetch",
+      "moduleId": "apps.fastfetch",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.fastfetch.settings": {
+            "display": {
+              "color": "blue"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/fastfetch/config.jsonc"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.fastfetch.settings",
+          "type": "JSON value",
+          "declarations": [
+            "modules/programs/fastfetch.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/fastfetch/config.jsonc",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/fastfetch.nix": "dde86063c6d40c81b5ca01b2e96b0fc092c3d15e9b9b08236162b2f1e6a6d5ac"
+      },
+      "reviewFingerprint": "1ee19e42286aaffabc8a9773f49af7c14f21cb44662c25aba1e52e7c8e6723f7"
+    },
+    {
       "id": "fd",
       "program": "fd",
       "displayName": "fd",
@@ -192,7 +672,10 @@
           "programs.fd.ignores": [
             ".git"
           ]
-        }
+        },
+        "targets": [
+          "${xdg.config}/fd/ignore"
+        ]
       },
       "options": [
         {
@@ -212,7 +695,7 @@
       "sourceHashes": {
         "modules/programs/fd.nix": "a4782892b2b6a085b8f0229b8bd6249f2c12dd153fbaebfd1a1e6065d34f378a"
       },
-      "reviewFingerprint": "b6bee1c181b04173f33eaeb20bd59e061a7205170ec2f0aa3b346b03184e7f3d"
+      "reviewFingerprint": "ff760f79bd9ff8151999ce9433e36637b5478c42c4e886ed6f3d5e4c9b0c23c9"
     },
     {
       "id": "fzf",
@@ -249,7 +732,10 @@
           "programs.gh.settings": {
             "git_protocol": "https"
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/gh/config.yml"
+        ]
       },
       "options": [
         {
@@ -269,7 +755,7 @@
       "sourceHashes": {
         "modules/programs/gh.nix": "b57920be52800d9444826f361f58a8544a15a99d1e6ee65ef541316a73984338"
       },
-      "reviewFingerprint": "fe246e8ebb25fc30a800c47e67a1c663160be0ce9254e41e38a448c83aecc165"
+      "reviewFingerprint": "2f546c4d51f91fc11129472b73df9ce73af0539fd43fbc931899ad0d06526939"
     },
     {
       "id": "git",
@@ -277,9 +763,43 @@
       "displayName": "Git",
       "packageId": "git",
       "moduleId": "apps.git",
-      "disposition": "excluded",
-      "exclusionReason": "live Git configuration can include credential directives, conditional includes, signing keys, and machine-local paths; it requires a secret-aware semantic codec",
+      "disposition": "curated-codec",
+      "codec": "git-config-safe-v1",
+      "probe": {
+        "values": {
+          "programs.git.attributes": [
+            "*.pdf diff=pdf"
+          ],
+          "programs.git.ignores": [
+            "*.tmp"
+          ],
+          "programs.git.settings": {
+            "user": {
+              "name": "Endstate Probe"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/git/attributes",
+          "${xdg.config}/git/config",
+          "${xdg.config}/git/ignore"
+        ]
+      },
       "options": [
+        {
+          "name": "programs.git.attributes",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/git.nix"
+          ]
+        },
+        {
+          "name": "programs.git.ignores",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/git.nix"
+          ]
+        },
         {
           "name": "programs.git.settings",
           "type": "(attribute set of attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer) or attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer)))) or list of attribute set of attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer) or attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer)))",
@@ -288,11 +808,32 @@
           ]
         }
       ],
-      "targets": [],
+      "targets": [
+        {
+          "coordinate": "${home}/.gitattributes",
+          "optional": true
+        },
+        {
+          "coordinate": "${home}/.gitconfig",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/git/attributes",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/git/config",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/git/ignore",
+          "optional": true
+        }
+      ],
       "sourceHashes": {
         "modules/programs/git.nix": "d6bd012795457bda5cc1672ea229124f88ad2944e96fd9b87d723f42841a06b8"
       },
-      "reviewFingerprint": "58e5e19b419efd02d8212e4a07150cd0baf91c8dffe6fe96cdd7a68268fbd5e6"
+      "reviewFingerprint": "4192a7a9af103afc1603cff0ae593f60190ee8c8567305c42f9cc7c685fab8ca"
     },
     {
       "id": "helix",
@@ -321,7 +862,12 @@
               "line-number": "relative"
             }
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/helix/config.toml",
+          "${xdg.config}/helix/ignore",
+          "${xdg.config}/helix/languages.toml"
+        ]
       },
       "options": [
         {
@@ -370,7 +916,7 @@
       "sourceHashes": {
         "modules/programs/helix.nix": "44c49469add005e2094514488cce6ed3d92e6c6ae5281c2ce120f14dccfd8739"
       },
-      "reviewFingerprint": "1b1a611c77b0484fcc9cf3d9de3b11c9ab7a9c8d3fe7ddaef45581ff75849908"
+      "reviewFingerprint": "cf0bab3299b13b3c69e70f642f1a9cc80bd4097b0194ce46e7c2573ce6f34700"
     },
     {
       "id": "jujutsu",
@@ -386,7 +932,10 @@
               "name": "Endstate Probe"
             }
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/jj/config.toml"
+        ]
       },
       "options": [
         {
@@ -406,7 +955,47 @@
       "sourceHashes": {
         "modules/programs/jujutsu.nix": "271b65f72c67e80923e950f2d525a93de34da8a87b8cad6830ba4991b15117a4"
       },
-      "reviewFingerprint": "ce7b717fca11be037a5773f66b824d854542dc24a1d719a4932e696925a240cc"
+      "reviewFingerprint": "c845ba43b7940e88925d4e665d390a37d98dd69127c042e14079a3c5e792deb4"
+    },
+    {
+      "id": "keepassxc",
+      "program": "keepassxc",
+      "displayName": "KeePassXC",
+      "packageId": "keepassxc",
+      "moduleId": "apps.keepassxc",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.keepassxc.settings": {
+            "GUI": {
+              "ApplicationTheme": "dark"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/keepassxc/keepassxc.ini"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.keepassxc.settings",
+          "type": "attribute set of section of an INI file (attrs of INI atom (null, bool, int, float or string))",
+          "declarations": [
+            "modules/programs/keepassxc.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/keepassxc/keepassxc.ini",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/keepassxc.nix": "f09ac4793b579e1cf7a3877999d8af75398ea4264b94f37bbc9cbee6639517d6"
+      },
+      "reviewFingerprint": "d09d2b90b6e7be2f8b120ab83d98d3f18c339a4cea218ea9c964a84c6be396ac"
     },
     {
       "id": "kitty",
@@ -431,6 +1020,46 @@
       "reviewFingerprint": "d73961845b733dee0160817a61f48d2a32c7dee3e88b040ee0c5e2d0e7b2c74c"
     },
     {
+      "id": "lazydocker",
+      "program": "lazydocker",
+      "displayName": "lazydocker",
+      "packageId": "lazydocker",
+      "moduleId": "apps.lazydocker",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.lazydocker.settings": {
+            "gui": {
+              "showIcons": false
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/lazydocker/config.yml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.lazydocker.settings",
+          "type": "YAML 1.1 value",
+          "declarations": [
+            "modules/programs/lazydocker.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/lazydocker/config.yml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/lazydocker.nix": "9c9650449c9c92758645918e3d099747ba173fdb8094de6e116b1b247476a872"
+      },
+      "reviewFingerprint": "afdbcb6e67fa208bfcbf7b91e3060665085cf125b8491a8028444a4b1e0345bc"
+    },
+    {
       "id": "lazygit",
       "program": "lazygit",
       "displayName": "lazygit",
@@ -445,7 +1074,10 @@
               "showIcons": false
             }
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/lazygit/config.yml"
+        ]
       },
       "options": [
         {
@@ -465,7 +1097,7 @@
       "sourceHashes": {
         "modules/programs/lazygit.nix": "ba4f4934e3d0b0497882fc1b087f7cb0dd210e2246c6c191950e34763a619f7e"
       },
-      "reviewFingerprint": "fd522e213d300460f2a6297bb3ee40203fe54358f2a9ea82b6883c54ae888a9e"
+      "reviewFingerprint": "98d0cae80603943eb2e7a51142ee045bebf3224bf0426295535f76ea9d208138"
     },
     {
       "id": "neovim",
@@ -491,6 +1123,46 @@
       "reviewFingerprint": "4db89347170c202586fe802254ec7eaac0ee5f252433163909298311bca79286"
     },
     {
+      "id": "poetry",
+      "program": "poetry",
+      "displayName": "Poetry",
+      "packageId": "poetry",
+      "moduleId": "apps.poetry",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.poetry.settings": {
+            "virtualenvs": {
+              "in-project": true
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/pypoetry/config.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.poetry.settings",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/poetry.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/pypoetry/config.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/poetry.nix": "70cfe8807ebe638bcb8096d60430e4a609ffd4ae42b57d10dd741e0acd0ad5eb"
+      },
+      "reviewFingerprint": "82c1f9378fbcc06f02bc3e0a5caaca2e166e6c46c5d7db316d7fd4ce990342e2"
+    },
+    {
       "id": "ripgrep",
       "program": "ripgrep",
       "displayName": "ripgrep",
@@ -503,7 +1175,10 @@
           "programs.ripgrep.arguments": [
             "--hidden"
           ]
-        }
+        },
+        "targets": [
+          "${xdg.config}/ripgrep/ripgreprc"
+        ]
       },
       "options": [
         {
@@ -523,7 +1198,7 @@
       "sourceHashes": {
         "modules/programs/ripgrep.nix": "dbb0b32aec87298873898ef19e7fea9d36560389ab41a28634b5c7fd7f34740e"
       },
-      "reviewFingerprint": "d660fe50b71c0122ad086aace1f946813017ce9412b4a1a7c6d2b7356521e8a5"
+      "reviewFingerprint": "74fed436a6ee4594d4213d6ded7b65776df6eca9ec0a44541eb2628739604f0a"
     },
     {
       "id": "ssh",
@@ -561,7 +1236,10 @@
           "programs.starship.settings": {
             "add_newline": false
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/starship.toml"
+        ]
       },
       "options": [
         {
@@ -581,7 +1259,7 @@
       "sourceHashes": {
         "modules/programs/starship.nix": "e8e2c7094693df539333e241998c5c8ec1ec9b3aa125f84d0b741f0f000827b4"
       },
-      "reviewFingerprint": "2c03342b6bd5afa9789415869dbf56cfe9ba2597062ac92143f0dc3187a83c94"
+      "reviewFingerprint": "bdb7d6508879a3e2ec5486584383369e83dcb3c90372ce62627fa6edffa1ce4a"
     },
     {
       "id": "tmux",
@@ -594,7 +1272,10 @@
       "probe": {
         "values": {
           "programs.tmux.extraConfig": "# endstate target probe"
-        }
+        },
+        "targets": [
+          "${xdg.config}/tmux/tmux.conf"
+        ]
       },
       "options": [
         {
@@ -614,7 +1295,7 @@
       "sourceHashes": {
         "modules/programs/tmux.nix": "89bd74de0b4bedbfe90f0642f714dcef28b18f98af6dedf5e72fb2076cf1913e"
       },
-      "reviewFingerprint": "07b0725211e2e88842a2bc1700111f413fa88924d31b123d1f5e2273bd4dd14c"
+      "reviewFingerprint": "6b856fc21d652976a12641776c75b359d31c10a539fcb70e32734b10c1af8a9c"
     },
     {
       "id": "wezterm",
@@ -684,7 +1365,13 @@
               }
             }
           }
-        }
+        },
+        "targets": [
+          "${xdg.config}/yazi/keymap.toml",
+          "${xdg.config}/yazi/theme.toml",
+          "${xdg.config}/yazi/vfs.toml",
+          "${xdg.config}/yazi/yazi.toml"
+        ]
       },
       "options": [
         {
@@ -737,7 +1424,7 @@
       "sourceHashes": {
         "modules/programs/yazi.nix": "6a256b4d6b1a8b7d11a4a9df80f12a50dbc01d90ef7ec897f118eca0ed9b11f3"
       },
-      "reviewFingerprint": "cf50c4003583f65a90350bfd6ac0d805f5f5424674d91081805e1b17fb542469"
+      "reviewFingerprint": "952a2592fa45cb1188338f0e24653129cac7410cb318bb9da46910ca4714e522"
     },
     {
       "id": "zoxide",

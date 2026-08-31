@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "btop",
+  "displayName": "btop++",
+  "nix": { "attribute": "btop" },
+  "aliases": {
+    "debian": ["btop"],
+    "rpm": ["btop"],
+    "arch": ["btop"],
+    "executable": ["btop"]
+  },
+  "configModule": "apps.btop"
+}

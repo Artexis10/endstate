@@ -135,6 +135,7 @@ type SettingsCandidate struct {
 type SettingsFilePlan struct {
 	CandidateID  string `json:"-"`
 	AdapterID    string `json:"-"`
+	Codec        string `json:"-"`
 	Target       string `json:"-"`
 	Source       string `json:"-"`
 	Optional     bool   `json:"-"`

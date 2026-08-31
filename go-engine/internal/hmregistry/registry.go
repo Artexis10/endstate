@@ -21,6 +21,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
 const SchemaVersion = 1
@@ -50,6 +51,7 @@ type Registry struct {
 	SchemaVersion  int           `json:"schemaVersion"`
 	Inputs         InputIdentity `json:"inputs"`
 	DocsJSONSHA256 string        `json:"docsJsonSha256"`
+	Programs       []string      `json:"programs"`
 	Entries        []Entry       `json:"entries"`
 }
 
@@ -74,6 +76,10 @@ type Entry struct {
 // Home Manager's evaluated home.file output.
 type Probe struct {
 	Values map[string]any `json:"values"`
+	// Targets is harvested output, not human-authored intent. Keeping it in the
+	// reviewed fingerprint makes a changed pure evaluation visible even when a
+	// curated adapter deliberately owns additional live aliases.
+	Targets []string `json:"targets"`
 }
 
 type Option struct {
@@ -141,6 +147,21 @@ func Validate(registry *Registry, inputs releaseinputs.Inputs) error {
 	if !sha256Pattern.MatchString(registry.DocsJSONSHA256) {
 		return fmt.Errorf("Home Manager adapter registry docsJsonSha256 is not a lowercase SHA-256")
 	}
+	if len(registry.Programs) == 0 {
+		return fmt.Errorf("Home Manager adapter registry program index is empty")
+	}
+	programs := make(map[string]bool, len(registry.Programs))
+	previousProgram := ""
+	for _, program := range registry.Programs {
+		if !programPattern.MatchString(program) {
+			return fmt.Errorf("Home Manager program index contains invalid program %q", program)
+		}
+		if previousProgram != "" && program <= previousProgram {
+			return fmt.Errorf("Home Manager program index is not in unique name order at %q", program)
+		}
+		previousProgram = program
+		programs[program] = true
+	}
 	ids := make(map[string]bool)
 	targets := make(map[string]string)
 	previousID := ""
@@ -154,6 +175,9 @@ func Validate(registry *Registry, inputs releaseinputs.Inputs) error {
 			return fmt.Errorf("duplicate Home Manager adapter id %q", entry.ID)
 		}
 		ids[entry.ID] = true
+		if !programs[entry.Program] {
+			return fmt.Errorf("Home Manager adapter %q program %q is absent from the pinned program index", entry.ID, entry.Program)
+		}
 		if err := validateEntry(entry, targets); err != nil {
 			return fmt.Errorf("Home Manager adapter %q: %w", entry.ID, err)
 		}
@@ -198,7 +222,7 @@ func validateEntry(entry *Entry, targets map[string]string) error {
 		if len(entry.Targets) == 0 {
 			return fmt.Errorf("%s disposition requires at least one target", entry.Disposition)
 		}
-		if entry.Probe == nil || len(entry.Probe.Values) == 0 {
+		if entry.Probe == nil || len(entry.Probe.Values) == 0 || len(entry.Probe.Targets) == 0 {
 			return fmt.Errorf("%s disposition requires a reviewed target probe", entry.Disposition)
 		}
 	case Excluded:
@@ -250,6 +274,16 @@ func validateEntry(entry *Entry, targets map[string]string) error {
 				return fmt.Errorf("probe value %q: %w", name, err)
 			}
 		}
+		previousProbeTarget := ""
+		for _, coordinate := range entry.Probe.Targets {
+			if err := config.ValidateEnginePath(coordinate, "linux"); err != nil {
+				return fmt.Errorf("probe target %q is unsafe: %w", coordinate, err)
+			}
+			if previousProbeTarget != "" && coordinate <= previousProbeTarget {
+				return fmt.Errorf("probe targets are not in unique coordinate order at %q", coordinate)
+			}
+			previousProbeTarget = coordinate
+		}
 	}
 	for declaration := range declarations {
 		if !sha256Pattern.MatchString(entry.SourceHashes[declaration]) {
@@ -264,6 +298,9 @@ func validateEntry(entry *Entry, targets map[string]string) error {
 		if err := config.ValidateEnginePath(target.Coordinate, "linux"); err != nil {
 			return fmt.Errorf("target %q is unsafe: %w", target.Coordinate, err)
 		}
+		if entry.Disposition != Excluded && !settingscodec.TargetSupported(entry.Codec, target.Coordinate) {
+			return fmt.Errorf("codec %q does not own target %q", entry.Codec, target.Coordinate)
+		}
 		if previousTarget != "" && target.Coordinate <= previousTarget {
 			return fmt.Errorf("targets are not in unique coordinate order at %q", target.Coordinate)
 		}
@@ -272,6 +309,20 @@ func validateEntry(entry *Entry, targets map[string]string) error {
 			return fmt.Errorf("target %q is also owned by %q", target.Coordinate, owner)
 		}
 		targets[target.Coordinate] = entry.ID
+	}
+	if entry.Probe != nil {
+		declared := make(map[string]bool, len(entry.Targets))
+		for _, target := range entry.Targets {
+			declared[target.Coordinate] = true
+		}
+		for _, coordinate := range entry.Probe.Targets {
+			if !declared[coordinate] {
+				return fmt.Errorf("probe targets include undeclared runtime target %q", coordinate)
+			}
+		}
+		if entry.Disposition == FileRoundTrip && len(entry.Probe.Targets) != len(entry.Targets) {
+			return fmt.Errorf("file-roundtrip probe targets do not exactly match runtime targets")
+		}
 	}
 	return nil
 }
@@ -306,7 +357,14 @@ func validateProbeValue(value any, depth int) error {
 }
 
 func supportedCodec(disposition Disposition, codec string) bool {
-	return disposition == FileRoundTrip && codec == "bounded-regular-file-v1"
+	switch disposition {
+	case FileRoundTrip:
+		return codec == settingscodec.BoundedRegularFileV1
+	case CuratedCodec:
+		return codec == settingscodec.GitConfigSafeV1
+	default:
+		return false
+	}
 }
 
 func safeDeclarationPath(value string) bool {

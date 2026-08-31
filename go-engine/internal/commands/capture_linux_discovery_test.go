@@ -61,7 +61,8 @@ func TestRunCaptureLinux_NoNixCapturesNativeIntentAndLiveSettings(t *testing.T) 
 			}},
 			SettingsFiles: []discovery.SettingsFilePlan{{
 				CandidateID: "apps.ripgrep", AdapterID: discovery.HomeManagerSettingsSource,
-				Target: "${xdg.config}/ripgrep/ripgreprc", Source: liveConfig, ObservedSize: int64(len("--hidden\n")),
+				Codec: "bounded-regular-file-v1", Target: "${xdg.config}/ripgrep/ripgreprc",
+				Source: liveConfig, ObservedSize: int64(len("--hidden\n")),
 			}},
 			Counts: discovery.Counts{Discovered: 1, Resolved: 1, Selected: 1, Settings: 1},
 		}, nil
@@ -156,7 +157,7 @@ func TestRunCaptureLinux_NoNixAllowsSelectedSettingsOnlyArtifact(t *testing.T) {
 			}},
 			SettingsFiles: []discovery.SettingsFilePlan{{
 				CandidateID: "home-manager.atuin", AdapterID: discovery.HomeManagerSettingsSource,
-				Target: "${xdg.config}/atuin/config.toml", Source: liveConfig,
+				Codec: "bounded-regular-file-v1", Target: "${xdg.config}/atuin/config.toml", Source: liveConfig,
 				ObservedSize: int64(len("sync_address = 'https://sync.example'\n")),
 			}},
 			Counts: discovery.Counts{Discovered: 1, Settings: 1},

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
 const (
@@ -68,7 +69,7 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 		if entry.Disposition == hmregistry.Excluded {
 			continue
 		}
-		if entry.Disposition != hmregistry.FileRoundTrip || entry.Codec != "bounded-regular-file-v1" {
+		if !runtimeHomeManagerCodecSupported(entry.Disposition, entry.Codec) {
 			result.Ignored++
 			result.Warnings = append(result.Warnings, Warning{
 				Code: "settings_codec_unavailable", Source: HomeManagerSettingsSource, ItemID: entry.ID,
@@ -118,7 +119,7 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 			}
 			plans = append(plans, SettingsFilePlan{
 				CandidateID: candidateID, AdapterID: HomeManagerSettingsSource,
-				Target: target.Coordinate, Source: source, Optional: target.Optional,
+				Codec: entry.Codec, Target: target.Coordinate, Source: source, Optional: target.Optional,
 				ObservedSize: info.Size(), ObservedSHA256: observedHash,
 			})
 			evidence = append(evidence, Evidence{Source: HomeManagerSettingsSource, Kind: EvidenceConfig, Ref: target.Coordinate})
@@ -142,6 +143,11 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 		return result.SettingsFiles[i].Target < result.SettingsFiles[j].Target
 	})
 	return result, nil
+}
+
+func runtimeHomeManagerCodecSupported(disposition hmregistry.Disposition, codec string) bool {
+	return (disposition == hmregistry.FileRoundTrip && codec == settingscodec.BoundedRegularFileV1) ||
+		(disposition == hmregistry.CuratedCodec && codec == settingscodec.GitConfigSafeV1)
 }
 
 func observeHomeManagerSettingsFile(filesystem homeManagerFilesystem, source string, before os.FileInfo) (string, error) {

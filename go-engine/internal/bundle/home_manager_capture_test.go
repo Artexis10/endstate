@@ -20,7 +20,7 @@ func TestCreateCaptureBundleStagesReviewedHomeManagerFile(t *testing.T) {
 	writeCaptureFile(t, source, []byte("--hidden\n"))
 	request := testCaptureBundleRequest(t, dir, nil, nil)
 	request.HomeManagerFiles = []HomeManagerFileCapturePlan{{
-		CandidateID: "apps.ripgrep", Target: "${xdg.config}/ripgrep/ripgreprc",
+		CandidateID: "apps.ripgrep", Codec: "bounded-regular-file-v1", Target: "${xdg.config}/ripgrep/ripgreprc",
 		Source: source, ObservedSize: int64(len("--hidden\n")),
 	}}
 
@@ -67,7 +67,8 @@ func TestCreateCaptureBundleRejectsHomeManagerContentChangedAfterDiscovery(t *te
 	sum := sha256.Sum256(original)
 	request := testCaptureBundleRequest(t, dir, nil, nil)
 	request.HomeManagerFiles = []HomeManagerFileCapturePlan{{
-		CandidateID: "apps.ripgrep", Target: "${xdg.config}/ripgrep/ripgreprc", Source: source,
+		CandidateID: "apps.ripgrep", Codec: "bounded-regular-file-v1",
+		Target: "${xdg.config}/ripgrep/ripgreprc", Source: source,
 		ObservedSize: int64(len(original)), ObservedSHA256: hex.EncodeToString(sum[:]),
 	}}
 	// Same-size replacement defeats a size-only observation and must still be
@@ -80,8 +81,42 @@ func TestCreateCaptureBundleRejectsHomeManagerContentChangedAfterDiscovery(t *te
 	}
 }
 
+func TestCreateCaptureBundleAppliesReviewedGitCodecBeforePackaging(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, ".gitconfig")
+	content := []byte("[user]\nname = Example\n[credential]\npassword = literal-secret\n")
+	writeCaptureFile(t, source, content)
+	request := testCaptureBundleRequest(t, dir, nil, nil)
+	request.HomeManagerFiles = []HomeManagerFileCapturePlan{{
+		CandidateID: "apps.git", Target: "${home}/.gitconfig", Source: source,
+		ObservedSize: int64(len(content)), Codec: "git-config-safe-v1",
+	}}
+
+	if _, err := CreateCaptureBundle(request); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := extractCaptureBundle(t, request.OutputPath)
+	loaded, err := manifest.LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := loaded.HomeManager.Settings.Files["${home}/.gitconfig"]
+	staged, err := os.ReadFile(filepath.Join(filepath.Dir(manifestPath), filepath.FromSlash(strings.TrimPrefix(reference, "./"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(staged), "name = Example") || strings.Contains(string(staged), "literal-secret") || strings.Contains(string(staged), "credential") {
+		t.Fatalf("staged Git config = %q", staged)
+	}
+}
+
 func TestCreateCaptureBundleRejectsLinkedOrDuplicateHomeManagerSources(t *testing.T) {
 	for name, mutate := range map[string]func(*testing.T, string, *CaptureBundleRequest){
+		"missing codec": func(t *testing.T, dir string, request *CaptureBundleRequest) {
+			source := filepath.Join(dir, "settings")
+			writeCaptureFile(t, source, []byte("settings"))
+			request.HomeManagerFiles = []HomeManagerFileCapturePlan{{CandidateID: "apps.one", Target: "${home}/.one", Source: source}}
+		},
 		"linked source": func(t *testing.T, dir string, request *CaptureBundleRequest) {
 			realSource := filepath.Join(dir, "real")
 			writeCaptureFile(t, realSource, []byte("settings"))
@@ -89,15 +124,15 @@ func TestCreateCaptureBundleRejectsLinkedOrDuplicateHomeManagerSources(t *testin
 			if err := os.Symlink(realSource, link); err != nil {
 				t.Fatal(err)
 			}
-			request.HomeManagerFiles = []HomeManagerFileCapturePlan{{CandidateID: "apps.one", Target: "${home}/.one", Source: link}}
+			request.HomeManagerFiles = []HomeManagerFileCapturePlan{{CandidateID: "apps.one", Codec: "bounded-regular-file-v1", Target: "${home}/.one", Source: link}}
 		},
 		"duplicate target": func(t *testing.T, dir string, request *CaptureBundleRequest) {
 			one, two := filepath.Join(dir, "one"), filepath.Join(dir, "two")
 			writeCaptureFile(t, one, []byte("one"))
 			writeCaptureFile(t, two, []byte("two"))
 			request.HomeManagerFiles = []HomeManagerFileCapturePlan{
-				{CandidateID: "apps.one", Target: "${home}/.shared", Source: one},
-				{CandidateID: "apps.two", Target: "${home}/.shared", Source: two},
+				{CandidateID: "apps.one", Codec: "bounded-regular-file-v1", Target: "${home}/.shared", Source: one},
+				{CandidateID: "apps.two", Codec: "bounded-regular-file-v1", Target: "${home}/.shared", Source: two},
 			}
 		},
 	} {
@@ -123,7 +158,7 @@ func TestCreateCaptureBundlePreservesDeclaredExternalHomeManagerOwner(t *testing
 	request := CaptureBundleRequest{
 		ManifestPath: manifestPath, OutputPath: filepath.Join(dir, "capture.zip"),
 		HomeManagerFiles: []HomeManagerFileCapturePlan{{
-			CandidateID: "apps.ripgrep", Target: "${home}/.ripgreprc", Source: source,
+			CandidateID: "apps.ripgrep", Codec: "bounded-regular-file-v1", Target: "${home}/.ripgreprc", Source: source,
 		}},
 	}
 	result, err := CreateCaptureBundle(request)

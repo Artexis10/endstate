@@ -27,7 +27,10 @@ func TestRefreshBindsDocsDeclarationsSourcesAndReview(t *testing.T) {
 	if err := os.WriteFile(declaration, []byte("{ config = {}; }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	docs := []byte(`{"programs.ripgrep.arguments":{"type":"list of string","declarations":[{"name":"<home-manager/modules/programs/ripgrep.nix>"}]}}`)
+	docs := []byte(`{
+  "programs.ripgrep.arguments":{"type":"list of string","declarations":[{"name":"<home-manager/modules/programs/ripgrep.nix>"}]},
+  "programs.ripgrep.enable":{"type":"boolean","declarations":[{"name":"<home-manager/modules/programs/ripgrep.nix>"}]}
+}`)
 	registry := &hmregistry.Registry{Entries: []hmregistry.Entry{{
 		ID: "ripgrep", Program: "ripgrep", DisplayName: "ripgrep",
 		PackageID: "ripgrep", ModuleID: "apps.ripgrep",
@@ -50,6 +53,9 @@ func TestRefreshBindsDocsDeclarationsSourcesAndReview(t *testing.T) {
 	if registry.Inputs.NixpkgsRevision != inputs.Nixpkgs.Revision || registry.DocsJSONSHA256 == "" {
 		t.Fatalf("release identity = %+v docs=%q", registry.Inputs, registry.DocsJSONSHA256)
 	}
+	if !reflect.DeepEqual(registry.Programs, []string{"ripgrep"}) {
+		t.Fatalf("program index = %#v", registry.Programs)
+	}
 	option := registry.Entries[0].Options[0]
 	if option.Type != "list of string" || len(option.Declarations) != 1 || option.Declarations[0] != "modules/programs/ripgrep.nix" {
 		t.Fatalf("option = %+v", option)
@@ -59,6 +65,9 @@ func TestRefreshBindsDocsDeclarationsSourcesAndReview(t *testing.T) {
 	}
 	if registry.Entries[0].ReviewFingerprint == strings.Repeat("0", 64) {
 		t.Fatal("stale review fingerprint was retained")
+	}
+	if !reflect.DeepEqual(registry.Entries[0].Probe.Targets, []string{"${xdg.config}/ripgrep/ripgreprc"}) {
+		t.Fatalf("frozen probe targets = %#v", registry.Entries[0].Probe.Targets)
 	}
 	if err := hmregistry.Validate(registry, inputs); err != nil {
 		t.Fatalf("refreshed registry did not validate: %v", err)
@@ -106,6 +115,7 @@ func TestRefreshDerivesTargetsFromPureProbeOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	docs := []byte(`{
+  "programs.helix.enable":{"type":"boolean","declarations":[{"name":"<home-manager/modules/programs/helix.nix>"}]},
   "programs.helix.ignores":{"type":"list of string","declarations":[{"name":"<home-manager/modules/programs/helix.nix>"}]},
   "programs.helix.settings":{"type":"TOML value","declarations":[{"name":"<home-manager/modules/programs/helix.nix>"}]}
 }`)
@@ -138,6 +148,70 @@ func TestRefreshDerivesTargetsFromPureProbeOutput(t *testing.T) {
 	}
 	if got := registry.Entries[0].Targets; !reflect.DeepEqual(got, want) {
 		t.Fatalf("targets = %#v, want %#v", got, want)
+	}
+}
+
+func TestRefreshPreservesCuratedAliasesAndFreezesObservedTargets(t *testing.T) {
+	inputs, err := releaseinputs.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot := t.TempDir()
+	declaration := filepath.Join(sourceRoot, "modules", "programs", "git.nix")
+	if err := os.MkdirAll(filepath.Dir(declaration), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(declaration, []byte("{ config = {}; }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	docs := []byte(`{
+  "programs.git.attributes":{"type":"list of string","declarations":[{"name":"<home-manager/modules/programs/git.nix>"}]},
+  "programs.git.enable":{"type":"boolean","declarations":[{"name":"<home-manager/modules/programs/git.nix>"}]},
+  "programs.git.ignores":{"type":"list of string","declarations":[{"name":"<home-manager/modules/programs/git.nix>"}]},
+  "programs.git.settings":{"type":"Git settings","declarations":[{"name":"<home-manager/modules/programs/git.nix>"}]}
+}`)
+	registry := &hmregistry.Registry{Entries: []hmregistry.Entry{{
+		ID: "git", Program: "git", DisplayName: "Git", PackageID: "git", ModuleID: "apps.git",
+		Disposition: hmregistry.CuratedCodec, Codec: "git-config-safe-v1",
+		Probe: &hmregistry.Probe{Values: map[string]any{
+			"programs.git.attributes": []any{"*.pdf diff=pdf"},
+			"programs.git.ignores":    []any{"*.tmp"},
+			"programs.git.settings":   map[string]any{"user": map[string]any{"name": "Endstate Probe"}},
+		}},
+		Options: []hmregistry.Option{
+			{Name: "programs.git.attributes"},
+			{Name: "programs.git.ignores"},
+			{Name: "programs.git.settings"},
+		},
+		Targets: []hmregistry.Target{
+			{Coordinate: "${home}/.gitattributes", Optional: true},
+			{Coordinate: "${home}/.gitconfig", Optional: true},
+			{Coordinate: "${xdg.config}/git/attributes", Optional: true},
+			{Coordinate: "${xdg.config}/git/config", Optional: true},
+			{Coordinate: "${xdg.config}/git/ignore", Optional: true},
+		},
+	}}}
+	prober := fakeTargetProber{targets: map[string][]string{
+		"git": {
+			"/home/endstate-probe/.config/git/config",
+			"/home/endstate-probe/.config/git/ignore",
+			"/home/endstate-probe/.config/git/attributes",
+		},
+	}}
+
+	if err := Refresh(registry, docs, sourceRoot, inputs, prober); err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.Entries[0].Targets; len(got) != 5 || got[0].Coordinate != "${home}/.gitattributes" {
+		t.Fatalf("curated aliases were replaced: %#v", got)
+	}
+	wantProbeTargets := []string{
+		"${xdg.config}/git/attributes",
+		"${xdg.config}/git/config",
+		"${xdg.config}/git/ignore",
+	}
+	if got := registry.Entries[0].Probe.Targets; !reflect.DeepEqual(got, wantProbeTargets) {
+		t.Fatalf("probe targets = %#v, want %#v", got, wantProbeTargets)
 	}
 }
 

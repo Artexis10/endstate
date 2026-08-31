@@ -66,6 +66,7 @@ func Refresh(registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, 
 	}
 	docsHash := sha256.Sum256(docsJSON)
 	registry.DocsJSONSHA256 = hex.EncodeToString(docsHash[:])
+	registry.Programs = programIndex(rawOptions)
 
 	for entryIndex := range registry.Entries {
 		entry := &registry.Entries[entryIndex]
@@ -123,20 +124,23 @@ func Refresh(registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, 
 			if err != nil {
 				return fmt.Errorf("probe Home Manager adapter %q targets: %w", entry.ID, err)
 			}
-			optionalByCoordinate := make(map[string]bool, len(entry.Targets))
-			for _, target := range entry.Targets {
-				optionalByCoordinate[target.Coordinate] = target.Optional
-			}
-			entry.Targets = make([]hmregistry.Target, 0, len(coordinates))
-			for _, coordinate := range coordinates {
-				optional, existed := optionalByCoordinate[coordinate]
-				if !existed {
-					optional = true
+			entry.Probe.Targets = append(entry.Probe.Targets[:0], coordinates...)
+			if entry.Disposition == hmregistry.FileRoundTrip {
+				optionalByCoordinate := make(map[string]bool, len(entry.Targets))
+				for _, target := range entry.Targets {
+					optionalByCoordinate[target.Coordinate] = target.Optional
 				}
-				entry.Targets = append(entry.Targets, hmregistry.Target{
-					Coordinate: coordinate,
-					Optional:   optional,
-				})
+				entry.Targets = make([]hmregistry.Target, 0, len(coordinates))
+				for _, coordinate := range coordinates {
+					optional, existed := optionalByCoordinate[coordinate]
+					if !existed {
+						optional = true
+					}
+					entry.Targets = append(entry.Targets, hmregistry.Target{
+						Coordinate: coordinate,
+						Optional:   optional,
+					})
+				}
 			}
 		}
 	}
@@ -144,6 +148,22 @@ func Refresh(registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, 
 		return err
 	}
 	return hmregistry.Validate(registry, inputs)
+}
+
+func programIndex(options map[string]json.RawMessage) []string {
+	programs := make(map[string]bool)
+	for name := range options {
+		parts := strings.Split(name, ".")
+		if len(parts) == 3 && parts[0] == "programs" && parts[2] == "enable" && parts[1] != "" {
+			programs[parts[1]] = true
+		}
+	}
+	result := make([]string, 0, len(programs))
+	for program := range programs {
+		result = append(result, program)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func normalizeProbeTargets(targets []string) ([]string, error) {

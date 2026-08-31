@@ -16,6 +16,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -25,6 +26,7 @@ const maxHomeManagerCaptureFileSize int64 = 1 << 20
 // source. Source is execution-only and is replaced by a bundle-relative ref.
 type HomeManagerFileCapturePlan struct {
 	CandidateID    string
+	Codec          string
 	Target         string
 	Source         string
 	Optional       bool
@@ -84,6 +86,10 @@ func stageHomeManagerFiles(base *manifest.Manifest, plans []HomeManagerFileCaptu
 		if err != nil {
 			return 0, nil, err
 		}
+		data, err = settingscodec.Transform(plan.Codec, plan.Target, data)
+		if err != nil {
+			return 0, nil, fmt.Errorf("capture bundle: transform Home Manager settings: %w", err)
+		}
 		relative := homeManagerStagedPath(plan)
 		destination, err := resolveCapturePortable(context, plan.CandidateID, "homeManager.settings.files", stagingRoot, relative)
 		if err != nil {
@@ -117,6 +123,12 @@ func validateHomeManagerCapturePlan(plan HomeManagerFileCapturePlan) error {
 	}
 	if strings.TrimSpace(plan.Source) == "" || !filepath.IsAbs(plan.Source) {
 		return fmt.Errorf("capture bundle: Home Manager settings source must be absolute")
+	}
+	if !settingscodec.Supported(plan.Codec) {
+		return fmt.Errorf("capture bundle: Home Manager settings codec %q is not implemented", plan.Codec)
+	}
+	if !settingscodec.TargetSupported(plan.Codec, plan.Target) {
+		return fmt.Errorf("capture bundle: Home Manager settings codec %q does not own target %q", plan.Codec, plan.Target)
 	}
 	if plan.ObservedSize < 0 || plan.ObservedSize > maxHomeManagerCaptureFileSize {
 		return fmt.Errorf("capture bundle: Home Manager settings source exceeds the capture bound")

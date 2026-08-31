@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "lazydocker",
+  "displayName": "lazydocker",
+  "nix": { "attribute": "lazydocker" },
+  "aliases": {
+    "arch": ["lazydocker"],
+    "executable": ["lazydocker"]
+  },
+  "configModule": "apps.lazydocker"
+}

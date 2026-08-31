@@ -97,6 +97,29 @@ func TestHomeManagerAdapterSkipsExcludedMissingAndLinkedTargets(t *testing.T) {
 	}
 }
 
+func TestHomeManagerAdapterCarriesReviewedCuratedCodec(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(home, ".gitconfig")
+	if err := os.WriteFile(source, []byte("[user]\nname = Example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := &hmregistry.Registry{Entries: []hmregistry.Entry{{
+		ID: "git", Program: "git", DisplayName: "Git", ModuleID: "apps.git",
+		Disposition: hmregistry.CuratedCodec, Codec: "git-config-safe-v1",
+		Targets: []hmregistry.Target{{Coordinate: "${home}/.gitconfig"}},
+	}}}
+	inventory, err := (HomeManagerAdapter{
+		Registry:    registry,
+		Environment: config.PathEnvironment{GOOS: "linux", Home: home, Env: map[string]string{}},
+	}).Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.SettingsFiles) != 1 || inventory.SettingsFiles[0].Codec != "git-config-safe-v1" {
+		t.Fatalf("curated plans = %+v", inventory.SettingsFiles)
+	}
+}
+
 func TestOrchestratorCarriesSelectedPrivateSettingsPlansAndUpgradesPortability(t *testing.T) {
 	plan := SettingsFilePlan{CandidateID: "apps.ripgrep", AdapterID: "home-manager-live", Target: "${xdg.config}/ripgrep/ripgreprc", Source: "/private/home/.config/ripgrep/ripgreprc"}
 	orchestrator := Orchestrator{
