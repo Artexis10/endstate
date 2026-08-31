@@ -76,17 +76,23 @@
 - [ ] 7.8 Extend Home Manager/restore rollback records and verification output with effective input revisions and platform-variant identity
 - [ ] 7.9 Add cross-lane collision tests for Home Manager file placement, direct restore targets, shared modules, and existing user files
 
-## 8. Curated Linux application settings corpus
+## 8. Home Manager-derived breadth and Linux settings parity
 
-- [ ] 8.1 Add and live-round-trip Linux variants for Git, Bash, Zsh, and SSH config while excluding credentials, private keys, histories, and agent state
-- [ ] 8.2 Add and live-round-trip Linux variants for tmux, direnv, Starship, fzf, and zoxide
-- [ ] 8.3 Add and live-round-trip Linux variants for bat, eza, ripgrep, and fd
-- [ ] 8.4 Add and live-round-trip Linux variants for Neovim and Helix with plugin/cache/state exclusions
-- [ ] 8.5 Add and live-round-trip Linux variants for WezTerm, Kitty, and Alacritty with portable-config-only boundaries
-- [ ] 8.6 Add and live-round-trip Linux variants for GitHub CLI and lazygit while excluding authentication/session material
-- [ ] 8.7 Add and live-round-trip Linux variants for Jujutsu, Atuin, and Yazi while excluding account, sync-session, history, cache, and machine-bound state
-- [ ] 8.8 Add per-module discovery, capture, supported restore or explicit capture-only, verify, secret-boundary, revert/rollback, and cross-platform-mapping tests
-- [ ] 8.9 Extend the real Home Manager smoke manifest to activate the entire advertised `home-manager` subset against the immutable release input pair
+- [ ] 8.1 Build a deterministic release-time Home Manager harvester from the pinned `docs-json`, declaration/source hashes, and pure per-program `home.file` target probes; prove it never runs on the capture path
+- [ ] 8.2 Add the frozen adapter-registry schema and validator for exact input revisions, engine-owned target coordinates, option metadata, source hashes, and one reviewed `typed-roundtrip`/`file-roundtrip`/`curated-codec`/`excluded` disposition
+- [ ] 8.3 Generate an applicability matrix joining every existing Windows app module with Linux package/catalog evidence and the pinned Home Manager corpus; fail release validation on unclassified applicable counterparts
+- [ ] 8.4 Add registry drift diagnostics that invalidate reviews on changed declarations, option types, targets, or source hashes and emit a bounded human-review diff
+- [ ] 8.5 Implement reviewed typed round-trip codecs for direct structured Home Manager settings surfaces and require decode → emit → Home Manager render → decode equivalence fixtures
+- [ ] 8.6 Implement bounded safe file-round-trip adapters through staged Home Manager `home.file` placement for generators without a proven typed inverse
+- [ ] 8.7 Implement curated-codec and explicit-exclusion overrides for multi-file/default-merging/scripted/sensitive modules; reject runtime strategy inference
+- [ ] 8.8 Add live discovery and round-trip Linux variants for Git, Bash, Zsh, and SSH config while excluding credentials, private keys, histories, and agent state
+- [ ] 8.9 Add live discovery and round-trip Linux variants for tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, and fd
+- [ ] 8.10 Add live discovery and round-trip Linux variants for Neovim, Helix, WezTerm, Kitty, and Alacritty with plugin/cache/state and portable-config-only boundaries
+- [ ] 8.11 Add live discovery and round-trip Linux variants for GitHub CLI, lazygit, Jujutsu, Atuin, and Yazi while excluding authentication, account, sync-session, history, cache, and machine-bound state
+- [ ] 8.12 Close every applicable-Windows matrix row with an equivalent verified Linux variant or a reviewed platform/safety exclusion; capture-only SHALL not satisfy a safely restorable Windows counterpart
+- [ ] 8.13 Promote safely reversible Home Manager-only programs as additive Linux coverage after the same discovery/provenance/secret/round-trip gates pass
+- [ ] 8.14 Add per-adapter discovery, capture, supported restore or explicit capture-only, verify, secret-boundary, revert/rollback, and cross-platform-mapping tests
+- [ ] 8.15 Extend the real Home Manager smoke manifest to activate every advertised `home-manager` adapter against the exact immutable release input pair
 
 ## 9. GNOME and KDE value-scoped settings
 

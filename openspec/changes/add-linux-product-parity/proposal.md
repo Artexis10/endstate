@@ -10,7 +10,9 @@ Linux is release-ready only when somebody who has never used Nix can install End
 - Normalize only verified catalog mappings into portable Endstate application identities and Nix installables. Preserve source evidence, report unresolved items, and never guess that similarly named packages are equivalent.
 - Make configuration modules platform-aware under one portable application identity. Linux and later Darwin variants can declare their own matchers, paths, capture, restore, verification, secret exclusions, and realization strategy without duplicating or weakening the existing Windows catalog.
 - Capture live supported Linux settings even when Endstate or Home Manager did not create them. Use Home Manager for declarative user configuration where the module explicitly supports it, and the existing backed-up/revertible restore lane for opaque application files; never rewrite a user-owned Home Manager configuration graph.
-- Add a curated Linux settings tier covering the high-value cross-platform CLI/developer applications already represented in the Home Manager catalog, plus value-scoped GNOME and KDE user preferences. Credentials, histories, caches, databases, and machine-bound state remain excluded.
+- Derive a frozen Linux settings-adapter registry from the release-pinned Home Manager option metadata, module declarations, and evaluated managed-file targets. Add reviewed reversible codecs or safe file-placement capture on top, and use explicit curation only where the upstream declaration is not invertible.
+- Make settings-catalog breadth a parity gate: every existing Endstate application module with an applicable Linux counterpart must be classified as supported or excluded for a concrete platform/safety reason, while safely derivable Home Manager-only applications may take Linux beyond the Windows catalogue. The high-value CLI/developer corpus remains the required depth canary, not the breadth ceiling.
+- Add value-scoped GNOME and KDE user preferences. Credentials, histories, caches, databases, and machine-bound state remain excluded.
 - Extend scheduled drift checks to Linux through short-lived systemd user timers, preserving the existing opt-in `schedule` CLI and no-resident-agent model so Linux does not ship with a Windows-only recurring-value gap.
 - Define the Linux release gate as the complete normal-person journey: discover on a non-Nix-managed machine, select and capture, apply through Nix/Home Manager or the safe restore lane, verify, revert/roll back, and receive useful product-language diagnostics. The CLI contract lands first; `endstate-gui` consumes it in a separate dependent OpenSpec change and ships Linux packaging before any Linux release announcement.
 - Keep the schema Darwin-shaped so the same module and discovery contracts can power a later macOS/nix-darwin change. Implementing nix-darwin and shipping the macOS GUI are explicitly outside this Linux change.
@@ -19,7 +21,7 @@ Linux is release-ready only when somebody who has never used Nix can install End
 
 ### New Capabilities
 - `linux-machine-discovery`: Read-only multi-source discovery, evidence reconciliation, safe package normalization, unresolved-item reporting, and the non-Nix-machine onboarding contract.
-- `cross-platform-config-modules`: Portable module identity with explicit OS variants, live settings capture, per-variant safety/provenance, realization ownership, and backward-compatible interpretation of the existing Windows catalog.
+- `cross-platform-config-modules`: Portable module identity with explicit OS variants, Home Manager-derived adapter metadata, live settings capture, an applicable-Windows parity matrix, per-variant safety/provenance, realization ownership, and backward-compatible interpretation of the existing Windows catalog.
 - `linux-scheduled-drift-check`: Linux systemd-user-timer registration and status under the shared short-lived scheduled verification/capture contract.
 
 ### Modified Capabilities
@@ -37,7 +39,7 @@ Linux is release-ready only when somebody who has never used Nix can install End
 ## Impact
 
 - Engine discovery/capture orchestration, Nix realizer inventory boundaries, package identity/mapping data, module schema/loading/matching, path resolution, configuration generation/provenance, restore strategy selection, Linux schedule registration, capabilities, envelopes, and event payloads.
-- Curated module data for Linux application settings and value-scoped GNOME/KDE preferences; legacy flat modules remain valid and Windows-only unless they explicitly opt into another platform.
+- A deterministic, reviewed Home Manager-derived adapter registry; Linux module variants/codecs for applicable Windows parity and additional safe Home Manager coverage; value-scoped GNOME/KDE preferences. Legacy flat modules remain valid and Windows-only unless they explicitly opt into another platform.
 - Contract and compatibility documentation must stop presenting substrate support as product parity and must distinguish managed-profile capture from ordinary-machine discovery.
 - CI gains distro inventory fixtures, a required real-Nix/Home Manager Linux smoke, and an end-to-end fresh-machine journey that starts without an Endstate-managed Nix profile.
 - `endstate-gui` requires a separate OpenSpec change for Linux engine bundling, platform-aware onboarding and selection, consent/error presentation, Tauri packaging, updater/signing, and rendered interaction QA.

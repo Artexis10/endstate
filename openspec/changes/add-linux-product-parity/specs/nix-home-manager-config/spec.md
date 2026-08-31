@@ -30,3 +30,16 @@ The engine SHALL distinguish an Endstate-owned generated Home Manager activation
 - **WHEN** a dry run targets an externally owned Home Manager configuration
 - **THEN** the plan SHALL identify the ownership conflict and generated import artifact or fallback
 - **AND** it SHALL make no configuration changes
+
+### Requirement: Home Manager adapter metadata is derived from the same immutable input pair
+The release SHALL generate its Home Manager settings-adapter metadata from the exact Home Manager revision and compatible Nixpkgs revision embedded for realization. Generation SHALL use the upstream option JSON and pure evaluated module outputs to identify candidate program options and managed home-file targets, then freeze source hashes and reviewed dispositions into a runtime registry. Runtime discovery SHALL consume the frozen registry without evaluating arbitrary user Nix or requiring the Home Manager CLI.
+
+#### Scenario: Adapter registry and realizer inputs agree
+- **WHEN** release validation builds the Home Manager adapter registry
+- **THEN** the registry SHALL record the exact Home Manager and Nixpkgs revisions used by generated activations
+- **AND** CI SHALL reject a release whose adapter metadata was generated from different inputs
+
+#### Scenario: User already owns a Home Manager graph
+- **WHEN** an existing external Home Manager configuration is present
+- **THEN** Endstate MAY use its safely inspectable evaluated values as additional read-only evidence after the ownership boundary is established
+- **AND** ordinary discovery SHALL still read live targets through the frozen registry and SHALL NOT depend on evaluating or editing that graph

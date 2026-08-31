@@ -24,6 +24,8 @@ Constraints:
 - Detect explicitly installed/user-facing applications and supported configuration without flooding the user with dependency packages.
 - Convert only verified mappings into portable, revision-pinned Nix intents and preserve the original discovery evidence separately.
 - Capture and restore a release-quality initial settings catalog through explicit platform variants.
+- Meet or exceed Windows settings-module breadth for applications that actually have a Linux counterpart, with every existing Windows module classified by a generated applicability matrix rather than silently omitted.
+- Use the release-pinned Home Manager module corpus as an upstream option/target schema so broad Linux support does not require hand-authoring every ordinary config path and serialization mapping.
 - Provide the same opt-in scheduled drift value loop on supported Linux desktops without introducing a resident agent.
 - Give the GUI one stable, product-language journey for discovery, selection, capture, apply, verification, and rollback/revert.
 - Reach journey parity with Windows and exceed it where Nix provides atomic package generations and stronger reproducibility.
@@ -34,12 +36,12 @@ Constraints:
 - Reproduce every installed Linux dependency or claim complete coverage of every distribution/package manager.
 - Mutate apt, dnf/RPM, pacman, Flatpak, or Snap in this change.
 - Infer a Nix attribute from name similarity, query an untrusted online resolver during capture, or claim an external package's version is the desired Nix version.
-- Reverse-engineer arbitrary `home.nix`, flakes, shell programs, or opaque application databases into declarative settings.
+- Evaluate or reverse arbitrary user-owned `home.nix`, flakes, shell programs, or opaque application databases during ordinary-machine discovery. Release-time inspection of the pinned Home Manager source and pure probe configurations is explicitly in scope.
 - Capture credentials, keyrings, browser profiles, histories, caches, databases, recent-item state, or machine-bound desktop state.
 - Silently compose into, rewrite, or activate a user-owned Home Manager configuration.
 - Ship macOS/nix-darwin support or the Linux GUI from this repository change. They receive dependent OpenSpec changes in their owning repositories.
 - Support Linux schedulers other than systemd user timers in the first release; the capability remains visibly unavailable on hosts without a usable user manager.
-- Use raw catalog count as the parity metric. A smaller, verified Linux catalog with the complete journey is more valuable than hundreds of nominal modules that cannot be discovered or restored safely.
+- Claim parity by padding counts with Windows-only applications, unsafe state, aliases, or nominal modules that cannot be discovered and round-tripped. The parity floor applies to the existing Windows modules with real Linux counterparts and requires an explicit disposition for every one.
 
 ## Decisions
 
@@ -55,7 +57,7 @@ Linux is called release-ready only when the following journey passes from an ord
 6. Revert settings and roll the package generation back explicitly.
 7. Complete the same journey through the shipped Linux GUI without exposing Nix knowledge in the primary flow.
 
-This is stronger and more testable than comparing feature checkmarks or module counts. Linux exceeds Windows at the package layer once the journey passes because the desired set commits atomically, exact release inputs are recorded, and prior generations are addressable. Windows retains broader catalog coverage until Linux modules catch up; documentation must state both facts.
+This is stronger and more testable than comparing feature checkmarks or an unqualified raw count. Linux exceeds Windows at the package layer once the journey passes because the desired set commits atomically, exact release inputs are recorded, and prior generations are addressable. Linux release additionally requires the generated applicability matrix to show no unclassified or missing Linux counterpart among the existing Windows settings modules; documentation reports both applicable parity and any principled exclusions.
 
 ### 2. Inventory evidence and desired package intent are different models
 
@@ -138,9 +140,22 @@ When no Home Manager activation exists, Endstate may own the generated Home Mana
 
 This preserves Home Manager as a first-class settings realizer without turning Endstate into a hostile wrapper around users who already know Nix.
 
-### 8. The initial settings catalog is curated around high-value portable state
+### 8. A pinned Home Manager adapter registry supplies breadth; reviewed codecs supply inversion
 
-The release-blocking application corpus covers the cross-platform concepts already represented by the Home Manager catalog where live state can be captured safely: Git, Bash, Zsh, SSH configuration without keys, tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, fd, Neovim, Helix, WezTerm, Kitty, Alacritty, GitHub CLI without authentication, lazygit, Jujutsu, Atuin without account/session material, and Yazi. A module may be capture/verify-only if safe automated restore is not yet justified, but that limitation is visible in discovery.
+Home Manager is an unusually rich upstream schema but not a generic discovery engine. Its release output exposes machine-readable option metadata, its module declarations identify program ownership, and a pure probe evaluation can reveal the `home.file` targets added by enabling a program. Endstate SHALL harvest those inputs at release time from the same immutable Home Manager revision used for realization and commit/bundle a deterministic adapter registry. Runtime discovery reads only that frozen registry and the live user environment; it does not require Nix, fetch Home Manager, parse arbitrary Nix, or evaluate the user's configuration.
+
+The harvester records the program/module identity, option metadata, declaration/source hash, default package evidence, evaluated managed targets relative to engine-owned home/XDG coordinates, and a reviewed capture disposition. Each settings surface receives exactly one disposition:
+
+- `typed-roundtrip`: a supported application format such as JSON, YAML, TOML, INI, or a deliberately implemented domain codec can be decoded from live state and re-emitted through the corresponding Home Manager settings option with round-trip proof;
+- `file-roundtrip`: the target is safe portable configuration but the Home Manager generator is not reliably invertible, so Endstate captures the bounded live file and restores it through inspectable Home Manager `home.file` placement;
+- `curated-codec`: the module combines defaults, fragments, scripts, migrations, or multiple targets and needs an explicit reviewed capture mapping;
+- `excluded`: the state is absent on Linux, credential-bearing, historical, cached, database-backed, machine-bound, or otherwise unsafe, with a stable reason that is visible in the coverage report.
+
+Generated metadata is candidate authority, not permission to capture. Registry validation rejects a target or source hash change until its disposition is re-reviewed, and every supported disposition must pass live detection plus capture/apply/verify/revert tests. This avoids both hand-copying hundreds of Home Manager declarations and pretending that an arbitrary Nix function has an automatic inverse.
+
+The release builds an applicability matrix joining every existing Endstate Windows module with the package catalog, Home Manager programs, Linux desktop/executable evidence, and explicit review overrides. Every Windows module that has a real Linux counterpart must resolve to a supported Linux variant before parity can be advertised; a platform/safety exclusion is allowed only when it explains why equivalent portability is not meaningful or defensible. Safely derivable Home Manager programs with no Windows module are additive Linux coverage and can make Linux broader than Windows.
+
+The named release-blocking depth corpus remains Git, Bash, Zsh, SSH configuration without keys, tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, fd, Neovim, Helix, WezTerm, Kitty, Alacritty, GitHub CLI without authentication, lazygit, Jujutsu, Atuin without account/session material, and Yazi. It proves every capture disposition and the complete live journey early; it is not a launch ceiling. A module may be capture/verify-only if safe automated restore is not yet justified, but that limitation is visible in discovery and does not count as full parity with a restorable Windows counterpart.
 
 GNOME and KDE receive a separate value-scoped tier inside the same platform-module contract:
 
@@ -200,6 +215,8 @@ nix-darwin is not used as a generic machine-discovery system and Endstate will n
 - **[External package version differs from the release Nixpkgs version]** → Preserve source version as evidence, show the target input/ref, and do not claim byte-identical migration from a different manager.
 - **[Home Manager conflicts with existing dotfile ownership]** → Detect external ownership from live activation plus missing Endstate history, refuse silent activation, and provide an importable artifact or explicit safe fallback.
 - **[Module schema v3 multiplies curation/test surface]** → Keep one portable module, require explicit variants, validate every authored path/operation, and make the golden corpus release-blocking.
+- **[Pinned Home Manager modules drift or hide complex generation logic]** → Generate a source-hashed frozen registry from the exact release input, fail closed on changed targets/declarations, require an explicit disposition, and prove every supported codec with source-to-target round trips.
+- **[A syntactically parseable file is not necessarily a semantic inverse]** → Use typed inversion only for reviewed direct settings mappings; fall back to safe file placement or a curated codec rather than manufacturing option values.
 - **[GNOME/KDE settings need a desktop session/DBus]** → Report the lane unavailable outside a usable session, never fail package capture solely for that reason, and require real-session acceptance before advertising it.
 - **[Some Linux sessions have no usable systemd user manager]** → Advertise scheduling independently from core Linux readiness, make unsupported state explicit, never fall back silently, and keep all schedule mutations in user scope.
 - **[Floating developer overrides leak into released captures]** → Release builds embed immutable defaults and record the effective inputs; CI fails release artifacts whose defaults are not immutable.
@@ -209,10 +226,10 @@ nix-darwin is not used as a generic machine-discovery system and Endstate will n
 ## Migration Plan
 
 1. Correct contract/documentation drift: describe existing Linux support as managed-profile substrate support and remove claims that realizer capture is intentionally package-only where the implementation already attaches config finalization.
-2. Add immutable release pins and the package identity catalog with validation, without changing capture behavior.
+2. Add immutable release pins, the package identity catalog, the Home Manager adapter harvester/frozen registry, and the application applicability matrix with validation, without changing capture behavior.
 3. Add schema-v3 parsing, Windows-only legacy adaptation, platform-qualified fingerprints/provenance, and tests; keep Linux variants absent until the engine can safely execute them.
 4. Add discovery adapters and the additive envelope/capabilities contract behind a Linux capability flag. Capture continues to write only resolved intents.
-5. Add live Linux config matching/capture and the initial application corpus, then GNOME/KDE value operations. Turn on platform-module capability only after their scoped tests pass.
+5. Add live Linux config matching/capture, the typed/file/curated adapter lanes, applicable-Windows parity coverage, and the named depth corpus, then GNOME/KDE value operations. Turn on platform-module capability only after their scoped tests and coverage gate pass.
 6. Add the systemd user-timer scheduler behind the shared schedule interface and verify its full user-scope lifecycle.
 7. Promote the Ubuntu real-Nix/Home Manager journey to required and add distro/release-artifact gates.
 8. Update compatibility/CLI docs and publish the stable engine contract. Open and implement the dependent `endstate-gui` Linux change.

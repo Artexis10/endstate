@@ -130,8 +130,20 @@ Platform-specific secret exclusions SHALL be validated and applied before payloa
 - **THEN** each variant's exclusion set SHALL apply independently
 - **AND** the common module identity SHALL NOT cause exclusions to be copied or omitted implicitly
 
-### Requirement: Initial Linux application settings coverage is release-gated
-The Linux release corpus SHALL include verified variants for the supported live state of Git, Bash, Zsh, SSH configuration excluding keys, tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, fd, Neovim, Helix, WezTerm, Kitty, Alacritty, GitHub CLI excluding authentication, lazygit, Jujutsu, Atuin excluding account/session material, and Yazi. Each advertised lane SHALL pass capture, restore or declared capture-only behavior, verification, secret-boundary, and revert/rollback tests appropriate to its strategy.
+### Requirement: Linux application settings coverage has an applicable-Windows parity floor
+The Linux release corpus SHALL classify every existing Endstate Windows application module through a deterministic applicability matrix. Every module with a real Linux counterpart SHALL have a verified Linux variant providing equivalent supported settings portability, unless a reviewed platform or safety exclusion explains why equivalent capture is not meaningful or defensible. Unclassified, silently omitted, or capture-only Linux counterparts SHALL block a parity claim when the Windows variant supports safe restore. Safely supported Home Manager programs without a Windows counterpart SHALL be additive Linux coverage.
+
+The release depth corpus SHALL include verified variants for the supported live state of Git, Bash, Zsh, SSH configuration excluding keys, tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, fd, Neovim, Helix, WezTerm, Kitty, Alacritty, GitHub CLI excluding authentication, lazygit, Jujutsu, Atuin excluding account/session material, and Yazi. Each advertised lane SHALL pass capture, restore or declared capture-only behavior, verification, secret-boundary, and revert/rollback tests appropriate to its strategy.
+
+#### Scenario: Applicable Windows module has no Linux disposition
+- **WHEN** an existing Windows settings module represents an application available on Linux and the matrix has no supported Linux variant or reviewed exclusion
+- **THEN** the Linux settings-parity release gate SHALL fail
+- **AND** the module SHALL remain visible in the coverage report rather than being omitted from the denominator
+
+#### Scenario: Home Manager-only program is safely reversible
+- **WHEN** the pinned Home Manager corpus contains a program with a reviewed safe Linux capture disposition and no Windows module
+- **THEN** it MAY ship as additive Linux settings coverage
+- **AND** it SHALL pass the same discovery, round-trip, secret-boundary, and provenance gates as parity modules
 
 #### Scenario: Advertised module lacks live capture evidence
 - **WHEN** a corpus module has only a Home Manager emission test or a Windows path test
@@ -141,6 +153,31 @@ The Linux release corpus SHALL include verified variants for the supported live 
 - **WHEN** a corpus module can safely capture but cannot yet safely restore
 - **THEN** discovery SHALL label the supported action as capture-only
 - **AND** the GUI/CLI SHALL NOT offer automatic restore for it
+
+### Requirement: Release-pinned Home Manager metadata is harvested into a frozen adapter registry
+The release process SHALL derive candidate Linux adapter metadata from the exact immutable Home Manager input used for realization. The derivation SHALL include machine-readable option metadata, source declarations/hashes, and pure probe evaluation of program-managed home-file targets relative to engine-owned coordinates. The generated registry SHALL be deterministic, reviewed, bundled with the release, and available to runtime discovery without Nix or Home Manager.
+
+Each adapter SHALL declare exactly one reviewed disposition: `typed-roundtrip`, `file-roundtrip`, `curated-codec`, or `excluded`. A source declaration, managed target, option type, or source hash change SHALL invalidate the previous review until the generated diff is accepted. Runtime SHALL NOT infer a capture strategy from a file extension or option name alone.
+
+#### Scenario: Ordinary machine has no Nix installation
+- **WHEN** runtime discovery finds a live config target described by the frozen adapter registry on a machine without Nix or Home Manager
+- **THEN** it SHALL offer the reviewed settings action using engine-owned path coordinates
+- **AND** it SHALL NOT fetch or evaluate Home Manager during capture
+
+#### Scenario: Direct settings mapping has a proven codec
+- **WHEN** a Home Manager program writes a reviewed structured settings option directly to a known target and its source-to-target round-trip suite passes
+- **THEN** the adapter MAY use `typed-roundtrip` to decode live state and re-emit that settings option
+- **AND** the captured payload SHALL preserve only the reviewed portable values
+
+#### Scenario: Generator is not reliably invertible
+- **WHEN** a Home Manager module combines defaults, scripts, fragments, migrations, or multiple sources such that typed inversion is not proven
+- **THEN** the adapter SHALL use reviewed bounded `file-roundtrip`, a `curated-codec`, or `excluded`
+- **AND** it SHALL NOT manufacture typed Home Manager option values from the live file
+
+#### Scenario: Pinned module target changes
+- **WHEN** regeneration against a new Home Manager input changes an adapter's declaration hash, option type, or managed target
+- **THEN** registry validation SHALL fail the previous review disposition
+- **AND** release SHALL require an explicit reviewed update plus the affected round-trip tests
 
 ### Requirement: GNOME and KDE settings are value-scoped and reversible
 Linux desktop settings modules SHALL operate only on reviewed individual GNOME schema/key values or KDE file/group/key values. Each write SHALL preserve the prior value or absence, verify the desired value, and support explicit revert. Whole dconf databases, whole KDE config directories, account/keyring data, histories, recent items, device topology, and session/window state SHALL NOT be captured or restored.
