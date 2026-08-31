@@ -68,14 +68,33 @@ func normalizeHomeFlakeRef(flake string) string {
 		return flake
 	}
 	location, fragment, hasFragment := strings.Cut(flake, "#")
-	if !filepath.IsAbs(location) {
+	normalizedPath, absolute := portableAbsoluteHomePath(location)
+	if !absolute {
 		return flake
 	}
-	normalized := "path:" + filepath.ToSlash(location)
+	normalized := "path:" + normalizedPath
 	if hasFragment {
 		normalized += "#" + fragment
 	}
 	return normalized
+}
+
+func portableAbsoluteHomePath(value string) (string, bool) {
+	// Generated flakes use POSIX paths on Linux and Darwin. Recognise them
+	// independently of the host compiling or testing the reference.
+	if strings.HasPrefix(value, "/") {
+		return strings.ReplaceAll(value, "\\", "/"), true
+	}
+	if filepath.IsAbs(value) {
+		return filepath.ToSlash(value), true
+	}
+	// Keep drive-letter paths deterministic when manifests or tests cross an
+	// OS boundary; filepath.IsAbs intentionally follows only the current host.
+	if len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) &&
+		value[1] == ':' && (value[2] == '/' || value[2] == '\\') {
+		return strings.ReplaceAll(value, "\\", "/"), true
+	}
+	return "", false
 }
 
 // homeGen returns the active home-manager generation number, via homeGenFn when

@@ -83,6 +83,17 @@ func TestNormalizeHomeFlakeRefLeavesRemoteAndExplicitRefsAlone(t *testing.T) {
 	}
 }
 
+func TestNormalizeHomeFlakeRefRecognizesPortableAbsolutePaths(t *testing.T) {
+	for input, want := range map[string]string{
+		"/home/me/dots#me":    "path:/home/me/dots#me",
+		`C:\Users\me\dots#me`: "path:C:/Users/me/dots#me",
+	} {
+		if got := normalizeHomeFlakeRef(input); got != want {
+			t.Errorf("normalizeHomeFlakeRef(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 // TestActivateHome_DefaultPin: when HomePin is empty the engine default
 // home-manager pin is used.
 func TestActivateHome_DefaultPin(t *testing.T) {
