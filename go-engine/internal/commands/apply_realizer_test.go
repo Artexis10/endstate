@@ -4,18 +4,21 @@
 package commands
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
 
 // ---------------------------------------------------------------------------
@@ -187,13 +190,32 @@ func nixManifest(apps ...manifest.App) *manifest.Manifest {
 func withFakeRealizer(fr *fakeRealizer, f func()) {
 	orig := newRealizerFn
 	origBrew := newBrewDriverFn
+	origDiscovery := discoverLinuxFn
 	newRealizerFn = func() (realizer.Realizer, error) { return fr, nil }
 	newBrewDriverFn = failBrewDriverFn
+	discoverLinuxFn = discoverTestRealizerOnly
 	defer func() {
 		newRealizerFn = orig
 		newBrewDriverFn = origBrew
+		discoverLinuxFn = origDiscovery
 	}()
 	f()
+}
+
+// discoverTestRealizerOnly keeps command tests hermetic while exercising the
+// same reconciliation contract as production. Host apt/Nix/XDG state is never
+// part of a fake-realizer fixture.
+func discoverTestRealizerOnly(ctx context.Context, request discovery.Request, r realizer.Realizer) (discovery.Result, error) {
+	inputs, err := releaseinputs.Load()
+	if err != nil {
+		return discovery.Result{}, err
+	}
+	return (discovery.Orchestrator{
+		Adapters: []discovery.Adapter{discovery.RealizerInventoryAdapter{
+			Realizer: r, DefaultInput: inputs.Nixpkgs.FlakeRef,
+		}},
+		NixpkgsInput: inputs.Nixpkgs.FlakeRef,
+	}).Discover(ctx, request)
 }
 
 // failBrewDriverFn is a newBrewDriverFn stand-in that returns ErrNoBrewDriver so
@@ -896,6 +918,58 @@ func TestRunApplyRealizer_HomeManagerConfig_DryRunRevealsNoActivate(t *testing.T
 	if _, err := os.Stat(filepath.Join(dir, "flake.nix")); err != nil {
 		t.Fatalf("dry-run did not write the inspectable flake: %v", err)
 	}
+}
+
+func TestRunApplyRealizer_ExternalHomeManagerGetsImportActionNotActivation(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	manifestPath, cfgRel := writeHomeNix(t)
+	mf := nixManifest()
+	mf.HomeManager = &manifest.HomeManagerConfig{Config: cfgRel}
+	fr := &fakeRealizer{activeHomeGen: 9, homeGenNum: 10}
+
+	raw, eerr := runApplyRealizer(
+		ApplyFlags{Manifest: manifestPath, EnableRestore: true},
+		mf,
+		fr,
+		noopEmitter(),
+		"run-external-home-manager",
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %+v", eerr)
+	}
+	result := raw.(*ApplyResult)
+	if fr.activateCalls != 0 {
+		t.Fatalf("external Home Manager was activated over: calls=%d", fr.activateCalls)
+	}
+	if result.HomeManager == nil || result.HomeManager.OwnershipAction == nil {
+		t.Fatalf("external ownership action missing: %+v", result.HomeManager)
+	}
+	action := result.HomeManager.OwnershipAction
+	if action.Owner != "external" || action.Action != "import_generated_module" || !action.Required {
+		t.Fatalf("ownership action = %+v", action)
+	}
+	if filepath.Base(action.ModulePath) != "home.nix" {
+		t.Fatalf("importable module path = %q", action.ModulePath)
+	}
+	if _, err := os.Stat(action.ModulePath); err != nil {
+		t.Fatalf("importable module was not generated: %v", err)
+	}
+}
+
+func TestExternalHomeManagerActionRecognizesEndstateOwnedActiveGeneration(t *testing.T) {
+	fr := &fakeRealizer{activeHomeGen: 9}
+	withFakeGenerations([]*provision.Generation{{
+		HomeManager: &provision.HomeGenRef{Flake: "/state/home-manager/me#me", Generation: 9},
+	}}, nil, func() {
+		if action := externalHomeManagerAction(fr, "/state/home-manager/me#me", true); action != nil {
+			t.Fatalf("Endstate-owned active generation was treated as external: %+v", action)
+		}
+	})
 }
 
 // TestRunApply_WingetPath_ConfigNeverGenerates: on the driver (winget) path a

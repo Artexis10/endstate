@@ -885,12 +885,16 @@ func TestRunCaptureRealizerSuppliesInstalledNixAndBrewPackageEvidence(t *testing
 	}
 	t.Setenv("ENDSTATE_CAPTURE_CONFIG", configRoot)
 	makeModule := func(id string) *modules.Module {
-		return testCaptureGenerationModule(t, captureGenerationModuleSpec{
+		base := testCaptureGenerationModule(t, captureGenerationModuleSpec{
 			ID: id, PathMatch: configRoot,
 			Detectors:     []modules.InstanceDetectorDef{{ID: "installed", Type: "package"}},
 			Sets:          []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
 			CaptureSource: captureTestEnvPath("ENDSTATE_CAPTURE_CONFIG", "prefs.json"),
 		})
+		base.SourceSchemaVersion = 3
+		base.Platform = "darwin"
+		base.Realization = "endstate-restore"
+		return base
 	}
 	nixModule := makeModule("apps.ripgrep")
 	brewModule := makeModule("apps.hello")

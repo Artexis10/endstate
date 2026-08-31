@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "yadm",
+  "displayName": "yadm",
+  "nix": { "attribute": "yadm" },
+  "aliases": {
+    "debian": ["yadm"],
+    "rpm": ["yadm"],
+    "arch": ["yadm"],
+    "executable": ["yadm"]
+  }
+}

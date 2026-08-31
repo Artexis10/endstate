@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "bat",
+  "displayName": "bat",
+  "nix": { "attribute": "bat" },
+  "aliases": {
+    "debian": ["bat"],
+    "rpm": ["bat"],
+    "arch": ["bat"],
+    "executable": ["bat", "batcat"]
+  },
+  "configModule": "apps.bat"
+}

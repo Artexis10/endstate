@@ -354,6 +354,20 @@ func moduleMatchesPinnedSnapshot(mod *modules.Module) bool {
 	if err != nil || pinned.Revision != mod.Revision {
 		return false
 	}
+	if mod.SourceSchemaVersion == 3 {
+		if pinned.EffectiveSchemaVersion() == 3 {
+			pinned = modules.ProjectModuleForPlatform(pinned, mod.Platform)
+			if pinned == nil {
+				return false
+			}
+		} else {
+			// Hermetic callers may pin an already-projected legacy/generation
+			// snapshot. Align only the non-executable projection metadata.
+			pinned.SourceSchemaVersion = 3
+			pinned.Platform = mod.Platform
+			pinned.Realization = mod.Realization
+		}
+	}
 	// Catalog loading adds only host-location metadata after parsing. Align
 	// those loader fields before comparing the complete declarative snapshot.
 	pinned.FilePath = mod.FilePath

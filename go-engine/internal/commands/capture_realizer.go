@@ -209,11 +209,28 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	// Apply --only after BOTH lanes have contributed (realizer above, brew just
 	// now) and before the --update merge, matching the Windows path: a selection
 	// narrows what this run discovered, it never truncates an existing manifest.
-	appSelection, selectedApps, onlyErr := validateCaptureOnly(flags.Only, captured)
+	appSelection, selectedApps, onlyErr := validateCaptureOnlyWithSettings(
+		flags.Only,
+		captured,
+		flags.linuxSettingsApps,
+		flags.linuxSettingsModules,
+	)
 	if onlyErr != nil {
 		return nil, onlyErr
 	}
 	captured = selectedApps
+	if flags.linuxDiscoveryCounts != nil && !flags.Update && len(captured) == 0 && len(flags.linuxHomeManagerFiles) == 0 {
+		counts := *flags.linuxDiscoveryCounts
+		return nil, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			fmt.Sprintf(
+				"Linux discovery found no portable applications or capturable settings: %d discovered, %d unresolved, %d ignored.",
+				counts.Discovered,
+				counts.Unresolved,
+				counts.Ignored,
+			),
+		).WithRemediation("Install a supported application or keep a reviewed settings file, then run capture again. Review unresolved items for missing package mappings.")
+	}
 
 	// --- 4. If --update and --manifest: merge with existing manifest (host-keyed) ---
 	if flags.Update && flags.Manifest != "" {
@@ -367,6 +384,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
 		Apps:              buildModuleMatchApps(captured),
+		Platform:          captureGOOSFn(),
 		Selection:         appSelection,
 		ValidationContext: currentValidationMode,
 		OnStage: func(stage bundle.Stage) {

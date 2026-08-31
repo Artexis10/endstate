@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "zoxide",
+  "displayName": "zoxide",
+  "nix": { "attribute": "zoxide" },
+  "aliases": {
+    "debian": ["zoxide"],
+    "rpm": ["zoxide"],
+    "arch": ["zoxide"],
+    "executable": ["zoxide"]
+  },
+  "configModule": "apps.zoxide"
+}

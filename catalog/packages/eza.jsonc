@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "eza",
+  "displayName": "eza",
+  "nix": { "attribute": "eza" },
+  "aliases": {
+    "debian": ["eza"],
+    "rpm": ["eza"],
+    "arch": ["eza"],
+    "executable": ["eza"]
+  },
+  "configModule": "apps.eza"
+}

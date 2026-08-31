@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "alacritty",
+  "displayName": "Alacritty",
+  "nix": { "attribute": "alacritty" },
+  "aliases": {
+    "debian": ["alacritty"],
+    "rpm": ["alacritty"],
+    "arch": ["alacritty"],
+    "flatpak": ["org.alacritty.Alacritty"],
+    "desktop": ["Alacritty.desktop"],
+    "executable": ["alacritty"]
+  },
+  "configModule": "apps.alacritty"
+}

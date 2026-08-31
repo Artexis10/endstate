@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "ripgrep",
+  "displayName": "ripgrep",
+  "nix": { "attribute": "ripgrep" },
+  "aliases": {
+    "debian": ["ripgrep"],
+    "rpm": ["ripgrep"],
+    "arch": ["ripgrep"],
+    "executable": ["rg"]
+  },
+  "configModule": "apps.ripgrep"
+}

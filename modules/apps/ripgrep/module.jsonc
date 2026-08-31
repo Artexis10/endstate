@@ -1,55 +1,85 @@
 {
   // Config Module: ripgrep
-  // Provides verify/capture/restore configuration for ripgrep (rg)
-  // ripgrep has NO fixed default config path — it reads the file named by RIPGREP_CONFIG_PATH.
-  // This module captures the two established conventions for that file.
+  // ripgrep reads only the file named by RIPGREP_CONFIG_PATH. Endstate captures
+  // the two established user-config conventions on each supported platform.
 
+  "moduleSchemaVersion": 3,
   "id": "apps.ripgrep",
   "displayName": "ripgrep",
   "sensitivity": "low",
 
-  "matches": {
-    "winget": ["BurntSushi.ripgrep.MSVC"],
-    "exe": ["rg.exe"],
-    "uninstallDisplayName": ["^ripgrep"]
-  },
-
-  "verify": [
-    { "type": "command-exists", "command": "rg" }
-    // Note: ripgrep has no config unless RIPGREP_CONFIG_PATH is set, so verify only
-    // confirms the binary is installed, not that a config file exists.
-  ],
-
-  "restore": [
-    {
-      // Most common convention: ~/.ripgreprc (point RIPGREP_CONFIG_PATH at it)
-      "type": "copy",
-      "source": "./payload/apps/ripgrep/.ripgreprc",
-      "target": "~/.ripgreprc",
-      "backup": true,
-      "optional": true
+  "platforms": {
+    "windows": {
+      "realization": "endstate-restore",
+      "matches": {
+        "winget": ["BurntSushi.ripgrep.MSVC"],
+        "exe": ["rg.exe"],
+        "uninstallDisplayName": ["^ripgrep"]
+      },
+      "verify": [
+        { "type": "command-exists", "command": "rg" }
+      ],
+      "restore": [
+        {
+          "type": "copy",
+          "source": "./payload/apps/ripgrep/.ripgreprc",
+          "target": "${home}/.ripgreprc",
+          "backup": true,
+          "optional": true
+        },
+        {
+          "type": "copy",
+          "source": "./payload/apps/ripgrep/config",
+          "target": "${windows.appdata}/ripgrep/config",
+          "backup": true,
+          "optional": true
+        }
+      ],
+      "capture": {
+        "files": [
+          { "source": "${home}/.ripgreprc", "dest": "apps/ripgrep/.ripgreprc", "optional": true },
+          { "source": "${windows.appdata}/ripgrep/config", "dest": "apps/ripgrep/config", "optional": true }
+        ],
+        "excludeGlobs": ["**/*.log"]
+      }
     },
-    {
-      // XDG-style convention used by some Windows setups: %APPDATA%\ripgrep\config
-      "type": "copy",
-      "source": "./payload/apps/ripgrep/config",
-      "target": "%APPDATA%\\ripgrep\\config",
-      "backup": true,
-      "optional": true
-    }
-  ],
 
-  "capture": {
-    "files": [
-      // Default flags, type definitions, and glob rules (one shell-arg per line)
-      { "source": "~/.ripgreprc", "dest": "apps/ripgrep/.ripgreprc", "optional": true },
-      // Alternate XDG-style location
-      { "source": "%APPDATA%\\ripgrep\\config", "dest": "apps/ripgrep/config", "optional": true }
-    ],
-    "excludeGlobs": [
-      "**/*.log"
-    ]
+    "linux": {
+      "realization": "endstate-restore",
+      "matches": {
+        "pathExists": [
+          "${home}/.ripgreprc",
+          "${xdg.config}/ripgrep/config"
+        ]
+      },
+      "verify": [
+        { "type": "command-exists", "command": "rg" }
+      ],
+      "restore": [
+        {
+          "type": "copy",
+          "source": "./payload/apps/ripgrep/.ripgreprc",
+          "target": "${home}/.ripgreprc",
+          "backup": true,
+          "optional": true
+        },
+        {
+          "type": "copy",
+          "source": "./payload/apps/ripgrep/config",
+          "target": "${xdg.config}/ripgrep/config",
+          "backup": true,
+          "optional": true
+        }
+      ],
+      "capture": {
+        "files": [
+          { "source": "${home}/.ripgreprc", "dest": "apps/ripgrep/.ripgreprc", "optional": true },
+          { "source": "${xdg.config}/ripgrep/config", "dest": "apps/ripgrep/config", "optional": true }
+        ],
+        "excludeGlobs": ["**/*.log"]
+      }
+    }
   },
 
-  "notes": "Captures the ripgrep config file (default flags, custom --type definitions, glob rules) from both the dominant ~/.ripgreprc convention and the alternate %APPDATA%\\ripgrep\\config location. ripgrep has no built-in default config path: it only reads the file named by the RIPGREP_CONFIG_PATH environment variable, which the user must set (typically in their shell rc). No credentials are involved. Confidence: medium - ripgrep's RIPGREP_CONFIG_PATH mechanism and the ~/.ripgreprc convention are confirmed by the official ripgrep GUIDE, but there is no single canonical path so the location is convention-dependent."
+  "notes": "Captures ripgrep defaults, type definitions, and glob rules from the dominant ~/.ripgreprc convention and the alternate platform config location. ripgrep has no built-in config path; users point RIPGREP_CONFIG_PATH at one of these files. No credentials are involved."
 }

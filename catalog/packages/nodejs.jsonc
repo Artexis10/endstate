@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "nodejs",
+  "displayName": "Node.js",
+  "nix": { "attribute": "nodejs" },
+  "aliases": {
+    "debian": ["nodejs"],
+    "rpm": ["nodejs"],
+    "arch": ["nodejs"],
+    "executable": ["node"]
+  }
+}

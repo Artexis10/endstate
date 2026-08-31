@@ -9,7 +9,24 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
+
+func TestNewUsesReleaseOwnedImmutableInputPair(t *testing.T) {
+	t.Setenv("ENDSTATE_NIXPKGS_PIN", "")
+	t.Setenv("ENDSTATE_HOME_MANAGER_PIN", "")
+	inputs, err := releaseinputs.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := New()
+	if b.Pin != inputs.Nixpkgs.FlakeRef {
+		t.Fatalf("Pin = %q, want release pin %q", b.Pin, inputs.Nixpkgs.FlakeRef)
+	}
+	if b.HomePin != inputs.HomeManager.FlakeRef {
+		t.Fatalf("HomePin = %q, want compatible release pin %q", b.HomePin, inputs.HomeManager.FlakeRef)
+	}
+}
 
 func TestResolveInstallable(t *testing.T) {
 	b := &Backend{Pin: "nixpkgs"}

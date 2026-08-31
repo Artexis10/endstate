@@ -120,13 +120,25 @@ func TestResolveRepoRoot_CatalogFallbackFindsInstallLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := walkUpFor(libDir, func(dir string) bool {
-		info, err := os.Stat(filepath.Join(dir, "modules", "apps"))
-		return err == nil && info.IsDir()
-	})
+	got := walkUpFor(libDir, hasInstalledCatalog)
 
 	if got != install {
 		t.Errorf("expected the install dir carrying modules/apps, got %q want %q", got, install)
+	}
+}
+
+func TestResolveRepoRoot_CatalogFallbackFindsPackageOnlyInstallLayout(t *testing.T) {
+	install := filepath.Join(t.TempDir(), "endstate")
+	libDir := filepath.Join(install, "lib")
+	if err := os.MkdirAll(filepath.Join(install, "catalog", "packages"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := walkUpFor(libDir, hasInstalledCatalog); got != install {
+		t.Errorf("package catalog should make an installed layout resolvable: got %q want %q", got, install)
 	}
 }
 

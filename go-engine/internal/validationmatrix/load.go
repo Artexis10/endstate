@@ -71,6 +71,12 @@ func LoadCatalog(repoRoot string, now time.Time) (*Catalog, error) {
 		first := diagnostics[0]
 		return nil, validationError(CodeInvalidModuleCatalog, first.ModuleID, first.FilePath, "%s", first.Message)
 	}
+	// The production validation matrix currently executes the Windows catalog.
+	// Project schema-v3 modules to their explicit Windows variant while keeping
+	// flat schema-v1/v2 modules byte-compatible. Linux/Darwin platform matrices
+	// are separate release gates and must never execute Windows declarations on
+	// those hosts.
+	productionModules = modules.FilterCatalogForPlatform(productionModules, "windows")
 
 	moduleIDs := make([]string, 0, len(productionModules))
 	for moduleID := range productionModules {

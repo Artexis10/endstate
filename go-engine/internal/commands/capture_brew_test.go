@@ -34,13 +34,16 @@ func withCaptureRealizerAndBrew(fr *fakeRealizer, brewFn func() (driver.Driver, 
 	origRz := newRealizerFn
 	origBrew := newBrewDriverFn
 	origGOOS := captureGOOSFn
+	origDiscovery := discoverLinuxFn
 	newRealizerFn = func() (realizer.Realizer, error) { return fr, nil }
 	newBrewDriverFn = brewFn
 	captureGOOSFn = func() string { return goos }
+	discoverLinuxFn = discoverTestRealizerOnly
 	defer func() {
 		newRealizerFn = origRz
 		newBrewDriverFn = origBrew
 		captureGOOSFn = origGOOS
+		discoverLinuxFn = origDiscovery
 	}()
 	f()
 }

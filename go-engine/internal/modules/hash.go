@@ -74,7 +74,7 @@ func ParseModuleJSON(data []byte) (*Module, error) {
 	// loader for backward compatibility. Schema v2 is a declarative engine
 	// contract: reject misspelled or unsupported fields instead of ignoring
 	// intent the engine cannot execute.
-	if mod.EffectiveSchemaVersion() == 2 {
+	if mod.EffectiveSchemaVersion() == 2 || mod.EffectiveSchemaVersion() == 3 {
 		if err := decodeStrictModuleJSON(clean, &mod); err != nil {
 			return nil, err
 		}

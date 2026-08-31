@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "pipx",
+  "displayName": "pipx",
+  "nix": { "attribute": "pipx" },
+  "aliases": {
+    "debian": ["pipx"],
+    "rpm": ["pipx"],
+    "arch": ["python-pipx"],
+    "executable": ["pipx"]
+  }
+}

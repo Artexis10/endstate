@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "firefox",
+  "displayName": "Firefox",
+  "nix": { "attribute": "firefox" },
+  "aliases": {
+    "debian": ["firefox"],
+    "rpm": ["firefox"],
+    "arch": ["firefox"],
+    "flatpak": ["org.mozilla.firefox"],
+    "desktop": ["firefox.desktop"],
+    "executable": ["firefox"]
+  }
+}

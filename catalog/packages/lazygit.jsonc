@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "lazygit",
+  "displayName": "lazygit",
+  "nix": { "attribute": "lazygit" },
+  "aliases": {
+    "debian": ["lazygit"],
+    "rpm": ["lazygit"],
+    "arch": ["lazygit"],
+    "executable": ["lazygit"]
+  },
+  "configModule": "apps.lazygit"
+}

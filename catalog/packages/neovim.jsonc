@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "neovim",
+  "displayName": "Neovim",
+  "nix": { "attribute": "neovim" },
+  "aliases": {
+    "debian": ["neovim"],
+    "rpm": ["neovim"],
+    "arch": ["neovim"],
+    "flatpak": ["io.neovim.nvim"],
+    "executable": ["nvim"]
+  },
+  "configModule": "apps.neovim"
+}

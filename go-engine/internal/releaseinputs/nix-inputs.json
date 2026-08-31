@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "nixpkgs": {
+    "revision": "5880666fd9eb563038431edb35c2d0aa595884e6",
+    "flakeRef": "github:NixOS/nixpkgs/5880666fd9eb563038431edb35c2d0aa595884e6",
+    "narHash": "sha256-OURZPknrTjQrlNyxPdqzyqmU/81Wes1CUP/Ft1Rv/YI="
+  },
+  "homeManager": {
+    "revision": "65258d5c65a250189fde2e35f490d15e064c4c62",
+    "flakeRef": "github:nix-community/home-manager/65258d5c65a250189fde2e35f490d15e064c4c62",
+    "narHash": "sha256-Sxu1NLTD/Ern6hFGLlZmtKCSct3YQXZI/lls8RE1XeM=",
+    "compatibleNixpkgsRevision": "5880666fd9eb563038431edb35c2d0aa595884e6"
+  }
+}

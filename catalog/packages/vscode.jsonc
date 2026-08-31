@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "vscode",
+  "displayName": "Visual Studio Code",
+  "nix": { "attribute": "vscode" },
+  "aliases": {
+    "debian": ["code"],
+    "rpm": ["code"],
+    "arch": ["code"],
+    "flatpak": ["com.visualstudio.code"],
+    "desktop": ["code.desktop"],
+    "executable": ["code"]
+  },
+  "configModule": "apps.vscode"
+}

@@ -10,7 +10,9 @@ import (
 	"runtime"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup"
+	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
 
 // CapabilitiesData is the data payload returned by the capabilities command.
@@ -41,14 +43,30 @@ type CommandInfo struct {
 
 // FeaturesInfo is the features capability map returned in the capabilities response.
 type FeaturesInfo struct {
-	Streaming         bool                `json:"streaming"`
-	ParallelInstall   bool                `json:"parallelInstall"`
-	ConfigModules     bool                `json:"configModules"`
-	JSONOutput        bool                `json:"jsonOutput"`
-	ManualApps        bool                `json:"manualApps"`
-	ProfileInspection bool                `json:"profileInspection"`
-	HostedBackup      HostedBackupFeature `json:"hostedBackup"`
-	Schedule          ScheduleFeature     `json:"schedule"`
+	Streaming         bool                  `json:"streaming"`
+	ParallelInstall   bool                  `json:"parallelInstall"`
+	ConfigModules     bool                  `json:"configModules"`
+	JSONOutput        bool                  `json:"jsonOutput"`
+	ManualApps        bool                  `json:"manualApps"`
+	ProfileInspection bool                  `json:"profileInspection"`
+	HostedBackup      HostedBackupFeature   `json:"hostedBackup"`
+	Schedule          ScheduleFeature       `json:"schedule"`
+	LinuxDiscovery    LinuxDiscoveryFeature `json:"linuxDiscovery"`
+}
+
+// LinuxDiscoveryFeature is the complete engine-owned handshake used by a thin
+// GUI. Adapters report per-host availability in capture results; this block
+// advertises the discovery vocabulary compiled into the engine without probing
+// or mutating the machine during the capabilities command.
+type LinuxDiscoveryFeature struct {
+	Supported                   bool     `json:"supported"`
+	SchemaVersion               string   `json:"schemaVersion,omitempty"`
+	Adapters                    []string `json:"adapters"`
+	PlatformModuleSchemaVersion int      `json:"platformModuleSchemaVersion,omitempty"`
+	SettingsCaptureWithoutNix   bool     `json:"settingsCaptureWithoutNix"`
+	ImmutableInputs             bool     `json:"immutableInputs"`
+	NixpkgsRevision             string   `json:"nixpkgsRevision,omitempty"`
+	HomeManagerRevision         string   `json:"homeManagerRevision,omitempty"`
 }
 
 // ScheduleFeature advertises the scheduled drift-check capability. The GUI gates
@@ -203,6 +221,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				AutoPush:                true,
 				BundleManifestSupported: true,
 			},
+			LinuxDiscovery: linuxDiscoveryFeatureFor(runtime.GOOS),
 		},
 		Platform:           platformInfoFor(runtime.GOOS),
 		GitCommit:          nil,
@@ -211,6 +230,33 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 	}
 
 	return data, nil
+}
+
+func linuxDiscoveryFeatureFor(goos string) LinuxDiscoveryFeature {
+	feature := LinuxDiscoveryFeature{Adapters: []string{}}
+	if goos != "linux" {
+		return feature
+	}
+	feature.Supported = true
+	feature.SchemaVersion = discovery.SchemaVersion
+	feature.PlatformModuleSchemaVersion = 3
+	feature.SettingsCaptureWithoutNix = true
+	feature.Adapters = []string{
+		"endstate-profile",
+		"nix-user-profile",
+		"debian-explicit",
+		"rpm-explicit",
+		"arch-explicit",
+		"flatpak-applications",
+		"xdg-desktop-applications",
+		"home-manager-live-settings",
+	}
+	if inputs, err := releaseinputs.Load(); err == nil {
+		feature.ImmutableInputs = true
+		feature.NixpkgsRevision = inputs.Nixpkgs.Revision
+		feature.HomeManagerRevision = inputs.HomeManager.Revision
+	}
+	return feature
 }
 
 // platformInfoFor builds the capabilities PlatformInfo for the given OS. The OS

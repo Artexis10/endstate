@@ -68,6 +68,7 @@ func TestCompileHomeNix_CuratedAndRaw(t *testing.T) {
 	out := string(home)
 	for _, w := range []string{
 		"programs.git.enable = true;",
+		"programs.git.settings = ",
 		`"name" = "Hugo"`,
 		`"email" = "h@x.com"`,
 		`"defaultBranch" = "main"`,
@@ -86,6 +87,22 @@ func TestCompileHomeNix_CuratedAndRaw(t *testing.T) {
 	// It is a home-manager module.
 	if !strings.HasPrefix(strings.TrimSpace(out), "{") {
 		t.Errorf("compiled home.nix is not a module:\n%s", out)
+	}
+	if strings.Contains(out, "programs.git.extraConfig") {
+		t.Fatalf("compiled home.nix used removed pinned option programs.git.extraConfig:\n%s", out)
+	}
+}
+
+func TestCompileHomeNixSSHExtraConfigDeclaresPinnedDefaultBlock(t *testing.T) {
+	home, _, err := CompileHomeNix(&manifest.HomeManagerSettings{
+		SSH: &manifest.SSHSettings{Enable: true, ExtraConfig: "ServerAliveInterval 30"},
+	}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(home)
+	if !strings.Contains(output, `programs.ssh.settings."*" = {};`) || !strings.Contains(output, "programs.ssh.extraConfig") {
+		t.Fatalf("compiled SSH settings violate the pinned Home Manager assertion:\n%s", output)
 	}
 }
 
@@ -363,6 +380,49 @@ func TestCompileHomeNix_StagesFiles(t *testing.T) {
 	out := string(home)
 	if !strings.Contains(out, `home.file.".config/foo/bar.conf".source = ./`+stagedRel) {
 		t.Errorf("compiled home.nix missing home.file entry for the staged source (%s):\n%s", stagedRel, out)
+	}
+}
+
+func TestCompileHomeNix_MapsEngineCoordinatesToNativeXDGPlacements(t *testing.T) {
+	manDir := t.TempDir()
+	source := filepath.Join(manDir, "captured")
+	if err := os.WriteFile(source, []byte("settings"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings := &manifest.HomeManagerSettings{Files: map[string]string{
+		"${home}/.toolrc":                       "./captured",
+		"${xdg.config}/ripgrep/ripgreprc":       "./captured",
+		"${xdg.data}/applications/tool.desktop": "./captured",
+	}}
+	home, staged, err := CompileHomeNix(settings, manDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(staged) != 3 {
+		t.Fatalf("staged files = %v", staged)
+	}
+	output := string(home)
+	for _, statement := range []string{
+		`home.file.".toolrc".source = ./files/`,
+		`xdg.configFile."ripgrep/ripgreprc".source = ./files/`,
+		`xdg.dataFile."applications/tool.desktop".source = ./files/`,
+	} {
+		if !strings.Contains(output, statement) {
+			t.Errorf("compiled home.nix missing %q:\n%s", statement, output)
+		}
+	}
+}
+
+func TestCompileHomeNixRejectsCoordinateWithoutHomeManagerPlacement(t *testing.T) {
+	manDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(manDir, "captured"), []byte("settings"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings := &manifest.HomeManagerSettings{Files: map[string]string{
+		"${xdg.state}/tool/state": "./captured",
+	}}
+	if _, _, err := CompileHomeNix(settings, manDir); err == nil {
+		t.Fatal("unsupported Home Manager placement coordinate was accepted")
 	}
 }
 

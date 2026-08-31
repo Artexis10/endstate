@@ -4,6 +4,8 @@
 package nix
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
@@ -21,11 +24,11 @@ import (
 type fieldKind int
 
 const (
-	kindNone      fieldKind = iota // no second field (bare .enable toggle, e.g. fzf)
-	kindString                     // raw string → StableField = "..."   (e.g. tmux.extraConfig)
-	kindStringMap                  // map[string]string → attrset        (e.g. bat.config)
-	kindAnyMap                     // map[string]any → nested attrset     (e.g. gh.settings)
-	kindStringSlice                // []string → Nix list                 (e.g. eza.extraOptions)
+	kindNone        fieldKind = iota // no second field (bare .enable toggle, e.g. fzf)
+	kindString                       // raw string → StableField = "..."   (e.g. tmux.extraConfig)
+	kindStringMap                    // map[string]string → attrset        (e.g. bat.config)
+	kindAnyMap                       // map[string]any → nested attrset     (e.g. gh.settings)
+	kindStringSlice                  // []string → Nix list                 (e.g. eza.extraOptions)
 )
 
 // curatedProgram is one row of the data-driven catalog: a concept name (== the
@@ -257,7 +260,7 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 		}
 	}
 
-	// git → the STABLE programs.git.extraConfig (insulates the user from
+	// git → the pinned programs.git.settings surface (insulates the user from
 	// home-manager option renames — the moat the curated layer buys).
 	if s.Git != nil {
 		stmts = append(stmts, "programs.git.enable = true;")
@@ -276,7 +279,7 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 			extra["init"] = map[string]any{"defaultBranch": s.Git.DefaultBranch}
 		}
 		if len(extra) > 0 {
-			stmts = append(stmts, "programs.git.extraConfig = "+nixValue(extra)+";")
+			stmts = append(stmts, "programs.git.settings = "+nixValue(extra)+";")
 		}
 	}
 
@@ -303,6 +306,11 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 		}
 		stmts = append(stmts, "programs."+c.Name+".enable = "+nixValue(enable)+";")
 		if c.StableField != "" && !secondFieldEmpty(c.Kind, second) {
+			if c.Name == "ssh" {
+				// Home Manager 26.05 requires the default host block to exist
+				// whenever extraConfig is set, even when it carries no typed keys.
+				stmts = append(stmts, `programs.ssh.settings."*" = {};`)
+			}
 			stmts = append(stmts, "programs."+c.Name+"."+c.StableField+" = "+renderSecondField(c.Kind, second)+";")
 		}
 	}
@@ -329,10 +337,17 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 			if err != nil {
 				return nil, nil, fmt.Errorf("homeManager.settings.files: read source %q: %w", srcRel, err)
 			}
-			homeRel := homeRelTarget(target)
-			stagedRel := "files/" + sanitizeTarget(homeRel)
+			placement, placementTarget, coordinate, err := homeManagerFilePlacement(target)
+			if err != nil {
+				return nil, nil, fmt.Errorf("homeManager.settings.files: target %q: %w", target, err)
+			}
+			stagedRel := "files/" + sanitizeTarget(placementTarget)
+			if coordinate {
+				sum := sha256.Sum256([]byte(target))
+				stagedRel = "files/coordinate-" + hex.EncodeToString(sum[:12])
+			}
 			staged[stagedRel] = content
-			stmts = append(stmts, fmt.Sprintf("home.file.%s.source = ./%s;", nixString(homeRel), stagedRel))
+			stmts = append(stmts, fmt.Sprintf("%s.%s.source = ./%s;", placement, nixString(placementTarget), stagedRel))
 		}
 	}
 
@@ -402,6 +417,29 @@ func homeRelTarget(target string) string {
 	target = strings.TrimPrefix(target, "~/")
 	target = strings.TrimPrefix(target, "/")
 	return target
+}
+
+func homeManagerFilePlacement(target string) (placement, relative string, coordinate bool, err error) {
+	if !strings.HasPrefix(target, "${") {
+		return "home.file", homeRelTarget(target), false, nil
+	}
+	if err := config.ValidateEnginePath(target, "linux"); err != nil {
+		return "", "", true, err
+	}
+	for prefix, namespace := range map[string]string{
+		"${home}":       "home.file",
+		"${xdg.config}": "xdg.configFile",
+		"${xdg.data}":   "xdg.dataFile",
+	} {
+		if strings.HasPrefix(target, prefix) {
+			relative := strings.TrimLeft(strings.TrimPrefix(target, prefix), "/\\")
+			if relative == "" {
+				return "", "", true, fmt.Errorf("target must name a file below its coordinate")
+			}
+			return namespace, filepath.ToSlash(relative), true, nil
+		}
+	}
+	return "", "", true, fmt.Errorf("coordinate has no lossless Home Manager file placement")
 }
 
 // sanitizeTarget turns a home-relative target into a single staged filename by

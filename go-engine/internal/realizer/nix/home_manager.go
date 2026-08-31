@@ -48,7 +48,7 @@ func (b *Backend) ActivateHome(flake string) (int, error) {
 	}
 	// `--` separates nix's args from the home-manager program's args; the runner
 	// inserts the experimental-features flag before it (see nixArgs).
-	args := []string{"run", pin, "--", "switch", "--flake", flake, "-b", "endstate-backup"}
+	args := []string{"run", pin, "--", "switch", "--flake", normalizeHomeFlakeRef(flake), "-b", "endstate-backup"}
 
 	_, stderr, exit, err := b.Run(args...)
 	if err != nil { // spawn failure (nix missing/unrunnable)
@@ -58,6 +58,24 @@ func (b *Backend) ActivateHome(flake string) (int, error) {
 		return 0, classify(exit, parsePlainLog(stderr), false)
 	}
 	return b.homeGen(), nil
+}
+
+// normalizeHomeFlakeRef makes generated absolute directories explicit path
+// references. Nix 3 otherwise searches for a containing Git repository and
+// rejects an Endstate state directory that correctly lives outside one.
+func normalizeHomeFlakeRef(flake string) string {
+	if strings.HasPrefix(flake, "path:") {
+		return flake
+	}
+	location, fragment, hasFragment := strings.Cut(flake, "#")
+	if !filepath.IsAbs(location) {
+		return flake
+	}
+	normalized := "path:" + filepath.ToSlash(location)
+	if hasFragment {
+		normalized += "#" + fragment
+	}
+	return normalized
 }
 
 // homeGen returns the active home-manager generation number, via homeGenFn when

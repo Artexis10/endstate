@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "curl",
+  "displayName": "curl",
+  "nix": { "attribute": "curl" },
+  "aliases": {
+    "debian": ["curl"],
+    "rpm": ["curl"],
+    "arch": ["curl"],
+    "executable": ["curl"]
+  }
+}

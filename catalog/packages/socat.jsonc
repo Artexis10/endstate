@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "socat",
+  "displayName": "socat",
+  "nix": { "attribute": "socat" },
+  "aliases": {
+    "debian": ["socat"],
+    "rpm": ["socat"],
+    "arch": ["socat"],
+    "executable": ["socat"]
+  }
+}

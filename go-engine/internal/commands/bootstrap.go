@@ -30,9 +30,9 @@ type BootstrapData struct {
 	InstallPath string `json:"installPath"`
 	ShimPath    string `json:"shimPath"`
 	AddedToPath bool   `json:"addedToPath"`
-	// CatalogInstalled names the catalog trees copied into the install ("modules",
-	// "payload"). Empty means the install carries no config-module catalog, so
-	// capture from this install will record apps without their settings.
+	// CatalogInstalled names the runtime catalog trees copied into the install
+	// ("modules", "payload", and "catalog"). Empty means the install carries no
+	// config-module or reviewed package-identity catalog.
 	CatalogInstalled []string `json:"catalogInstalled"`
 }
 
@@ -63,7 +63,7 @@ func copyFile(src, dst string) error {
 // modules. Without them a PATH-invoked binary resolves no catalog and capture
 // degrades to an app list with no settings — the thing that makes Endstate more
 // than a package-list exporter.
-var catalogDirs = []string{"modules", "payload"}
+var catalogDirs = []string{"modules", "payload", "catalog"}
 
 // installCatalog refreshes the module catalog inside an install directory from
 // sourceRoot. Trees absent at the source are skipped, not an error: a bare

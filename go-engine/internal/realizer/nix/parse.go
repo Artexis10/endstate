@@ -111,7 +111,13 @@ type profileElement struct {
 	AttrPath    string   `json:"attrPath"`
 	OriginalURL string   `json:"originalUrl"`
 	URL         string   `json:"url"`
+	Active      *bool    `json:"active,omitempty"`
 }
+
+// ParseProfileList exposes the bounded structural parser to read-only discovery
+// adapters. It performs no command execution and accepts both supported Nix
+// profile JSON shapes.
+func ParseProfileList(data []byte) (realizer.Set, error) { return parseProfileList(data) }
 
 // parseProfileList parses `nix profile list --json`. The Nix 3.x shape is
 // {version, elements: {<name>: {...}}} (a name-keyed OBJECT); older Nix used an
@@ -139,7 +145,10 @@ func parseProfileList(data []byte) (realizer.Set, error) {
 			return set, err
 		}
 		for name, e := range obj {
-			set.Elements[name] = realizer.Element{Name: name, AttrPath: e.AttrPath, StorePaths: e.StorePaths}
+			if e.Active != nil && !*e.Active {
+				continue
+			}
+			set.Elements[name] = realizer.Element{Name: name, AttrPath: e.AttrPath, StorePaths: e.StorePaths, OriginalURL: e.OriginalURL, URL: e.URL}
 		}
 	case '[': // legacy array
 		var arr []profileElement
@@ -147,6 +156,9 @@ func parseProfileList(data []byte) (realizer.Set, error) {
 			return set, err
 		}
 		for _, e := range arr {
+			if e.Active != nil && !*e.Active {
+				continue
+			}
 			name := attrLeaf(e.AttrPath)
 			if name == "" {
 				name = attrLeaf(e.OriginalURL)
@@ -154,7 +166,7 @@ func parseProfileList(data []byte) (realizer.Set, error) {
 			if name == "" {
 				continue
 			}
-			set.Elements[name] = realizer.Element{Name: name, AttrPath: e.AttrPath, StorePaths: e.StorePaths}
+			set.Elements[name] = realizer.Element{Name: name, AttrPath: e.AttrPath, StorePaths: e.StorePaths, OriginalURL: e.OriginalURL, URL: e.URL}
 		}
 	}
 	return set, nil

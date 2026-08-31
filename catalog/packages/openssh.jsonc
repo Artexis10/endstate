@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "openssh",
+  "displayName": "OpenSSH",
+  "nix": { "attribute": "openssh" },
+  "aliases": {
+    "debian": ["openssh-client"],
+    "rpm": ["openssh", "openssh-clients"],
+    "arch": ["openssh"],
+    "executable": ["ssh"]
+  },
+  "configModule": "apps.ssh-config"
+}

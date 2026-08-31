@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "google-chrome",
+  "displayName": "Google Chrome",
+  "nix": { "attribute": "google-chrome" },
+  "aliases": {
+    "debian": ["google-chrome-stable"],
+    "rpm": ["google-chrome-stable"],
+    "desktop": ["google-chrome.desktop"],
+    "executable": ["google-chrome"]
+  }
+}

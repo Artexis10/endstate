@@ -257,9 +257,22 @@ type ApplyResult struct {
 // direct homeManager.flake it is that flakeref and Generated is false. Activated
 // is false on --dry-run (revealed but not activated).
 type ApplyHomeManager struct {
-	Flake     string `json:"flake"`
-	Generated bool   `json:"generated"`
-	Activated bool   `json:"activated"`
+	Flake           string                      `json:"flake"`
+	Generated       bool                        `json:"generated"`
+	Activated       bool                        `json:"activated"`
+	OwnershipAction *HomeManagerOwnershipAction `json:"ownershipAction,omitempty"`
+}
+
+// HomeManagerOwnershipAction tells clients why generated settings were not
+// activated and gives the existing Home Manager owner an inspectable module to
+// import. Endstate never edits or silently replaces that owner's source graph.
+type HomeManagerOwnershipAction struct {
+	Owner            string `json:"owner"`
+	Action           string `json:"action"`
+	Required         bool   `json:"required"`
+	ActiveGeneration int    `json:"activeGeneration,omitempty"`
+	ModulePath       string `json:"modulePath"`
+	Message          string `json:"message"`
 }
 
 // ApplyManifestRef identifies the manifest used for the apply run.
