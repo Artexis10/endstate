@@ -43,3 +43,21 @@ The release SHALL generate its Home Manager settings-adapter metadata from the e
 - **WHEN** an existing external Home Manager configuration is present
 - **THEN** Endstate MAY use its safely inspectable evaluated values as additional read-only evidence after the ownership boundary is established
 - **AND** ordinary discovery SHALL still read live targets through the frozen registry and SHALL NOT depend on evaluating or editing that graph
+
+### Requirement: Home Manager activation verification includes managed target contents
+For every advertised Home Manager settings adapter, verify SHALL compare the expected reviewed portable values or file bytes with the live engine-owned targets after activation. Matching Endstate provisioning provenance and a matching active Home Manager generation SHALL establish ownership/generation identity but SHALL NOT substitute for target-content verification. Revert SHALL restore and verify the previous Endstate-owned Home Manager generation or the explicitly journaled safe fallback state.
+
+#### Scenario: Active generation matches but managed target was edited
+- **WHEN** the active Home Manager generation matches the Endstate Provisioning Generation but a managed target differs from the expected portable content
+- **THEN** verify SHALL report settings drift for that target
+- **AND** it SHALL NOT report the adapter verified solely from generation identity
+
+#### Scenario: Advertised adapter has no content verifier
+- **WHEN** a registry/module adapter can activate a target but has no reviewed expected-content comparison
+- **THEN** capabilities and discovery SHALL NOT advertise full verify/revert support for that adapter
+- **AND** the applicability matrix SHALL NOT count it as release-supported
+
+#### Scenario: Revert advances to the previous owned generation
+- **WHEN** a user explicitly reverts an Endstate-owned Home Manager settings apply
+- **THEN** Endstate SHALL activate the recorded previous owned generation or restore an explicitly journaled safe fallback
+- **AND** it SHALL verify the restored target contents before reporting success

@@ -1,3 +1,26 @@
+## MODIFIED Requirements
+
+### Requirement: Package-reference resolution is platform-keyed
+Package-reference resolution SHALL prefer the `App.Refs` entry keyed by the host operating system. On the Linux or Darwin Nix-realizer path, an app without a ref for the host SHALL be skipped and SHALL NOT fall back to a Windows, native-manager, Flatpak, Snap, or Brew ref. Existing Windows fallback behavior for legacy manifests SHALL remain backward compatible until a separate migration changes it.
+
+#### Scenario: Windows ref selected on Windows
+- **WHEN** an app has a `refs.windows` entry and the host is Windows
+- **THEN** `refs.windows` SHALL be used, unchanged from prior behavior
+
+#### Scenario: Linux ref selected on Linux
+- **WHEN** an app has a `refs.linux` entry and the host is Linux
+- **THEN** `refs.linux` SHALL be used
+
+#### Scenario: Nix path has no host ref
+- **WHEN** an app on the Linux or Darwin Nix-realizer path has no ref for the host but has a non-empty ref for another platform or discovery source
+- **THEN** the app SHALL be skipped with a stable platform-reference reason
+- **AND** no cross-platform or discovery-source ref SHALL be passed to Nix
+
+#### Scenario: Legacy Windows fallback remains compatible
+- **WHEN** an existing Windows manifest has no `refs.windows` entry but has a legacy non-empty package ref accepted by the current Windows resolver
+- **THEN** the existing Windows fallback behavior SHALL remain unchanged
+- **AND** this compatibility SHALL NOT authorize fallback on the Nix-realizer path
+
 ## ADDED Requirements
 
 ### Requirement: Linux discovery sources are separate from mutating package backends

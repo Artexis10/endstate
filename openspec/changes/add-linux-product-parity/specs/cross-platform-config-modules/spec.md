@@ -131,7 +131,7 @@ Platform-specific secret exclusions SHALL be validated and applied before payloa
 - **AND** the common module identity SHALL NOT cause exclusions to be copied or omitted implicitly
 
 ### Requirement: Linux application settings coverage has an applicable-Windows parity floor
-The Linux release corpus SHALL classify every existing Endstate Windows application module through a deterministic applicability matrix. Every module with a real Linux counterpart SHALL have a verified Linux variant providing equivalent supported settings portability, unless a reviewed platform or safety exclusion explains why equivalent capture is not meaningful or defensible. Unclassified, silently omitted, or capture-only Linux counterparts SHALL block a parity claim when the Windows variant supports safe restore. Safely supported Home Manager programs without a Windows counterpart SHALL be additive Linux coverage.
+The Linux release corpus SHALL classify every existing Endstate Windows application module through a deterministic applicability matrix backed by persistent reviewed applicability authority. Every module with a real Linux counterpart SHALL have a verified Linux variant providing equivalent supported settings portability, unless a reviewed platform or safety exclusion explains why equivalent capture is not meaningful or defensible. Unclassified, silently omitted, or capture-only Linux counterparts SHALL block a parity claim when the Windows variant supports safe restore. Safely supported Home Manager programs without a Windows counterpart SHALL be additive Linux coverage. Release validation SHALL invoke the readiness gate rather than relying on an optional report command.
 
 The release depth corpus SHALL include verified variants for the supported live state of Git, Bash, Zsh, SSH configuration excluding keys, tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, fd, Neovim, Helix, WezTerm, Kitty, Alacritty, GitHub CLI excluding authentication, lazygit, Jujutsu, Atuin excluding account/session material, and Yazi. Each advertised lane SHALL pass capture, restore or declared capture-only behavior, verification, secret-boundary, and revert/rollback tests appropriate to its strategy.
 
@@ -139,6 +139,11 @@ The release depth corpus SHALL include verified variants for the supported live 
 - **WHEN** an existing Windows settings module represents an application available on Linux and the matrix has no supported Linux variant or reviewed exclusion
 - **THEN** the Linux settings-parity release gate SHALL fail
 - **AND** the module SHALL remain visible in the coverage report rather than being omitted from the denominator
+
+#### Scenario: Readiness is not requested manually
+- **WHEN** required release validation evaluates the Linux applicability matrix
+- **THEN** it SHALL enforce the same zero-blocker readiness predicate without an optional operator flag
+- **AND** a report-only successful exit SHALL NOT satisfy the release gate
 
 #### Scenario: Home Manager-only program is safely reversible
 - **WHEN** the pinned Home Manager corpus contains a program with a reviewed safe Linux capture disposition and no Windows module
@@ -157,11 +162,11 @@ The release depth corpus SHALL include verified variants for the supported live 
 ### Requirement: Release-pinned Home Manager metadata is harvested into a frozen adapter registry
 The release process SHALL derive candidate Linux adapter metadata from the exact immutable Home Manager input used for realization. The derivation SHALL include machine-readable option metadata, source declarations/hashes, and pure probe evaluation of program-managed home-file targets relative to engine-owned coordinates. The generated registry SHALL be deterministic, reviewed, bundled with the release, and available to runtime discovery without Nix or Home Manager.
 
-Each adapter SHALL declare exactly one reviewed disposition: `typed-roundtrip`, `file-roundtrip`, `curated-codec`, or `excluded`. A source declaration, managed target, option type, or source hash change SHALL invalidate the previous review until the generated diff is accepted. Runtime SHALL NOT infer a capture strategy from a file extension or option name alone.
+Each adapter SHALL declare exactly one reviewed disposition: `typed-roundtrip`, `file-roundtrip`, `curated-codec`, or `excluded`. A source declaration, managed target, option type, or source hash change SHALL invalidate the previous review until a bounded deterministic diff is accepted. Runtime SHALL NOT infer a capture strategy from a file extension or option name alone. A non-excluded disposition SHALL remain candidate metadata until a trusted schema-v3 Linux variant binds the adapter to its package/module identity, targets, realization strategy, actions, secret boundary, and lifecycle tests.
 
 #### Scenario: Ordinary machine has no Nix installation
 - **WHEN** runtime discovery finds a live config target described by the frozen adapter registry on a machine without Nix or Home Manager
-- **THEN** it SHALL offer the reviewed settings action using engine-owned path coordinates
+- **THEN** it SHALL offer only the actions jointly authorized by the registry and trusted Linux platform variant using engine-owned path coordinates
 - **AND** it SHALL NOT fetch or evaluate Home Manager during capture
 
 #### Scenario: Direct settings mapping has a proven codec
@@ -174,13 +179,61 @@ Each adapter SHALL declare exactly one reviewed disposition: `typed-roundtrip`, 
 - **THEN** the adapter SHALL use reviewed bounded `file-roundtrip`, a `curated-codec`, or `excluded`
 - **AND** it SHALL NOT manufacture typed Home Manager option values from the live file
 
+#### Scenario: File can contain commands or secrets
+- **WHEN** a managed target can carry executable commands, environment values, credentials, account identifiers, machine paths, or remote-service state
+- **THEN** a generic byte-preserving file adapter SHALL NOT qualify as a reviewed safety boundary
+- **AND** the target SHALL require a semantic curated codec, a narrower value adapter, capture-only treatment, or `excluded`
+
 #### Scenario: Pinned module target changes
 - **WHEN** regeneration against a new Home Manager input changes an adapter's declaration hash, option type, or managed target
 - **THEN** registry validation SHALL fail the previous review disposition
-- **AND** release SHALL require an explicit reviewed update plus the affected round-trip tests
+- **AND** release SHALL emit a bounded deterministic review diff and require an explicit reviewed update plus the affected round-trip tests
+
+### Requirement: First-class Linux adapters have joint execution authority and content verification
+A Linux settings adapter SHALL count as release-supported only when a trusted schema-v3 Linux variant and its reviewed registry entry agree on portable identity, package/module association, targets, realization strategy, supported actions, and exclusions. Registry presence, a legacy Windows-only module, a bounded file size, or a successful Home Manager generation SHALL NOT independently authorize support.
+
+For every advertised restorable adapter, verification SHALL compare the expected portable values or bytes with the live managed targets after activation. Revert SHALL restore the prior values/absence or file state and SHALL verify that result. A generation-number match alone SHALL NOT satisfy target verification.
+
+#### Scenario: Legacy Windows module has a registry adapter
+- **WHEN** an application has a legacy Windows-only module and a non-excluded Home Manager registry entry but no schema-v3 Linux variant
+- **THEN** the applicability matrix SHALL NOT classify it as supported
+- **AND** runtime SHALL NOT infer Linux execution authority from registry presence
+
+#### Scenario: Registry and module claim different targets or strategies
+- **WHEN** the registry target/placement conflicts with the schema-v3 Linux variant target or realization strategy
+- **THEN** catalog/registry validation SHALL fail before capture or release
+- **AND** neither declaration SHALL win by load order
+
+#### Scenario: Managed target drifts within the same Home Manager generation
+- **WHEN** the active Home Manager generation still matches Endstate history but a managed target's live content differs from the expected portable content
+- **THEN** verification SHALL report settings drift
+- **AND** it SHALL NOT report the adapter verified solely from generation identity
+
+#### Scenario: Additive Home Manager-only program is promoted
+- **WHEN** a Home Manager program has no Windows module but is proposed as additive Linux coverage
+- **THEN** it SHALL receive the same explicit schema-v3 Linux settings authority and lifecycle proof as a parity module
+- **AND** additive status SHALL NOT weaken its safety or verification gates
+
+### Requirement: Desktop values use the durable configuration transaction model
+GNOME and KDE value operations SHALL extend a shared durable configuration transaction model before either desktop adapter is advertised. The model SHALL assign stable typed target identities, snapshot the prior value or absence before mutation, persist intent and journal state atomically, verify commit, classify partial failures, recover interrupted work, and support explicit revert. A standalone desktop command wrapper SHALL NOT bypass this transaction model.
+
+#### Scenario: Prior value is inherited rather than user-set
+- **WHEN** a GNOME key has an effective default but no user override before apply
+- **THEN** the transaction snapshot SHALL record prior absence distinctly from the effective value
+- **AND** revert SHALL reset the user override rather than writing the inherited default as a new override
+
+#### Scenario: KDE key is absent beside co-resident values
+- **WHEN** a KDE file/group lacks the selected key but contains other values
+- **THEN** apply SHALL journal prior absence and merge only the selected key
+- **AND** revert SHALL remove only that key while preserving the co-resident values
+
+#### Scenario: Process stops after value mutation
+- **WHEN** a desktop value was written but terminal journal state was not persisted
+- **THEN** recovery SHALL identify the in-progress typed target and reconcile or revert it deterministically
+- **AND** unrelated desktop settings SHALL remain untouched
 
 ### Requirement: GNOME and KDE settings are value-scoped and reversible
-Linux desktop settings modules SHALL operate only on reviewed individual GNOME schema/key values or KDE file/group/key values. Each write SHALL preserve the prior value or absence, verify the desired value, and support explicit revert. Whole dconf databases, whole KDE config directories, account/keyring data, histories, recent items, device topology, and session/window state SHALL NOT be captured or restored.
+Linux desktop settings modules SHALL operate only on reviewed individual GNOME schema/key values or KDE file/group/key values through the durable typed-value transaction model. Each write SHALL preserve the prior value or absence, verify the desired typed value, and support explicit revert. Whole dconf databases, whole KDE config directories, account/keyring data, histories, recent items, device topology, and session/window state SHALL NOT be captured or restored. GNOME and KDE capabilities SHALL remain dark until their exact allowlists, supported value types, version ranges, and current real-session gates pass.
 
 #### Scenario: GNOME value round-trip
 - **WHEN** a selected GNOME module captures and applies one allowlisted schema/key

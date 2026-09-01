@@ -14,7 +14,7 @@ The engine SHALL discover supported applications and configuration on Linux with
 - **AND** it SHALL NOT restrict the result to the Endstate-managed profile
 
 ### Requirement: Linux inventory sources are bounded and read-only
-The engine SHALL gather inventory through source-specific, read-only adapters. The release adapter set SHALL cover the Endstate Nix profile, available user Nix profiles, explicitly installed Debian-family packages, explicitly installed RPM-family packages, explicitly installed Arch packages, Flatpak applications, supported Snap applications, XDG desktop entries, and catalog-declared executable/config paths. An unavailable adapter SHALL be reported as unavailable and SHALL NOT be installed or enabled by discovery.
+The engine SHALL gather inventory through source-specific, read-only adapters. The required release adapter set SHALL cover the Endstate Nix profile, available user Nix profiles, explicitly installed Debian-family packages, explicitly installed RPM-family packages, explicitly installed Arch packages, Flatpak applications, XDG desktop entries, and catalog-declared executable/config paths. Snap SHALL remain unadvertised or explicitly experimental until hermetic fixtures and the real-Ubuntu source-contract gate pass. An unavailable adapter SHALL be reported as unavailable and SHALL NOT be installed or enabled by discovery.
 
 #### Scenario: Missing source command is non-fatal
 - **WHEN** an inventory adapter's command or database is absent on the host
@@ -30,6 +30,11 @@ The engine SHALL gather inventory through source-specific, read-only adapters. T
 - **WHEN** one available adapter returns malformed output, permission denial, or a runtime failure and another source succeeds
 - **THEN** discovery SHALL return a source-scoped warning and the trustworthy results from the successful source
 - **AND** it SHALL NOT silently treat the failed source as empty
+
+#### Scenario: Snap has not passed promotion evidence
+- **WHEN** the Snap adapter lacks either its hermetic contract fixture or required real-Ubuntu evidence
+- **THEN** capabilities SHALL NOT advertise Snap as a supported release source
+- **AND** the missing Snap promotion SHALL NOT block required dpkg, Flatpak, desktop, executable, or config discovery
 
 ### Requirement: Discovery identifies user intent rather than dependency closure
 Native-manager adapters SHALL prefer explicitly installed packages, applications, and user-facing desktop evidence over dependency packages, runtimes, SDK subcomponents, and platform bases. The result SHALL expose counts for ignored dependency/runtime items without presenting them as selected applications.
@@ -90,7 +95,7 @@ The engine SHALL merge evidence only after it resolves to the same portable appl
 - **THEN** the serialized discovery result SHALL remain identical
 
 ### Requirement: Discovery results distinguish portable, settings-capable, and unresolved state
-The capture result SHALL include an additive `discovery` object that reports source status, resolved package intents, settings candidates and supported actions, unresolved user-facing inventory with stable reason codes, and counts for discovered, resolved, selected, unresolved, and ignored items. Existing capture fields SHALL remain populated for resolved selected apps.
+The capture result SHALL include an additive `discovery` object that reports source status, resolved package intents, settings candidates and supported actions, unresolved user-facing inventory with stable reason codes, and counts for discovered, resolved, selected, unresolved, ignored, settings, and settings-only items. Existing capture fields SHALL remain populated for resolved selected apps.
 
 #### Scenario: Client can render a useful selection without inspecting Linux
 - **WHEN** discovery completes with resolved apps, settings candidates, and unresolved items
@@ -106,6 +111,38 @@ The capture result SHALL include an additive `discovery` object that reports sou
 - **WHEN** a discovery source fails or an item cannot be mapped
 - **THEN** the user-facing message SHALL explain the application-source or portability problem without requiring backend knowledge
 - **AND** backend names, commands, and raw output SHALL appear only in inspectable details
+
+### Requirement: Discovery counts are independently reconcilable
+Discovery SHALL distinguish per-source raw observations from unique reconciled user-facing candidates. `sourceDiscovered` SHALL be reported per source and MAY overlap. Top-level `discovered`, `resolved`, `settingsOnly`, and `unresolved` SHALL count unique portable/user-facing candidates after reconciliation; ignored dependency/runtime observations SHALL remain outside that unique denominator. The backward-compatible `settings` count SHALL count unique candidates with at least one supported settings action and MAY overlap `resolved`; `settingsOnly` SHALL be the subset of `settings` without a resolved package intent. `selected` SHALL count unique candidates selected for at least one supported package or settings action and SHALL NOT be inferred to equal `resolved`.
+
+For every result, `discovered = resolved + settingsOnly + unresolved`, `settingsOnly <= settings <= discovered`, and `selected <= discovered` SHALL hold after assigning a candidate that has both resolved package and settings evidence to `resolved`. Source failures and unavailable sources SHALL affect source status, not alter these identities by being treated as empty successful inventories.
+
+#### Scenario: Two sources observe the same application
+- **WHEN** dpkg and an XDG desktop entry resolve to the same portable application
+- **THEN** their source statuses SHALL each report their raw observation
+- **AND** top-level `discovered` and `resolved` SHALL count the reconciled application once
+
+#### Scenario: Settings-only and unresolved candidates reconcile
+- **WHEN** one unique candidate has supported settings but no package mapping and another has neither a package mapping nor supported settings
+- **THEN** the first SHALL increment `settingsOnly` and the second SHALL increment `unresolved`
+- **AND** the first SHALL also increment backward-compatible `settings`, while both increment `discovered` exactly once
+
+#### Scenario: Selection is an explicit subset
+- **WHEN** a user selects settings for one candidate and packages plus settings for another
+- **THEN** `selected` SHALL count two unique candidates
+- **AND** it SHALL NOT count the second candidate twice or default to the full resolved set
+
+### Requirement: Advertised settings actions reflect executable authority
+A discovery candidate SHALL advertise only actions backed by the current trusted Linux platform variant and reviewed adapter authority. Registry presence alone SHALL NOT advertise restore, verify, or revert. Capture-only support SHALL be explicit, and unavailable or ownership-blocked actions SHALL carry stable reason codes.
+
+#### Scenario: Registry candidate lacks a Linux platform variant
+- **WHEN** a frozen Home Manager registry entry matches live state but no trusted schema-v3 Linux variant owns its execution and targets
+- **THEN** discovery MAY report a review candidate
+- **AND** it SHALL NOT advertise first-class restore, verify, or revert actions
+
+#### Scenario: Content verification is not implemented
+- **WHEN** an adapter can stage and activate a target but cannot compare the expected portable content with the live target
+- **THEN** discovery SHALL NOT advertise `verify` or count the adapter as release-supported
 
 ### Requirement: Discovery and capture are non-destructive and privacy bounded
 Discovery and capture SHALL NOT modify packages, repositories, desktop settings, application configuration, Home Manager state, or Endstate provisioning history. Persisted evidence SHALL exclude arbitrary command output and machine-local absolute roots unless an existing governed provenance field explicitly requires a non-secret portable coordinate.

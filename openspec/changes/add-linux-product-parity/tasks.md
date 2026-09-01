@@ -1,148 +1,427 @@
-## 1. Baseline and compatibility guards
+## Execution contract
 
-- [ ] 1.1 Add failing command tests for Linux capture on a machine with no Nix executable, no Endstate profile, native package evidence, and live supported config
-- [ ] 1.2 Add regression tests that current Endstate-profile capture, Home Manager history recovery, Windows Winget/Chocolatey capture, and Darwin Nix/Brew capture remain unchanged until their new lanes opt in
-- [ ] 1.3 Add a catalog regression proving every schema-v1/v2 flat module is treated as Windows-only and cannot attach on Linux
-- [ ] 1.4 Add a fixture-backed inventory of the current compatibility/CLI/roadmap claims that overstate ordinary-machine Linux capture, for correction when implementation lands
+This ledger is reconciled to the audited implementation baseline
+`5a597d1fdcd552e3bbc2ae58b43d4505f7fc383f`. At that baseline:
 
-## 2. Immutable Nix inputs and package identity catalog
+- the pinned Home Manager index contains 391 program candidates;
+- the existing-application matrix contains 359 rows: 15 reported supported,
+  38 adapter-required, 306 review-required, and 0 reviewed not-applicable;
+- all 344 non-supported rows block parity readiness;
+- the frozen registry contains 17 file-roundtrip entries, 1 curated codec,
+  10 exclusions, and no typed-roundtrip implementation;
+- only ripgrep has an explicit schema-v3 Linux application variant, so the
+  15 reported-supported rows are not release-certified lifecycle adapters.
 
-- [ ] 2.1 Add one release-owned pin manifest and loader for revision-locked Nixpkgs and compatible Home Manager inputs
-- [ ] 2.2 Replace floating release defaults in `internal/realizer/nix` with the pin manifest while retaining explicit environment overrides
-- [ ] 2.3 Resolve and record effective Nixpkgs/Home Manager revisions in apply plans and Provisioning Generations; add round-trip tests for defaults and overrides
-- [ ] 2.4 Add `catalog/packages/<portable-id>.jsonc` schema/types with portable ID, display name, Nix target, source-qualified aliases, optional config-module association, and mapping revision
-- [ ] 2.5 Implement strict package-catalog loading and diagnostics for duplicate IDs, duplicate source aliases, missing/invalid Nix targets, ambiguous desktop/executable aliases, and unknown fields
-- [ ] 2.6 Add deterministic package-catalog serialization/revision tests and repo-root/release-artifact lookup for installed CLI and GUI layouts
-- [ ] 2.7 Seed and review package mappings for the release-blocking Linux settings corpus plus the highest-value browser/editor/desktop applications needed for the acceptance journey
-- [ ] 2.8 Add CI that evaluates every advertised Linux mapping against the exact release Nixpkgs revision and records architecture-specific unavailability without guessing a substitute
+Checkboxes describe accepted task outcomes, not the presence of partial bytes.
+Partially implemented former tasks have been split so completed foundations are
+checked and remaining acceptance work stays open.
 
-## 3. Discovery core and reconciliation
+Every implementation packet SHALL:
 
-- [ ] 3.1 Add `internal/discovery` source, inventory-evidence, resolved-intent, unresolved-item, source-status, warning, and count types
-- [ ] 3.2 Add a fixed-argv, read-only inventory-adapter interface and injectable command/filesystem seams; reject shell evaluation and unbounded raw output
-- [ ] 3.3 Implement the discovery orchestrator with deterministic adapter ordering, unavailable/source-failure states, cancellation, and top-level failure only when no trustworthy selected source succeeds
-- [ ] 3.4 Implement catalog resolution that preserves source evidence separately from portable attribute, immutable input, installable, and mapping revision
-- [ ] 3.5 Implement deterministic evidence reconciliation by portable identity with source-qualified native refs and documented fact precedence
-- [ ] 3.6 Implement explicit/user-facing filtering and ignored dependency/runtime counts so native dependency closures never become user application lists
-- [ ] 3.7 Implement config-only settings candidates that remain selectable when package normalization is unresolved
-- [ ] 3.8 Add hostile/malformed/large-output, case/locale, duplicate, ordering, privacy-redaction, and cancellation tests for the discovery core
+- start from the named integration revision in an isolated worktree;
+- use unique writable roots such as
+  `GOCACHE=/tmp/endstate-lane-<id>-gocache`,
+  `XDG_DATA_HOME=/tmp/endstate-lane-<id>-xdg-data`,
+  `XDG_STATE_HOME=/tmp/endstate-lane-<id>-xdg-state`, and
+  `TMPDIR=/tmp/endstate-lane-<id>-tmp`;
+- demonstrate a named red-first test failing for the intended reason before
+  implementation and passing afterwards;
+- avoid OpenSpec edits, commits, merges, pushes, unrelated refactors, and shared
+  generated-registry/matrix edits unless the packet explicitly owns them;
+- receive a fresh author-independent review of the actual diff, including an
+  adversarial or mutation test appropriate to the change;
+- stop on contract ambiguity, unexpected shared-file ownership, unrelated
+  baseline failure, or a required external environment that is unavailable.
 
-## 4. Linux inventory adapters
+Protected paths `go-engine/cmd/endstate/`, `docs/contracts/*.md`, and
+`.github/workflows/` may be edited only by packets that explicitly name them.
+`docs/ai/AI_CONTRACT.md`, `LICENSE`, and `NOTICE` remain forbidden.
 
-- [ ] 4.1 Implement Endstate-profile and available user-profile Nix inventory adapters, preserving exact flakeref provenance when recoverable
-- [ ] 4.2 Implement Debian/Ubuntu explicit-package discovery from `apt-mark showmanual` plus `dpkg-query` evidence with hermetic fixtures
-- [ ] 4.3 Implement RPM-family user-installed discovery through the available DNF/RPM read-only query and a fixture-defined fallback
-- [ ] 4.4 Implement Arch explicit-package discovery through `pacman -Qe` with hermetic fixtures
-- [ ] 4.5 Implement Flatpak application discovery with runtime/base filtering and source-qualified app IDs
-- [ ] 4.6 Implement Snap application discovery behind a capability state; keep it unadvertised if fixture and real-Ubuntu validation do not meet the source contract
-- [ ] 4.7 Implement XDG desktop-entry discovery across user/system data roots with hidden/no-display filtering and deterministic desktop IDs
-- [ ] 4.8 Implement catalog-declared executable and config-path evidence using engine-owned path coordinates and bounded filesystem checks
-- [ ] 4.9 Add cross-source reconciliation fixtures for the same app installed through multiple managers plus desktop/config evidence
+The dependency graph is:
 
-## 5. Linux capture and CLI contract
+```text
+1 plan/overlap reconciliation
+ └─ 2 compatibility guards/product truth
+      ├─ 3 immutable catalog/provisioning
+      ├─ 4 discovery completion (after 3.3)
+      └─ 5 platform provenance
+           └─ 6 capture contract integration (after 3 + 4)
+                ├─ 7 settings ownership/realization
+                ├─ 8 registry authority/safety
+                │    └─ 9 adapter cohorts + serialized registry integration
+                ├─ 10 durable desktop values → GNOME/KDE
+                └─ 11 shared scheduler → systemd user
 
-- [ ] 5.1 Route Linux capture through discovery even when Nix is unavailable; keep capture read-only and bootstrap-free
-- [ ] 5.2 Reconcile the Endstate Nix profile with ordinary-machine evidence instead of restricting capture to `realizer.Current()`
-- [ ] 5.3 Emit only reviewed resolved intents into manifest apps, using fully qualified immutable Linux Nix refs and retaining source versions only in discovery provenance
-- [ ] 5.4 Preserve unresolved and config-only items in the capture result without fabricating installable/manual apps
-- [ ] 5.5 Add the additive `discovery` result schema, stable reason codes, source statuses, settings actions, and discovered/resolved/selected/unresolved/ignored counts
-- [ ] 5.6 Extend `capture --only`, `--update`, `--sanitize`, and share behavior to resolved Linux app IDs and explicit platform modules without leaking unselected path-only config
-- [ ] 5.7 Add structured discovery progress/item events and product-language messages while keeping backend commands/raw output in details only
-- [ ] 5.8 Advertise discovery schema/version, available source adapters, platform-module support, and immutable-pin state through capabilities
-- [ ] 5.9 Add capture-output/bundle validation tests proving repeated identical source state yields byte-stable ordering and safe provenance
-- [ ] 5.10 Reconcile the zero-app contract: allow validated settings-only artifacts, fail zero-useful-state captures with discovery counts, and retain bounded source-specific retry behavior
+9 + 10 + 11 → 12 release/CI truth → 13 engine acceptance
+13 → 14 GUI delivery → Linux publication → macOS follow-on
+```
 
-## 6. Platform-aware config module schema
+Only packets whose dependencies are complete are dispatchable. GNOME, KDE,
+systemd-user, real-host, GUI, architecture-promotion, and macOS nodes may remain
+explicitly blocked without preventing independent hermetic engine packets;
+their capabilities and claims remain dark.
 
-- [ ] 6.1 Add schema-v3 `platforms` types and strict JSONC parsing while keeping schema-v1/v2 parsing byte-for-byte compatible
-- [ ] 6.2 Reject schema-v3 modules that mix `platforms` with legacy flat executable declarations or omit an executable variant's realization strategy
-- [ ] 6.3 Adapt legacy flat modules to Windows-only runtime variants and add full-catalog tests on Windows, Linux, and Darwin host seams
-- [ ] 6.4 Add engine-owned home/XDG/platform path coordinates, documented XDG fallbacks, canonicalization, containment, symlink, and unsupported-shell-syntax validation
-- [ ] 6.5 Make package/path instance detection select only the host platform variant and consume source-qualified discovery evidence
-- [ ] 6.6 Qualify schema-v3 generation identity/fingerprints/history with platform and add deterministic collision/history tests
-- [ ] 6.7 Persist and validate schema-v3 source-platform/variant provenance without machine-local roots; reject missing/inconsistent data without legacy fallback
-- [ ] 6.8 Add same-platform resolution by default plus explicit source-to-target platform mappings/migrations and `platform_mapping_missing` behavior
-- [ ] 6.9 Extend catalog diagnostics, module snapshots, validation-mode boundaries, and frozen-fixture tooling for schema-v3 variants
+## 1. Plan, baseline, and overlapping-change reconciliation
 
-## 7. Live settings realization and ownership
+**Packet type:** orchestrator-owned planning; no implementation delegation.
 
-- [ ] 7.1 Run trusted Linux platform-variant matching and config collection after package reconciliation so live settings capture works without Endstate/Home Manager history
-- [ ] 7.2 Implement `home-manager` realization for typed settings and captured file placements through the existing inspectable generated-flake path
-- [ ] 7.3 Implement `endstate-restore` realization through the existing consent, backup, staging validation, journal, verify, and revert pipeline on Linux paths
-- [ ] 7.4 Detect external Home Manager ownership from live activation plus absent/mismatched Endstate provisioning provenance
-- [ ] 7.5 Refuse silent generated activation over external Home Manager ownership and emit a stable ownership-action result in plan/dry-run/apply
-- [ ] 7.6 Generate a stable inspectable/importable module for external Home Manager owners and test that Endstate never edits their source graph
-- [ ] 7.7 Allow only explicitly declared safe `endstate-restore` fallbacks after consent; test no strategy inference and no duplicate target ownership
-- [ ] 7.8 Extend Home Manager/restore rollback records and verification output with effective input revisions and platform-variant identity
-- [ ] 7.9 Add cross-lane collision tests for Home Manager file placement, direct restore targets, shared modules, and existing user files
+**Gate:** `npm run openspec:validate`, clean diff check, regenerated matrix
+baseline, and a fresh lane-delegate Stage-0 readiness audit.
 
-## 8. Home Manager-derived breadth and Linux settings parity
+- [x] 1.1 Audit the branch against every prior task and record the independently reproduced 391-program and 359-row matrix baseline
+- [x] 1.2 Reconcile proposal, design, delta specs, and this ledger with the execution-authority, immutable-input, count, desktop-transaction, scheduler, runtime-bundle, and GUI-package decisions
+- [x] 1.3 Reconcile or explicitly serialize the active `scheduled-drift-check`, `catalog-discovery-hardening`, `home-catalog-data-driven`, and `verified-module-matrix` changes before touching their shared implementation surfaces
+  - Resolved by explicit serialization: design decision 16 records the state of each change verified on 2026-09-01 against `5a597d1` and the surface rules R1–R6. The three implemented changes archive through separate documentation changes; `verified-module-matrix` stays active and is serialized by R1, R2, and R6.
+- [ ] 1.4 Re-run lane-delegate Stage 0 against the revised artifact digest and emit only dependency-ready packets with exact base revisions and file ownership
+- [ ] 1.5 Create and land three archive documentation changes from `origin/main`, each independently reviewed: reconcile the `scheduled-drift-check` ledger against the shipped implementation and archive it; archive `catalog-discovery-hardening`; sync and archive `home-catalog-data-driven` with 4.5 ticked and 4.4 carried by task 9.15 here. Sections 7.2, 9 (`home_catalog.go`), 11, and 12.6 dispatch only after the archive they depend on lands
 
-- [x] 8.1 Build a deterministic release-time Home Manager harvester from the pinned `docs-json`, declaration/source hashes, and pure per-program `home.file` target probes; prove it never runs on the capture path
-- [x] 8.2 Add the frozen adapter-registry schema and validator for exact input revisions, engine-owned target coordinates, option metadata, source hashes, and one reviewed `typed-roundtrip`/`file-roundtrip`/`curated-codec`/`excluded` disposition
-- [x] 8.3 Generate an applicability matrix joining every existing Windows app module with Linux package/catalog evidence and the pinned Home Manager corpus; fail release validation on unclassified applicable counterparts
-- [ ] 8.4 Add registry drift diagnostics that invalidate reviews on changed declarations, option types, targets, or source hashes and emit a bounded human-review diff
-- [ ] 8.5 Implement reviewed typed round-trip codecs for direct structured Home Manager settings surfaces and require decode → emit → Home Manager render → decode equivalence fixtures
-- [x] 8.6 Implement bounded safe file-round-trip adapters through staged Home Manager `home.file` placement for generators without a proven typed inverse
-- [x] 8.7 Implement curated-codec and explicit-exclusion overrides for multi-file/default-merging/scripted/sensitive modules; reject runtime strategy inference
-- [ ] 8.8 Add live discovery and round-trip Linux variants for Git, Bash, Zsh, and SSH config while excluding credentials, private keys, histories, and agent state
-- [ ] 8.9 Add live discovery and round-trip Linux variants for tmux, direnv, Starship, fzf, zoxide, bat, eza, ripgrep, and fd
-- [ ] 8.10 Add live discovery and round-trip Linux variants for Neovim, Helix, WezTerm, Kitty, and Alacritty with plugin/cache/state and portable-config-only boundaries
-- [ ] 8.11 Add live discovery and round-trip Linux variants for GitHub CLI, lazygit, Jujutsu, Atuin, and Yazi while excluding authentication, account, sync-session, history, cache, and machine-bound state
-- [ ] 8.12 Close every applicable-Windows matrix row with an equivalent verified Linux variant or a reviewed platform/safety exclusion; capture-only SHALL not satisfy a safely restorable Windows counterpart
-- [ ] 8.13 Promote safely reversible Home Manager-only programs as additive Linux coverage after the same discovery/provenance/secret/round-trip gates pass
-- [ ] 8.14 Add per-adapter discovery, capture, supported restore or explicit capture-only, verify, secret-boundary, revert/rollback, and cross-platform-mapping tests
-- [ ] 8.15 Extend the real Home Manager smoke manifest to activate every advertised `home-manager` adapter against the exact immutable release input pair
+## 2. Compatibility guards and product-truth baseline
 
-## 9. GNOME and KDE value-scoped settings
+**Depends on:** 1.3 before shared contract/documentation edits.
 
-- [ ] 9.1 Add an injectable GSettings read/write/reset boundary with typed value serialization and usable-session detection
-- [ ] 9.2 Implement GNOME value capture, prior-value/absence backup, apply, equality verify, and revert for named allowlisted schema/key coordinates
-- [ ] 9.3 Curate the initial GNOME preference modules and reject whole-dconf, account, keyring, recent-item, device-topology, and session/window-state scope
-- [ ] 9.4 Add an injectable, version-aware KDE KConfig file/group/key boundary with safe typed serialization and merge semantics
-- [ ] 9.5 Implement KDE value capture, prior-value/absence backup, apply, equality verify, and revert while preserving co-resident keys
-- [ ] 9.6 Curate the initial KDE preference modules and reject whole-directory, credential, history, recent-item, device-topology, and session/window-state scope
-- [ ] 9.7 Add hermetic GNOME/KDE operation tests plus real current-release desktop-session acceptance; advertise each tier only after its real-session gate passes
-- [ ] 9.8 Ensure unavailable desktop sessions yield a scoped settings warning and never block independent app/package capture
+**Red-first tests:** `TestCapturePlatformRegressionMatrix`,
+`TestCompatibilityClaimsMatchLinuxJourneyEvidence`.
 
-## 10. Linux scheduled drift checks
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-guards-gocache go test
+./internal/commands ./internal/modules` plus the compatibility-claim fixture.
 
-- [ ] 10.1 Reconcile with the active `scheduled-drift-check` change and extract/retain one scheduler interface and shared `schedule enable|disable|status|run` result contract
-- [ ] 10.2 Implement a systemd user registrar with injectable command/filesystem seams and no sudo/system-scope path
-- [ ] 10.3 Generate atomic, inspectable Endstate-owned service/timer units with explicit engine/root/manifest coordinates and `Persistent=true`
-- [ ] 10.4 Make enable idempotently reassert changed executable/config paths, reload the user manager, and retain one active timer
-- [ ] 10.5 Implement ownership-checked disable/cleanup that removes only generated Endstate user units and preserves shared schedule config/history
-- [ ] 10.6 Reconcile saved intent with live enabled/active/next-trigger state in `schedule status`; surface missing/modified unit mismatches
-- [ ] 10.7 Gate Linux schedule capabilities on a usable systemd user manager and return stable unsupported behavior without cron/profile/system-unit fallback
-- [ ] 10.8 Add unit tests for quoting, hostile paths, partial registration, reload/enable failures, ownership conflicts, idempotence, disable, and unsupported hosts
-- [ ] 10.9 Add a user-scope lifecycle smoke: enable, inspect units, force run, read last result, reassert, disable, and prove generated cleanup
+- [x] 2.1 Prove Linux capture with no callable Nix, no Endstate profile, native package evidence, and live supported config
+- [x] 2.2 Prove schema-v1/v2 flat modules remain Windows-only and inert on Linux
+- [ ] 2.3 Add one regression matrix covering Endstate-profile capture, Home Manager history, Winget/Chocolatey, Darwin Nix/Brew, and explicit platform opt-in
+- [ ] 2.4 Add a fixture-backed inventory of compatibility, CLI, and roadmap claims that exceed current ordinary-machine evidence
 
-## 11. Documentation, CI, and release truth
+## 3. Immutable inputs, package catalog, and provisioning authority
 
-- [ ] 11.1 Update CLI/event/capabilities contracts with discovery, platform-module, ownership-action, immutable-input, and Linux schedule fields/reason codes
-- [ ] 11.2 Update `docs/COMPATIBILITY.md` to distinguish substrate support, ordinary-machine journey readiness, settings-catalog breadth, atomicity, and independently available scheduling
-- [ ] 11.3 Migrate unique durable Linux/macOS deferred contracts from the legacy roadmap into OpenSpec/current contracts, then retire the parallel roadmap section as current authority
-- [ ] 11.4 Add Ubuntu/Debian, Fedora/RPM, and Arch discovery fixture/container jobs with deterministic golden results
-- [ ] 11.5 Add a required capture job with no callable Nix binary and no Endstate state
-- [ ] 11.6 Promote the Ubuntu real-Nix/Home Manager Linux leg from `continue-on-error` to required after its complete capture/apply/verify/revert/rollback journey passes
-- [ ] 11.7 Add Linux amd64/arm64 release-binary bootstrap, catalog lookup, immutable-pin, and capture smoke coverage
-- [ ] 11.8 Add release guards that refuse ordinary-machine Linux-ready claims when required discovery, settings, pins, desktop, schedule-as-advertised, or artifact gates are missing
+**Depends on:** section 2 complete after 1.3 catalog/bootstrap overlap
+reconciliation.
 
-## 12. Completion verification
+**Shared-file rule:** design decision 16 R5. Task 3.6 does not reorder root
+resolution.
 
-- [ ] 12.1 Run scoped tests for every changed discovery, catalog, module, capture, Home Manager, restore, desktop-settings, and schedule package during implementation
-- [ ] 12.2 Run `cd go-engine && go test ./...` at the completed engine boundary and compare failures with the pre-change baseline
-- [ ] 12.3 Run real Ubuntu fresh-machine capture → apply → verify → settings revert → package rollback from the shipped Linux binary and preserve the output as PR evidence
-- [ ] 12.4 Run real GNOME and KDE acceptance for the tiers advertised by capabilities; leave an unverified tier dark rather than waiving it
-- [ ] 12.5 Run the systemd user-timer lifecycle on a supported Linux session and prove no system-scope units or lingering Endstate process exist
-- [ ] 12.6 Run `openspec validate --all --strict --no-interactive` and all repository contract/doc checks
-- [ ] 12.7 Re-run Windows capture/apply/config/verify/revert and Darwin Nix/Brew regression suites to prove the platform abstractions did not change existing behavior
+**Packet boundary:** this packet owns release inputs, package-catalog
+validation, Provisioning Generation schema, and mapping-evaluation CI. It does
+not own capture envelopes or platform-module provenance.
 
-## 13. GUI release and macOS follow-on
+**Red-first tests:** `TestProvisionGenerationRecordsEffectiveReleaseInputs`,
+`TestCatalogRejectsAmbiguousDesktopAndExecutableAliases`,
+`TestInstalledRuntimeCatalogRoundTrip`,
+`TestAdvertisedMappingsEvaluateAtPinnedRevision`.
 
-- [ ] 13.1 After the CLI envelope stabilizes, create a separate `endstate-gui` OpenSpec change for Linux engine/catalog bundling, executable permissions, platform onboarding, discovery selection, ownership/consent/errors, verify/revert/rollback, updater/signing, and package formats
-- [ ] 13.2 Implement and test the Linux GUI against the bundled release engine; perform Chrome DevTools QA on every changed rendered flow and a real installed-package E2E before announcement
-- [ ] 13.3 Require the GUI to consume capabilities/discovery results only and prove it contains no package-manager, Nix, module-catalog, or filesystem discovery logic
-- [ ] 13.4 Publish the Linux release only after both engine and GUI acceptance gates pass; do not equate CLI artifacts alone with the product release
-- [ ] 13.5 Create a separate `add-macos-product-parity` OpenSpec change reusing package discovery/platform modules/scheduler interfaces for Homebrew, Mac App Store, Home Manager, nix-darwin, launchd, Darwin GUI packaging, and signing
-- [ ] 13.6 Run the macOS change on a real Mac with the user's tester before making a macOS product-parity claim
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-catalog-gocache go test
+./internal/releaseinputs ./internal/packagecatalog ./internal/provision
+./internal/commands -run 'Provision|Catalog|ReleaseInput'`.
+
+- [x] 3.1 Add one release-owned revision-locked compatible Nixpkgs/Home Manager input manifest and strict loader
+- [x] 3.2 Route Nix and generated Home Manager release defaults through that manifest while retaining explicit advanced override seams
+- [x] 3.3 Add strict versioned package-catalog types, deterministic revisions, duplicate-source diagnostics, and safe Nix targets
+- [x] 3.4 Seed reviewed package mappings for the release depth corpus plus high-value browser/editor/desktop applications
+- [ ] 3.5 Require every release/default/explicit flakeref and advanced override to produce the exact locked installable used for mutation, then persist requested intent, platform/config identity, effective inputs, and Home Manager generation in the revised Provisioning Generation contract
+- [ ] 3.6 Complete source-specific desktop/executable ambiguity diagnostics, deterministic serialization, and installed CLI/GUI runtime-layout lookup tests
+- [ ] 3.7 Add required amd64/arm64 evaluation of every advertised Linux Nix mapping against the exact release revision, recording principled architecture unavailability without substitutes
+
+## 4. Discovery completion
+
+**Depends on:** section 2 complete and 3.3 package-catalog authority.
+
+**Packet boundary:** one cohesive discovery packet owns source types,
+orchestration, adapters, and fixtures. Capabilities integration remains in
+section 6.
+
+**Red-first tests:** `TestSnapAdapterCapabilityContract`,
+`TestExecutableAndConfigEvidenceUsesBoundedCoordinates`,
+`TestCrossSourceFixtureReconcilesNativeDesktopAndConfig`,
+`TestDiscoveryHostileLocaleCasePrivacyAndCancellation`.
+
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-discovery-gocache go test
+./internal/discovery ./internal/packagecatalog`.
+
+- [x] 4.1 Add source/evidence/intent/unresolved/status/count types plus a fixed-argv bounded read-only adapter and injectable runner
+- [x] 4.2 Implement deterministic orchestration, source-scoped failures, cancellation, portable-identity reconciliation, explicit/user-facing filtering, and config-only candidates
+- [x] 4.3 Implement Endstate/user Nix, Debian, RPM-family, Arch, and Flatpak inventory adapters with dependency/runtime filtering
+- [x] 4.4 Implement deterministic XDG desktop-entry discovery with precedence and visibility filtering
+- [ ] 4.5 Implement Snap behind an experimental/dark capability and promote it only after hermetic plus real-Ubuntu source-contract evidence
+- [ ] 4.6 Implement catalog-declared executable/config-path evidence through bounded engine-owned coordinates
+- [ ] 4.7 Complete malformed/large-output, locale/case, privacy-redaction, cancellation, and retry-budget coverage
+- [ ] 4.8 Add one hermetic multi-source fixture for the same app across native managers, desktop, executable, and config evidence
+
+## 5. Platform schema, provenance, and cross-platform mappings
+
+**Depends on:** section 2 complete and 1.3 verified-module-matrix overlap
+reconciliation.
+
+**Shared-file rule:** design decision 16 R1 and R2. Schema-v3 loader or
+projection changes refresh validation sidecars and run
+`cd go-engine && go test ./internal/validationmatrix`; edits to the matrix
+harness (including `validationmode`) are named per file and limited to what
+the projection requires.
+
+**Packet boundary:** owns schema-v3 validation, platform projection,
+fingerprints/history, capture provenance, and authored platform mappings.
+
+**Red-first tests:** `TestAllLegacyModulesInertOnLinuxAndDarwin`,
+`TestSchemaV3CaptureRequiresSourcePlatform`,
+`TestSchemaV3FingerprintChangesByPlatform`,
+`TestCrossPlatformRestoreWithoutMappingSkips`,
+`TestPathCoordinateContainmentAndSymlinkPolicy`.
+
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-platform-gocache go test
+./internal/modules ./internal/manifest ./internal/config ./internal/bundle
+./internal/commands -run 'Platform|Provenance|Generation|Coordinate'`.
+
+- [x] 5.1 Add strict schema-v3 `platforms` parsing and reject mixed flat/executable declarations or missing realization strategies
+- [x] 5.2 Treat legacy schema-v1/v2 flat modules as Windows-only without mutating the loaded catalog
+- [ ] 5.3 Prove full-catalog Windows compatibility and Linux/Darwin inertness through host seams and frozen snapshots
+- [ ] 5.4 Qualify generation identity, fingerprints, history, manifest provenance, and validation with non-empty source platform/variant identity
+- [ ] 5.5 Implement same-platform default resolution plus explicit source-to-target mappings/migrations and stable `platform_mapping_missing`
+- [ ] 5.6 Complete coordinate canonicalization, containment, symlink, unsupported-shell, diagnostics, validation-mode, and frozen-fixture tooling
+
+## 6. Linux capture and additive CLI contract
+
+**Depends on:** 3, 4, and 5.
+
+**Packet boundary:** owns capture orchestration, discovery counts/actions,
+events, capabilities, selection flags, and bundle determinism. It serializes
+with later contract and GUI-consumer work.
+
+**Red-first tests:** `TestLinuxDiscoveryCountsReconcile`,
+`TestCaptureDiscoveryEmitsSourceAndItemEvents`,
+`TestLinuxCaptureIdenticalDiscoveryProducesByteStableBundle`,
+`TestLinuxCaptureUpdateSanitizeShareNeverStagesUnselectedPathConfig`,
+`TestCaptureAdapterRetriesAreBounded`.
+
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-capture-gocache go test
+./internal/commands ./internal/events ./internal/bundle ./internal/discovery`.
+After independent review, run the first tranche boundary:
+`cd go-engine && GOCACHE=/tmp/endstate-boundary-capture-gocache go test ./...`.
+
+- [x] 6.1 Route Linux capture through ordinary-machine discovery without Nix bootstrap and reconcile Endstate-profile evidence
+- [x] 6.2 Emit only reviewed resolved intents while preserving unresolved/settings-only state and allowing validated settings-only artifacts
+- [x] 6.3 Expose initial discovery, platform-module, source-adapter, and immutable-input capabilities
+- [ ] 6.4 Implement the normative raw-source versus unique-candidate count model and independently checkable equations
+- [ ] 6.5 Complete `--only`, `--update`, `--sanitize`, and share behavior without leaking unselected path-only settings
+- [ ] 6.6 Add stable discovery source/item events, product-language messages, reason codes, and details-only backend diagnostics
+- [ ] 6.7 Prove repeated identical discovery produces byte-stable output/bundles with safe source provenance
+- [ ] 6.8 Implement and test source-specific bounded retry reporting while retaining the zero-useful-state contract
+
+## 7. Settings realization and ownership
+
+**Depends on:** 5 and 6.
+
+**Shared-file rule:** design decision 16 R4. Task 7.2 edits
+`internal/realizer/nix/home_catalog.go` only after `home-catalog-data-driven`
+is synced and archived (task 1.5).
+
+**Packet boundary:** owns trusted platform-variant matching, Home Manager/direct
+restore routing, external ownership actions, Provisioning Generation linkage,
+rollback, and collision prevention. It does not add app-specific codecs.
+
+**Red-first tests:** `TestLinuxVariantEndstateRestoreUsesConsentJournalAndRevert`,
+`TestExternalHomeManagerNeverEditsSourceGraph`,
+`TestHomeManagerAndRestoreTargetCollisionFails`,
+`TestHomeGenerationRecordsInputRevisionsAndVariant`.
+
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-ownership-gocache go test
+./internal/commands ./internal/bundle ./internal/realizer/nix
+./internal/provision ./internal/modules ./internal/configrestore`.
+
+- [ ] 7.1 Match and collect live settings only through trusted schema-v3 Linux variants after package/evidence reconciliation
+- [ ] 7.2 Complete typed/file Home Manager generation and target-placement round-trip tests through the inspectable generated flake
+- [ ] 7.3 Route explicit Linux `endstate-restore` variants through consent, backup, staging validation, durable journal, target verification, and revert
+- [ ] 7.4 Fully classify external Home Manager ownership from live activation plus exact Endstate provisioning provenance
+- [x] 7.5 Refuse silent generated activation over an external Home Manager owner and return an ownership action
+- [ ] 7.6 Produce a stable importable artifact and prove Endstate never edits the owner's source graph
+- [ ] 7.7 Reject strategy inference, undeclared fallbacks, and duplicate ownership across Home Manager, direct restore, shared modules, and existing files
+- [ ] 7.8 Record effective inputs and platform/config identity in Home Manager/direct-restore verification, rollback, and Provisioning Generation output
+
+## 8. Home Manager harvester, registry authority, and readiness gate
+
+**Depends on:** 3, 5, 6, and 7. Section 8 serializes with
+`home-catalog-data-driven` and `verified-module-matrix` before shared-file
+edits (design decision 16 R1, R2, and R4).
+
+**Packet boundaries:** harvester/drift; registry/module authority; matrix
+readiness; runtime action/content verification. These may be separate only when
+their shared files are exclusive.
+
+**Red-first tests:** `TestNixTargetProberCancelsHungEvaluation`,
+`TestRegistryCheckEmitsBoundedDeterministicDriftDiff`,
+`TestRegistryRejectsSupportedAdapterWithoutLinuxExecutionAuthority`,
+`TestProductionMatrixDoesNotCountLegacyWindowsModuleFromAdapterAlone`,
+`TestVerifyHomeManagerFilesDetectsContentDriftWithinSameGeneration`.
+
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-registry-gocache go test
+./internal/hmharvest ./internal/hmregistry ./internal/linuxparity
+./internal/modules ./internal/discovery ./internal/bundle
+./internal/realizer/nix ./internal/commands`.
+
+- [x] 8.1 Implement the deterministic release-time pinned Home Manager harvester, fixed-argv pure probes, and separate registry-refresh CLI
+- [ ] 8.2 Add probe timeout/cancellation plus automated proof that harvester/Nix evaluation is absent from runtime capture dependencies
+- [x] 8.3 Implement strict frozen registry parsing for exact inputs, hashes, reviewed dispositions, target coordinates, ownership uniqueness, and fail-closed codec dispatch
+- [ ] 8.4 Bind every non-excluded adapter to an explicit schema-v3 Linux platform variant, package/module identity, targets, strategy, actions, and secret/content policy
+- [x] 8.5 Generate a deterministic matrix that accounts for all 359 existing application modules and reports supported/adapter/review counters
+- [ ] 8.6 Add persistent reviewed applicability/exclusion authority and make the zero-blocker readiness predicate mandatory in release validation
+- [ ] 8.7 Emit bounded deterministic declaration/option/type/target/source-hash diffs that invalidate prior review
+- [x] 8.8 Implement bounded regular-file observation/staging mechanics with size, regular-file, hash, target, and symlink checks
+- [x] 8.9 Implement explicit exclusion and curated-codec dispatch that rejects unknown runtime strategies
+- [ ] 8.10 Make advertised capture/restore/verify/revert actions honest and verify expected target contents rather than generation identity alone
+
+## 9. Typed, file, and curated adapter cohorts
+
+**Depends on:** 8.4, 8.7, and 8.10.
+
+**Shared-file rule:** cohort lanes own distinct codec files, schema-v3
+`modules/apps/<id>` declarations, package mappings, and fixtures only. They
+SHALL NOT edit `catalog/home-manager/registry.jsonc`, shared registry/runtime
+dispatch, the production matrix test, or the real-Nix smoke. Section 9.13 owns
+that serialized integration. Design decision 16 R1, R2, and R4 also bind every
+cohort lane: each `module.jsonc` edit refreshes its validation sidecar, a new
+module directory ships its sidecar and reports denominator drift, and
+`home_catalog.go` is edited only after `home-catalog-data-driven` archives.
+
+**Framework red-first tests:** `TestTypedRoundTripDecodeEmitRenderDecodeEquivalence`,
+`TestRegistryRejectsSensitiveOrExecutableTargetWithoutSemanticCodec`,
+`TestAdvertisedAdaptersLifecycleAndSecretBoundary`.
+
+**Cohort gates:** each lane runs its named codec/module/discovery/bundle tests.
+The serialized integration runs `cd go-engine && GOCACHE=/tmp/endstate-lane-adapters-gocache
+go test ./internal/settingscodec ./internal/hmregistry ./internal/linuxparity
+./internal/modules ./internal/discovery ./internal/bundle ./internal/realizer/nix
+./internal/commands`.
+
+- [ ] 9.1 Implement the typed-roundtrip framework and require decode → emit → Home Manager render → decode equivalence
+- [ ] 9.2 Replace generic byte preservation with reviewed data-only file policy; route command/secret/account/machine-capable targets to semantic codecs, narrower values, capture-only, or exclusion
+- [ ] 9.3 Harden Git parsing against opaque credential keys, executable transports, malformed quoted values, includes, aliases, auth, filters, drivers, and identity-sensitive state
+- [ ] 9.4 Add schema-v3 Linux variants and lifecycle proof for Git, Bash, Zsh, and SSH without credentials, keys, histories, or agent state
+- [ ] 9.5 Add schema-v3 variants/codecs for tmux, direnv, Starship, fzf, and zoxide with command/environment safety tests
+- [ ] 9.6 Add schema-v3 variants/codecs for bat, eza, ripgrep, and fd with cross-platform mapping proof where supported
+- [ ] 9.7 Add schema-v3 variants/codecs for Neovim and Helix excluding plugins, language-server secrets/commands, caches, and machine paths
+- [ ] 9.8 Add schema-v3 variants/codecs for WezTerm, Kitty, and Alacritty excluding environment secrets, shell state, and machine-bound paths
+- [ ] 9.9 Add schema-v3 variants/codecs for GitHub CLI, lazygit, and Jujutsu excluding authentication, accounts, helpers, and executable hooks
+- [ ] 9.10 Add schema-v3 variants/codecs for Atuin and Yazi excluding accounts, sync sessions, history, VFS/remote-service state, caches, and machine identity
+- [ ] 9.11 Promote additional Home Manager-only programs only after the identical schema-v3 authority, content, provenance, secret, and lifecycle gates pass
+- [ ] 9.12 Close every applicable-Windows row with a verified Linux variant or persistent reviewed platform/safety exclusion; capture-only does not satisfy a safely restorable Windows row
+- [ ] 9.13 Serialize accepted cohort entries into the registry, regenerate the matrix, independently recompute all counters, and reject any unreviewed count drift
+- [ ] 9.14 Enumerate every advertised adapter in a table-driven capture/apply/content-verify/secret/revert/cross-platform lifecycle test so an untested advertised adapter fails
+- [ ] 9.15 Make the exact advertised registry drive a required real Home Manager smoke against the immutable release pair with no generation-only fallback, including one real `home-manager switch` activation per `curatedTable` field kind (`kindNone`, `kindString`, `kindStringMap`, `kindAnyMap`, `kindStringSlice`) that asserts the generated `home.nix` statement and the activated target, carrying `home-catalog-data-driven` task 4.4
+
+## 10. Durable desktop values, GNOME, and KDE
+
+**Depends on:** 5, 6, and the durable ownership model in 7.3. GNOME and KDE
+implementation packets may run in parallel only after 10.1–10.3 land.
+
+**Red-first tests:** `TestTypedValueTransactionRecoversInterruptedMutation`,
+`TestGSettingsUserOverrideVersusDefault`,
+`TestGSettingsRevertRestoresAbsence`,
+`TestKConfigPreservesCoResidentKeys`,
+`TestKConfigRevertRestoresAbsentKey`,
+`TestDesktopSessionUnavailableIsScoped`.
+
+**Hermetic gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-desktop-gocache go test
+./internal/configrestore ./internal/modules ./internal/commands
+./internal/desktopsettings` (or the final package selected by implementation).
+Promotion additionally requires the named real-session script for that desktop.
+
+- [ ] 10.1 Extend durable configuration transactions with typed target identity, value/absence snapshots, atomic intent/journal state, verification, recovery, and revert
+- [ ] 10.2 Define canonical bounded value encodings and stable unavailable/ownership/partial-failure reason codes shared by desktop adapters
+- [ ] 10.3 Integrate typed-value operations with module authority, backup/recovery inspection, verifier dispatch, and collision detection
+- [ ] 10.4 Implement injectable GSettings user-value/read/write/reset/session boundaries that distinguish overrides from inherited defaults
+- [ ] 10.5 Curate the initial GNOME schema/key/type allowlist and complete capture/apply/verify/revert while rejecting whole dconf and forbidden state
+- [ ] 10.6 Implement an injectable Plasma/KConfig-version-aware file/group/key boundary with absence/empty distinction, safe locking, and merge semantics
+- [ ] 10.7 Curate the initial KDE file/group/key/type allowlist and complete capture/apply/verify/revert while preserving co-resident keys and rejecting forbidden state
+- [ ] 10.8 Keep unavailable desktop sessions source-scoped and independent from package/application capture
+- [ ] 10.9 Run current-release real GNOME and KDE session acceptance separately; record exact supported ranges and keep any unverified tier dark
+
+## 11. Shared scheduler and Linux systemd user timer
+
+**Depends on:** design decision 16 R3, which requires `scheduled-drift-check`
+to have its ledger reconciled against the shipped implementation and to be
+archived with its spec synced into `openspec/specs` through task 1.5; and
+stable section-6 capabilities/result fields. Shared
+interface extraction and systemd implementation are serialized.
+
+**Red-first tests:** `TestSchedulerBackendSelectionPreservesWindows`,
+`TestSystemdExecStartEscapesHostilePathsWithoutShell`,
+`TestSystemdOwnershipConflictRefusesOverwrite`,
+`TestSystemdPartialRegistrationRecovers`,
+`TestScheduleStatusReportsMissingModifiedAndLiveState`,
+`TestLinuxManualRunAndDiscardAreSchedulerIndependent`.
+
+**Gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-schedule-gocache go test
+./internal/schedule` and
+`cd go-engine && GOCACHE=/tmp/endstate-lane-schedule-gocache go test
+./internal/commands -run 'Schedule'`. Promotion requires the real systemd-user
+lifecycle script.
+
+- [ ] 11.1 Author this change's `scheduled-drift-check` MODIFIED delta against the synced capability and modify the public CLI contract so Windows and Linux share `enable|disable|status|run|discard-upload`, backend-neutral results, and stable reason codes
+- [ ] 11.2 Replace the Windows-shaped pre-quoted registrar with structured availability/enable/disable/inspect intent while preserving Windows behavior
+- [ ] 11.3 Implement systemd-user availability and user-unit-directory resolution with no sudo, system unit, cron, or profile fallback
+- [ ] 11.4 Generate atomic service/timer units with structured native escaping, explicit engine/root/manifest coordinates, `Persistent=true`, and ownership marker/version/content hash
+- [ ] 11.5 Implement idempotent reassertion plus deterministic recovery from each unit-write, reload, enable/start, and config-persistence failure
+- [ ] 11.6 Implement ownership-checked disable/cleanup and refuse silent overwrite/delete of user-modified or foreign units
+- [ ] 11.7 Reconcile saved intent with availability, enabled/active/next-trigger, unit ownership/integrity, and last-run state
+- [ ] 11.8 Keep manual status/run and durable Cloud replay/discard scheduler-independent; expose separate schedule-operation and registration capability fields, advertising registration only with a usable user manager
+- [ ] 11.9 Run the real user-scope lifecycle: enable, inspect, force run, read result, reassert, disable, and prove generated cleanup with no system units or lingering process
+
+## 12. Contracts, runtime artifacts, CI, and release truth
+
+**Depends on:** stable producers from 6–11. Contract and workflow paths are
+protected and must be explicitly assigned to these integration packets.
+
+**Shared-file rule:** design decision 16 R2 for workflows and the matrix
+harness, and R5 for task 12.6, which owns `bootstrap_unix.go` plus the shared
+`installCatalog` in `bootstrap.go` and absorbs `catalog-discovery-hardening`
+follow-up 5.2.
+
+**Red-first tests:** `TestLinuxCapture_NoNixNoState`,
+`TestDistroDiscoveryGolden`,
+`TestRunBootstrap_UnixInstallsRuntimeCatalogs`,
+`TestInstalledBinaryDiscoversCatalogWithoutEndstateRoot`, plus
+`scripts/linux-release-contract.test.mjs` and
+`scripts/linux-release-truth.test.mjs`.
+
+**Gate:** scoped Go/Node tests during implementation; required named CI checks
+for Ubuntu/Fedora/Arch discovery, no-Nix capture, real Nix journey, amd64/arm64
+artifacts, promoted desktops/systemd, and readiness policy.
+
+- [ ] 12.1 Publish final CLI, event, capabilities, ownership, immutable-input, platform-module, desktop, and schedule contracts from stable producer schemas
+- [ ] 12.2 Correct `docs/COMPATIBILITY.md` to separate substrate support, ordinary-machine readiness, settings breadth, atomicity, and independent scheduling/desktop tiers
+- [ ] 12.3 Move unique durable deferred Linux/macOS roadmap contracts into explicit follow-on OpenSpec changes or non-normative deferred sections, then retire the competing roadmap authority
+- [ ] 12.4 Add byte-stable Ubuntu/Debian, Fedora/RPM, and Arch discovery fixtures/jobs
+- [ ] 12.5 Make no-Nix/no-Endstate-state capture a required job
+- [ ] 12.6 Ship deterministic Linux runtime bundles containing binary, modules, payload, package catalog, Home Manager registry, and schema identity; make Unix bootstrap install/resolve them
+- [ ] 12.7 Add required shipped-artifact bootstrap/catalog/pin/no-Nix capture smoke on Linux amd64 and arm64
+- [ ] 12.8 Promote the complete real Ubuntu capture/apply/content-verify/settings-revert/package-rollback journey from non-blocking smoke to required evidence
+- [ ] 12.9 Add a machine-readable readiness policy that fails publication claims when any required matrix, discovery, codec, pin, artifact, real-host, or advertised capability check is absent
+
+## 13. Engine completion and independent acceptance
+
+**Depends on:** section 2 complete and all advertised section 9–12 nodes.
+Unadvertised desktop, scheduler, Snap, or architecture nodes may remain dark
+but cannot be waived if claimed.
+
+- [ ] 13.1 Run every changed package's scoped gate and retain each independent reviewer verdict plus correction recheck
+- [ ] 13.2 Run exactly one completed-engine `cd go-engine && GOCACHE=/tmp/endstate-boundary-final-gocache go test ./...` and compare any failure with the recorded baseline
+- [ ] 13.3 Run the shipped-binary real Ubuntu fresh-machine journey and preserve capture → apply → target-content verify → settings revert → package rollback evidence
+- [ ] 13.4 Run real GNOME and KDE acceptance for exactly the tiers advertised by capabilities
+- [ ] 13.5 Run the real systemd-user lifecycle for advertised scheduling and prove no system-scope units or lingering process
+- [ ] 13.6 Run `npm run openspec:validate`, all contract/doc/readiness checks, and regenerate the matrix with the mandatory readiness predicate
+- [ ] 13.7 Re-run Windows capture/apply/config/verify/revert and Darwin Nix/Brew suites after the final abstractions
+- [ ] 13.8 Obtain a fresh zero-context integration review over the combined diff and independently attack shared authority, secret, rollback, and release-gate boundaries
+
+## 14. Linux GUI release and macOS follow-on
+
+**Depends on:** stable engine contracts and accepted section 13. A separate
+`endstate-gui` OpenSpec change owns GUI implementation.
+
+**Initial packaging decision:** AppImage plus deb. RPM remains follow-on unless
+the GUI change explicitly adds Fedora installed-package evidence. Advertise
+only CPU architectures with packaged E2E and updater/signing proof.
+
+- [ ] 14.1 Create the separate GUI OpenSpec change for runtime-asset bundling, executable permissions, Linux onboarding, discovery selection, ownership/consent/errors, verify/revert/rollback, AppImage/deb packaging, updater/signing, and release policy
+- [ ] 14.2 Add GUI typed consumers and an architectural guard proving no package-manager, Nix, module-catalog, or filesystem discovery logic exists in GUI code
+- [ ] 14.3 Bundle the version-matched engine, modules, payload, package catalog, Home Manager registry, and schema identity in development and packaged GUI layouts
+- [ ] 14.4 Implement resolved/settings-only/unresolved/source-warning/external-Home-Manager/unsupported-schedule rendered flows and perform Chrome DevTools QA on every changed flow
+- [ ] 14.5 Build AppImage plus deb, run the complete journey from installed/portable packages rather than a dev sidecar, and validate updater/signing metadata for every advertised artifact
+- [ ] 14.6 Publish Linux only after both engine and GUI readiness policies pass; CLI artifacts alone do not constitute the product release
+- [ ] 14.7 Create a separate `add-macos-product-parity` OpenSpec change for Homebrew/Mac App Store discovery, Home Manager/nix-darwin ownership, launchd, Darwin GUI packaging, signing, and updater behavior
+- [ ] 14.8 Run the macOS change on a real Mac with the user's tester before advertising macOS product parity

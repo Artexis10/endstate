@@ -6,7 +6,7 @@ The engine SHALL support `capture` on Linux and Darwin without requiring Winget 
 #### Scenario: Capture combines the managed realizer set and ordinary-machine discovery
 - **WHEN** Linux capture runs with a working Endstate Nix profile and supported applications are also found through other discovery sources
 - **THEN** the engine SHALL write one manifest containing the reconciled resolved package intents
-- **AND** it SHALL preserve source-qualified evidence for the managed and external items
+- **AND** it SHALL preserve source-qualified evidence while retaining the same manifest output shape and output-path resolution as the existing capture path
 
 #### Scenario: Capture succeeds without Nix
 - **WHEN** Linux capture runs with trustworthy supported native/desktop/config evidence but no Nix executable or Endstate profile
