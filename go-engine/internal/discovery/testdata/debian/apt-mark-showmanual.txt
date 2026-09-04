@@ -1,0 +1,5 @@
+bash
+base-files
+fd-find
+ripgrep
+ubuntu-minimal

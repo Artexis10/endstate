@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "atuin",
+  "displayName": "Atuin",
+  "nix": { "attribute": "atuin" },
+  "aliases": {
+    "debian": ["atuin"],
+    "rpm": ["atuin"],
+    "arch": ["atuin"],
+    "executable": ["atuin"]
+  }
+}

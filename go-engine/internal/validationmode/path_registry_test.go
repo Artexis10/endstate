@@ -208,6 +208,7 @@ func TestResolveHostPathRejectsUnsafeAuthoredPaths(t *testing.T) {
 		`\\.\PhysicalDrive0`, `%APPDATA%\file.txt:stream`, `%APPDATA%\..\escape`,
 		`%APPDATA%\\empty`, `%APPDATA%\.\dot`, `%UNKNOWN%\settings`,
 		`$APPDATA/settings`, `${APPDATA}/settings`,
+		`${xdg.config}/tool/settings`, `${darwin.applicationSupport}/Tool/settings`,
 		`${instance.root}\settings`, `%APPDATA%\${instance.root}`,
 		`%APPDATA%\%TEMP%\mixed`, `%APPDATA%\<instance>\settings`,
 	}
@@ -226,8 +227,13 @@ func TestResolveHostPathRejectsUnsafeAuthoredPaths(t *testing.T) {
 func TestResolveHostPathMapsSupportedProductionDialect(t *testing.T) {
 	context := activeTestContext(t, "production-dialect")
 	profile, _ := context.VirtualRoot("USERPROFILE")
+	appData, _ := context.VirtualRoot("APPDATA")
+	localAppData, _ := context.VirtualRoot("LOCALAPPDATA")
 	for authored, want := range map[string]string{
-		`~/.config/tool/settings`: filepath.Join(profile, ".config", "tool", "settings"),
+		`~/.config/tool/settings`:                      filepath.Join(profile, ".config", "tool", "settings"),
+		`${home}/.config/tool/settings`:                filepath.Join(profile, ".config", "tool", "settings"),
+		`${windows.appdata}/Vendor/settings.json`:      filepath.Join(appData, "Vendor", "settings.json"),
+		`${windows.localAppData}/Vendor/settings.json`: filepath.Join(localAppData, "Vendor", "settings.json"),
 	} {
 		got, err := context.ResolveHostPath(authored, HostPathPolicy{})
 		if err != nil {
@@ -247,8 +253,11 @@ func TestResolveHostPathMapsSupportedProductionDialect(t *testing.T) {
 
 func TestNormalizeProductionAuthoredPathMapsTildeHomeSpellings(t *testing.T) {
 	for authored, want := range map[string]string{
-		`~/config/tool/settings`: `%USERPROFILE%\config/tool/settings`,
-		`~\config\tool\settings`: `%USERPROFILE%\config\tool\settings`,
+		`~/config/tool/settings`:                       `%USERPROFILE%\config/tool/settings`,
+		`~\config\tool\settings`:                       `%USERPROFILE%\config\tool\settings`,
+		`${home}/config/tool/settings`:                 `%USERPROFILE%/config/tool/settings`,
+		`${windows.appdata}/Vendor/settings.json`:      `%APPDATA%/Vendor/settings.json`,
+		`${windows.localAppData}\Vendor\settings.json`: `%LOCALAPPDATA%\Vendor\settings.json`,
 	} {
 		if got := NormalizeProductionAuthoredPath(authored); got != want {
 			t.Fatalf("NormalizeProductionAuthoredPath(%q) = %q, want %q", authored, got, want)

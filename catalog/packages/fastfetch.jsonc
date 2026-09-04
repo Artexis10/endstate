@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "fastfetch",
+  "displayName": "Fastfetch",
+  "nix": { "attribute": "fastfetch" },
+  "aliases": {
+    "debian": ["fastfetch"],
+    "rpm": ["fastfetch"],
+    "arch": ["fastfetch"],
+    "executable": ["fastfetch"]
+  },
+  "configModule": "apps.fastfetch"
+}

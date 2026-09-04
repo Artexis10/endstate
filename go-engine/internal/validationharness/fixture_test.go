@@ -181,6 +181,43 @@ func TestProductionClinkAutoFixtureUsesOneDirectoryAndOverlappingExclusions(t *t
 	}
 }
 
+func TestProductionRipgrepSchemaV3WindowsFixtureMapsEngineCoordinates(t *testing.T) {
+	repo := productionLiveRepoRoot(t)
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := catalog.Modules["apps.ripgrep"]
+	record := catalog.Records["apps.ripgrep"]
+	if mod == nil || mod.SourceSchemaVersion != 3 || mod.Platform != "windows" || len(record.Synthetic.Scenarios) != 1 {
+		t.Fatalf("ripgrep catalog authority = module=%+v scenarios=%+v", mod, record.Synthetic.Scenarios)
+	}
+	scenario := record.Synthetic.Scenarios[0]
+	definitions, failure := compileFixtureDefinitionsAt(repo, mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	validationContext := fixtureValidationContext(t, mod.ID, scenario.ID)
+	plan, failure := compileFixturePlan(validationContext, mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(plan.Targets) != 2 {
+		t.Fatalf("ripgrep fixture targets = %+v, want two", plan.Targets)
+	}
+	profile, _ := validationContext.VirtualRoot("USERPROFILE")
+	appData, _ := validationContext.VirtualRoot("APPDATA")
+	want := map[string]string{
+		"${home}/.ripgreprc":                filepath.Join(profile, ".ripgreprc"),
+		"${windows.appdata}/ripgrep/config": filepath.Join(appData, "ripgrep", "config"),
+	}
+	for _, target := range plan.Targets {
+		if target.Resolved != want[target.Authored] {
+			t.Fatalf("ripgrep fixture target %q resolved to %q, want %q", target.Authored, target.Resolved, want[target.Authored])
+		}
+	}
+}
+
 func TestProductionWinampAutoFixtureHasNoRedundantMilkdropTargetOrOverlap(t *testing.T) {
 	repo := productionLiveRepoRoot(t)
 	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())

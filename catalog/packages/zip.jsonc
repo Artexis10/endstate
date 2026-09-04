@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "zip",
+  "displayName": "zip",
+  "nix": { "attribute": "zip" },
+  "aliases": {
+    "debian": ["zip"],
+    "rpm": ["zip"],
+    "arch": ["zip"],
+    "executable": ["zip"]
+  }
+}

@@ -20,6 +20,43 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
+func TestDefaultCommandCatalogProjectsInjectedPlatform(t *testing.T) {
+	originalGOOS := captureGOOSFn
+	t.Cleanup(func() { captureGOOSFn = originalGOOS })
+
+	for _, tc := range []struct {
+		platform   string
+		wantLegacy bool
+	}{
+		{platform: "windows", wantLegacy: true},
+		{platform: "linux"},
+	} {
+		t.Run(tc.platform, func(t *testing.T) {
+			captureGOOSFn = func() string { return tc.platform }
+			catalog, err := loadModuleCatalogFn(filepath.Join("..", "..", ".."))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for id, mod := range catalog {
+				if mod.EffectiveSchemaVersion() == 3 {
+					t.Fatalf("command catalog retained authored schema-v3 module %s", id)
+				}
+				if mod.SourceSchemaVersion == 3 && mod.Platform != tc.platform {
+					t.Fatalf("command catalog projected %s for %q on %q", id, mod.Platform, tc.platform)
+				}
+			}
+
+			ripgrep := catalog["apps.ripgrep"]
+			if ripgrep == nil || ripgrep.SourceSchemaVersion != 3 || ripgrep.Platform != tc.platform {
+				t.Fatalf("ripgrep %s projection = %+v", tc.platform, ripgrep)
+			}
+			if legacy := catalog["apps.notepad-plus-plus"]; (legacy != nil) != tc.wantLegacy {
+				t.Fatalf("legacy Windows module on %s = %+v, want present %t", tc.platform, legacy, tc.wantLegacy)
+			}
+		})
+	}
+}
+
 // Capture writes .endstate by default, but an explicit --out that already names
 // a bundle is honoured exactly — a caller asking for .zip keeps getting .zip,
 // permanently.
@@ -885,12 +922,16 @@ func TestRunCaptureRealizerSuppliesInstalledNixAndBrewPackageEvidence(t *testing
 	}
 	t.Setenv("ENDSTATE_CAPTURE_CONFIG", configRoot)
 	makeModule := func(id string) *modules.Module {
-		return testCaptureGenerationModule(t, captureGenerationModuleSpec{
+		base := testCaptureGenerationModule(t, captureGenerationModuleSpec{
 			ID: id, PathMatch: configRoot,
 			Detectors:     []modules.InstanceDetectorDef{{ID: "installed", Type: "package"}},
 			Sets:          []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
 			CaptureSource: captureTestEnvPath("ENDSTATE_CAPTURE_CONFIG", "prefs.json"),
 		})
+		base.SourceSchemaVersion = 3
+		base.Platform = "darwin"
+		base.Realization = "endstate-restore"
+		return base
 	}
 	nixModule := makeModule("apps.ripgrep")
 	brewModule := makeModule("apps.hello")

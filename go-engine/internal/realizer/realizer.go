@@ -36,6 +36,11 @@ type Element struct {
 	Name       string
 	AttrPath   string
 	StorePaths []string
+	// OriginalURL is the flakeref requested when the profile element was added;
+	// URL is Nix's resolved/locked source when present. Capture preserves this
+	// provenance instead of reducing an immutable profile entry to a bare attr.
+	OriginalURL string
+	URL         string
 }
 
 // Set is the currently-installed package set plus the active generation number.

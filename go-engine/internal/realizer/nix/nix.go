@@ -12,6 +12,7 @@ package nix
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
 
 // Runner executes `nix <args...>` and returns captured stdout/stderr, the
@@ -99,25 +101,27 @@ func defaultPin() string {
 	if p := os.Getenv("ENDSTATE_NIXPKGS_PIN"); p != "" {
 		return p
 	}
-	// Default base flakeref. For full reproducibility a production pin is a
-	// rev-locked "github:NixOS/nixpkgs/<rev>"; the registry "nixpkgs" is the
-	// pragmatic default (on Determinate Nix it resolves via the pinned weekly
-	// registry).
-	return "nixpkgs"
+	inputs, err := releaseinputs.Load()
+	if err != nil {
+		panic(fmt.Sprintf("invalid embedded Nix input manifest: %v", err))
+	}
+	return inputs.Nixpkgs.FlakeRef
 }
 
 // defaultHomePin returns the pinned home-manager flakeref the engine runs the
 // home-manager CLI from, overridable via ENDSTATE_HOME_MANAGER_PIN (mirrors
-// ENDSTATE_NIXPKGS_PIN). The default tracks the home-manager flake's default
-// branch; a production deployment pins a rev or release branch
-// ("github:nix-community/home-manager/<rev|release>") for full reproducibility.
-// This pin only selects the home-manager CLI binary — the user's flake supplies
-// its own home-manager library and nixpkgs.
+// ENDSTATE_NIXPKGS_PIN). The default is the compatible revision-locked pair in
+// the release input manifest. This pin selects the home-manager CLI binary; an
+// Endstate-generated flake also follows the paired release Nixpkgs input.
 func defaultHomePin() string {
 	if p := os.Getenv("ENDSTATE_HOME_MANAGER_PIN"); p != "" {
 		return p
 	}
-	return "github:nix-community/home-manager"
+	inputs, err := releaseinputs.Load()
+	if err != nil {
+		panic(fmt.Sprintf("invalid embedded Nix input manifest: %v", err))
+	}
+	return inputs.HomeManager.FlakeRef
 }
 
 // nixArgs returns the full nix argv with the experimental features the

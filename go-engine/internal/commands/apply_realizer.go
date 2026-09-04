@@ -165,6 +165,58 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 	return "", false, nil
 }
 
+type preparedHomeManager struct {
+	flake           string
+	generated       bool
+	ownershipAction *HomeManagerOwnershipAction
+}
+
+func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer) (*preparedHomeManager, *envelope.Error) {
+	if _, ok := r.(realizer.HomeActivator); !ok {
+		return nil, nil
+	}
+	flake, generated, err := resolveHomeFlake(flags, mf)
+	if err != nil || flake == "" {
+		return nil, err
+	}
+	return &preparedHomeManager{
+		flake: flake, generated: generated,
+		ownershipAction: externalHomeManagerAction(r, flake, generated),
+	}, nil
+}
+
+func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool) *HomeManagerOwnershipAction {
+	if !generated {
+		return nil
+	}
+	reader, ok := r.(realizer.HomeGenerationReader)
+	if !ok {
+		return nil
+	}
+	active := reader.ActiveHomeGeneration()
+	if active <= 0 {
+		return nil
+	}
+	if generations, err := listGenerationsFn(); err == nil {
+		for _, generation := range generations {
+			if generation != nil && generation.HomeManager != nil && generation.HomeManager.Generation == active {
+				return nil
+			}
+		}
+	}
+	return &HomeManagerOwnershipAction{
+		Owner: "external", Action: "import_generated_module", Required: true,
+		ActiveGeneration: active, ModulePath: generatedHomeModulePath(flake),
+		Message: "An existing Home Manager configuration owns this home. Endstate generated an importable module and left the active configuration unchanged.",
+	}
+}
+
+func generatedHomeModulePath(flake string) string {
+	location, _, _ := strings.Cut(flake, "#")
+	location = strings.TrimPrefix(location, "path:")
+	return filepath.Join(filepath.FromSlash(location), "home.nix")
+}
+
 // runApplyRealizer is the whole-set apply path for a realizer backend (Nix). It
 // computes one plan over the declared package set, performs ONE atomic
 // generation switch, and fans the single result back into the per-item event
@@ -288,6 +340,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		return nil, configSessionErr
 	}
 	var configFields *ConfigResultFields
+	preparedHome, homePreparationErr := prepareHomeManager(flags, mf, r)
+	if homePreparationErr != nil {
+		return nil, homePreparationErr
+	}
 
 	if flags.DryRun {
 		var configErr *envelope.Error
@@ -319,15 +375,16 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		// Config stage preview (home-manager, realizer-only): generate the
 		// inspectable flake and REVEAL what would activate; activate nothing.
 		var hmPreview *ApplyHomeManager
-		if _, ok := r.(realizer.HomeActivator); ok {
-			flake, generated, herr := resolveHomeFlake(flags, mf)
-			if herr != nil {
-				return nil, herr
+		if preparedHome != nil {
+			emitter.EmitPhase("config")
+			if preparedHome.ownershipAction != nil {
+				emitter.EmitItem(preparedHome.flake, driverName, "action_required", "external_home_manager", preparedHome.ownershipAction.Message, "home-manager")
+			} else {
+				emitter.EmitItem(preparedHome.flake, driverName, "would_configure", "dry_run", "Would activate home-manager configuration", "home-manager")
 			}
-			if flake != "" {
-				emitter.EmitPhase("config")
-				emitter.EmitItem(flake, driverName, "would_configure", "dry_run", "Would activate home-manager configuration", "home-manager")
-				hmPreview = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: false}
+			hmPreview = &ApplyHomeManager{
+				Flake: preparedHome.flake, Generated: preparedHome.generated, Activated: false,
+				OwnershipAction: preparedHome.ownershipAction,
 			}
 		}
 
@@ -538,14 +595,17 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	// error.detail (the moat).
 	var homeRef *provision.HomeGenRef
 	var homeResult *ApplyHomeManager
-	if activator, ok := r.(realizer.HomeActivator); ok {
-		// resolveHomeFlake returns "" unless --enable-restore and a home-manager
-		// input are set; for homeManager.config it generates the wrapper flake here.
-		flake, generated, herr := resolveHomeFlake(flags, mf)
-		if herr != nil {
-			return nil, herr
-		}
-		if flake != "" {
+	if activator, ok := r.(realizer.HomeActivator); ok && preparedHome != nil {
+		flake, generated := preparedHome.flake, preparedHome.generated
+		if preparedHome.ownershipAction != nil {
+			emitter.EmitPhase("config")
+			emitter.EmitItem(flake, driverName, "action_required", "external_home_manager", preparedHome.ownershipAction.Message, "home-manager")
+			emitter.EmitSummary("config", 1, 0, 1, 0)
+			homeResult = &ApplyHomeManager{
+				Flake: flake, Generated: generated, Activated: false,
+				OwnershipAction: preparedHome.ownershipAction,
+			}
+		} else {
 			emitter.EmitPhase("config")
 			emitter.EmitItem(flake, driverName, "configuring", "", "Activating home-manager configuration", "home-manager")
 			hmGen, aerr := activator.ActivateHome(flake)

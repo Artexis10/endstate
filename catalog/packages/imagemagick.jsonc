@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "imagemagick",
+  "displayName": "ImageMagick",
+  "nix": { "attribute": "imagemagick" },
+  "aliases": {
+    "debian": ["imagemagick"],
+    "rpm": ["imagemagick"],
+    "arch": ["imagemagick"],
+    "executable": ["magick"]
+  }
+}

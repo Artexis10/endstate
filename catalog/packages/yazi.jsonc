@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "yazi",
+  "displayName": "Yazi",
+  "nix": { "attribute": "yazi" },
+  "aliases": {
+    "debian": ["yazi"],
+    "rpm": ["yazi"],
+    "arch": ["yazi"],
+    "executable": ["yazi"]
+  },
+  "configModule": "apps.yazi"
+}

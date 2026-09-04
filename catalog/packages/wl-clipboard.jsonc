@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "wl-clipboard",
+  "displayName": "wl-clipboard",
+  "nix": { "attribute": "wl-clipboard" },
+  "aliases": {
+    "debian": ["wl-clipboard"],
+    "rpm": ["wl-clipboard"],
+    "arch": ["wl-clipboard"],
+    "executable": ["wl-copy", "wl-paste"]
+  }
+}

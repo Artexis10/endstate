@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "fd",
+  "displayName": "fd",
+  "nix": { "attribute": "fd" },
+  "aliases": {
+    "debian": ["fd-find"],
+    "rpm": ["fd-find"],
+    "arch": ["fd"],
+    "executable": ["fd", "fdfind"]
+  }
+}

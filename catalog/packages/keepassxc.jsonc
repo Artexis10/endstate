@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "keepassxc",
+  "displayName": "KeePassXC",
+  "nix": { "attribute": "keepassxc" },
+  "aliases": {
+    "debian": ["keepassxc"],
+    "rpm": ["keepassxc"],
+    "arch": ["keepassxc"],
+    "flatpak": ["org.keepassxc.KeePassXC"],
+    "desktop": ["org.keepassxc.KeePassXC.desktop"],
+    "executable": ["keepassxc"]
+  },
+  "configModule": "apps.keepassxc"
+}

@@ -16,6 +16,34 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
+func TestDefaultConfigRestoreCatalogProjectsInjectedPlatform(t *testing.T) {
+	originalGOOS := captureGOOSFn
+	t.Cleanup(func() { captureGOOSFn = originalGOOS })
+
+	for _, tc := range []struct {
+		platform   string
+		wantLegacy bool
+	}{
+		{platform: "windows", wantLegacy: true},
+		{platform: "linux"},
+	} {
+		t.Run(tc.platform, func(t *testing.T) {
+			captureGOOSFn = func() string { return tc.platform }
+			catalog, _, err := loadConfigRestoreCatalogFn(filepath.Join("..", "..", ".."))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ripgrep := catalog["apps.ripgrep"]
+			if ripgrep == nil || ripgrep.SourceSchemaVersion != 3 || ripgrep.Platform != tc.platform {
+				t.Fatalf("ripgrep %s restore projection = %+v", tc.platform, ripgrep)
+			}
+			if legacy := catalog["apps.notepad-plus-plus"]; (legacy != nil) != tc.wantLegacy {
+				t.Fatalf("legacy Windows restore authority on %s = %+v, want present %t", tc.platform, legacy, tc.wantLegacy)
+			}
+		})
+	}
+}
+
 func TestCloneConfigModuleCopiesTypedRegistrySecrets(t *testing.T) {
 	original := &modules.Module{ID: "apps.example", Secrets: &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Example\Secret`}}}
 	cloned := cloneConfigModule(original)

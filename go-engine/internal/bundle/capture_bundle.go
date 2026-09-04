@@ -50,7 +50,10 @@ type CaptureBundleRequest struct {
 	EndstateVersion string
 	Modules         []*modules.Module
 	GenerationPlans []ConfigSetCapturePlan
-	OnStage         func(Stage)
+	// HomeManagerFiles are private, release-reviewed live-file captures. Host
+	// sources never enter the published manifest; only staged portable refs do.
+	HomeManagerFiles []HomeManagerFileCapturePlan
+	OnStage          func(Stage)
 	// PreplanningDiagnostics carries deterministic catalog/discovery/generation
 	// refusals that produced no executable collection plan. They are reported
 	// and persisted exactly like collection-time diagnostics.
@@ -80,17 +83,18 @@ type CaptureBundleDiagnostic struct {
 
 // CaptureBundleResult describes the artifact that was actually produced.
 type CaptureBundleResult struct {
-	BundleSchemaVersion    string
-	ManifestVersion        int
-	ConfigCaptures         []manifest.ConfigCapture
-	LegacyConfigLanes      []manifest.LegacyConfigLane
-	ConfigCapturesIncluded []string
-	ConfigModulesIncluded  []string
-	ConfigModulesSkipped   []string
-	Diagnostics            []CaptureBundleDiagnostic
-	CaptureWarnings        []string
-	LegacyModules          []LegacyModuleCaptureResult
-	SensitiveExcluded      int
+	BundleSchemaVersion      string
+	ManifestVersion          int
+	ConfigCaptures           []manifest.ConfigCapture
+	LegacyConfigLanes        []manifest.LegacyConfigLane
+	ConfigCapturesIncluded   []string
+	ConfigModulesIncluded    []string
+	ConfigModulesSkipped     []string
+	Diagnostics              []CaptureBundleDiagnostic
+	CaptureWarnings          []string
+	LegacyModules            []LegacyModuleCaptureResult
+	SensitiveExcluded        int
+	HomeManagerFilesIncluded int
 }
 
 // LegacyModuleCaptureResult exposes facts from the single schema-v1
@@ -291,8 +295,13 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	}
 	defer os.RemoveAll(stagingRoot)
 
-	if request.OnStage != nil && (len(request.Modules) > 0 || len(request.GenerationPlans) > 0) {
+	if request.OnStage != nil && (len(request.Modules) > 0 || len(request.GenerationPlans) > 0 || len(request.HomeManagerFiles) > 0) {
 		request.OnStage(StageSettings)
+	}
+
+	homeManagerFilesIncluded, homeManagerWarnings, err := stageHomeManagerFiles(baseManifest, request.HomeManagerFiles, stagingRoot, request.ValidationContext)
+	if err != nil {
+		return nil, err
 	}
 
 	plans := append([]ConfigSetCapturePlan(nil), request.GenerationPlans...)
@@ -404,6 +413,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		captureIDs = append(captureIDs, capture.CaptureID)
 	}
 	captureWarnings := append([]string(nil), legacy.warnings...)
+	captureWarnings = append(captureWarnings, homeManagerWarnings...)
 	captureWarnings = append(captureWarnings, payloadValidationWarnings...)
 	for _, denied := range deniedModules {
 		captureWarnings = append(captureWarnings,
@@ -463,17 +473,18 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	}
 
 	return &CaptureBundleResult{
-		BundleSchemaVersion:    bundleSchemaVersion,
-		ManifestVersion:        manifestVersion,
-		ConfigCaptures:         append([]manifest.ConfigCapture(nil), configCaptures...),
-		LegacyConfigLanes:      append([]manifest.LegacyConfigLane(nil), legacy.lanes...),
-		ConfigCapturesIncluded: nonNilStrings(captureIDs),
-		ConfigModulesIncluded:  nonNilStrings(legacy.included),
-		ConfigModulesSkipped:   nonNilStrings(legacy.skipped),
-		Diagnostics:            append([]CaptureBundleDiagnostic(nil), diagnostics...),
-		CaptureWarnings:        nonNilStrings(captureWarnings),
-		LegacyModules:          cloneLegacyModuleResults(legacy.modules),
-		SensitiveExcluded:      sensitiveExcluded,
+		BundleSchemaVersion:      bundleSchemaVersion,
+		ManifestVersion:          manifestVersion,
+		ConfigCaptures:           append([]manifest.ConfigCapture(nil), configCaptures...),
+		LegacyConfigLanes:        append([]manifest.LegacyConfigLane(nil), legacy.lanes...),
+		ConfigCapturesIncluded:   nonNilStrings(captureIDs),
+		ConfigModulesIncluded:    nonNilStrings(legacy.included),
+		ConfigModulesSkipped:     nonNilStrings(legacy.skipped),
+		Diagnostics:              append([]CaptureBundleDiagnostic(nil), diagnostics...),
+		CaptureWarnings:          nonNilStrings(captureWarnings),
+		LegacyModules:            cloneLegacyModuleResults(legacy.modules),
+		SensitiveExcluded:        sensitiveExcluded,
+		HomeManagerFilesIncluded: homeManagerFilesIncluded,
 	}, nil
 }
 

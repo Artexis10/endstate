@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "jq",
+  "displayName": "jq",
+  "nix": { "attribute": "jq" },
+  "aliases": {
+    "debian": ["jq"],
+    "rpm": ["jq"],
+    "arch": ["jq"],
+    "executable": ["jq"]
+  }
+}

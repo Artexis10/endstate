@@ -7,7 +7,7 @@ import "testing"
 
 func TestParseProfileList_V3Object(t *testing.T) {
 	// Nix 3.x shape: version + name-keyed elements OBJECT.
-	data := []byte(`{"version":3,"elements":{"ripgrep":{"attrPath":"legacyPackages.x86_64-linux.ripgrep","storePaths":["/nix/store/abc-ripgrep-15.1.0"]},"jq":{"attrPath":"legacyPackages.x86_64-linux.jq","storePaths":["/nix/store/def-jq-1.8.1"]}}}`)
+	data := []byte(`{"version":3,"elements":{"ripgrep":{"attrPath":"legacyPackages.x86_64-linux.ripgrep","originalUrl":"github:NixOS/nixpkgs/release#ripgrep","url":"github:NixOS/nixpkgs/locked#ripgrep","storePaths":["/nix/store/abc-ripgrep-15.1.0"]},"jq":{"attrPath":"legacyPackages.x86_64-linux.jq","storePaths":["/nix/store/def-jq-1.8.1"]}}}`)
 	set, err := parseProfileList(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -21,6 +21,9 @@ func TestParseProfileList_V3Object(t *testing.T) {
 	}
 	if rg.AttrPath != "legacyPackages.x86_64-linux.ripgrep" {
 		t.Errorf("attrPath: got %q", rg.AttrPath)
+	}
+	if rg.OriginalURL != "github:NixOS/nixpkgs/release#ripgrep" || rg.URL != "github:NixOS/nixpkgs/locked#ripgrep" {
+		t.Errorf("profile provenance was dropped: %+v", rg)
 	}
 }
 

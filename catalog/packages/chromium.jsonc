@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "chromium",
+  "displayName": "Chromium",
+  "nix": { "attribute": "chromium" },
+  "aliases": {
+    "debian": ["chromium"],
+    "rpm": ["chromium"],
+    "arch": ["chromium"],
+    "flatpak": ["org.chromium.Chromium"],
+    "desktop": ["chromium.desktop"],
+    "executable": ["chromium"]
+  }
+}

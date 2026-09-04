@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "zsh",
+  "displayName": "Zsh",
+  "nix": { "attribute": "zsh" },
+  "aliases": {
+    "debian": ["zsh"],
+    "rpm": ["zsh"],
+    "arch": ["zsh"],
+    "executable": ["zsh"]
+  }
+}

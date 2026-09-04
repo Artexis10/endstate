@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "powershell",
+  "displayName": "PowerShell",
+  "nix": { "attribute": "powershell" },
+  "aliases": {
+    "debian": ["powershell"],
+    "rpm": ["powershell"],
+    "arch": ["powershell"],
+    "executable": ["pwsh"]
+  },
+  "configModule": "apps.powershell-profile"
+}

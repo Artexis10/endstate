@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "poetry",
+  "displayName": "Poetry",
+  "nix": { "attribute": "poetry" },
+  "aliases": {
+    "debian": ["python3-poetry"],
+    "rpm": ["poetry"],
+    "arch": ["python-poetry"],
+    "executable": ["poetry"]
+  },
+  "configModule": "apps.poetry"
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "wezterm",
+  "displayName": "WezTerm",
+  "nix": { "attribute": "wezterm" },
+  "aliases": {
+    "debian": ["wezterm"],
+    "rpm": ["wezterm"],
+    "arch": ["wezterm"],
+    "flatpak": ["org.wezfurlong.wezterm"],
+    "desktop": ["org.wezfurlong.wezterm.desktop"],
+    "executable": ["wezterm"]
+  },
+  "configModule": "apps.wezterm"
+}

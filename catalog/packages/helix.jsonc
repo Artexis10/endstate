@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "helix",
+  "displayName": "Helix",
+  "nix": { "attribute": "helix" },
+  "aliases": {
+    "debian": ["helix"],
+    "rpm": ["helix"],
+    "arch": ["helix"],
+    "executable": ["hx"]
+  },
+  "configModule": "apps.helix"
+}

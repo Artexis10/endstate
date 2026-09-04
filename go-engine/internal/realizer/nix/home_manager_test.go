@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
+
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
@@ -63,9 +65,32 @@ func TestActivateHome_Success_ArgvAndGeneration(t *testing.T) {
 		t.Errorf("generation = %d, want 7 (from homeGenFn)", gen)
 	}
 	joined := strings.Join(*got, " ")
-	want := "run github:nix-community/home-manager -- switch --flake /home/me/dotfiles#hugo -b endstate-backup"
+	want := "run github:nix-community/home-manager -- switch --flake path:/home/me/dotfiles#hugo -b endstate-backup"
 	if !strings.Contains(joined, want) {
 		t.Errorf("argv = %q, want it to contain %q", joined, want)
+	}
+}
+
+func TestNormalizeHomeFlakeRefLeavesRemoteAndExplicitRefsAlone(t *testing.T) {
+	for _, reference := range []string{
+		"github:owner/dots#me",
+		"path:/home/me/dots#me",
+		"./dots#me",
+	} {
+		if got := normalizeHomeFlakeRef(reference); got != reference {
+			t.Errorf("normalizeHomeFlakeRef(%q) = %q", reference, got)
+		}
+	}
+}
+
+func TestNormalizeHomeFlakeRefRecognizesPortableAbsolutePaths(t *testing.T) {
+	for input, want := range map[string]string{
+		"/home/me/dots#me":    "path:/home/me/dots#me",
+		`C:\Users\me\dots#me`: "path:C:/Users/me/dots#me",
+	} {
+		if got := normalizeHomeFlakeRef(input); got != want {
+			t.Errorf("normalizeHomeFlakeRef(%q) = %q, want %q", input, got, want)
+		}
 	}
 }
 
@@ -79,7 +104,11 @@ func TestActivateHome_DefaultPin(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	joined := strings.Join(*got, " ")
-	if !strings.Contains(joined, "run github:nix-community/home-manager --") {
+	inputs, loadErr := releaseinputs.Load()
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if !strings.Contains(joined, "run "+inputs.HomeManager.FlakeRef+" --") {
 		t.Errorf("default pin not used: %q", joined)
 	}
 }

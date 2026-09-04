@@ -202,6 +202,9 @@ func validateModule(mod *Module, filePath string) error {
 	if mod.DisplayName == "" {
 		return validationError(mod, filePath, DiagnosticInvalidID, "missing or empty 'displayName' field")
 	}
+	if mod.EffectiveSchemaVersion() == 3 {
+		return validateModuleV3(mod, filePath)
+	}
 
 	// matches must declare at least one matcher, and a module that actually does
 	// something must declare one the engine consults.

@@ -111,6 +111,9 @@ type captureConfigFinalizeRequest struct {
 	Flags        CaptureFlags
 	ManifestPath string
 	Apps         []manifest.App
+	// Platform selects the executable module variant. Empty retains the legacy
+	// Windows interpretation for direct unit/integration callers.
+	Platform string
 	// Selection is the parsed --only value. When active, the catalog is narrowed
 	// before planning so both module tiers are scoped from one place.
 	Selection captureSelection
@@ -254,6 +257,11 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 		catalog = loaded
 		diagnostics = loadedDiagnostics
 	}
+	platform := request.Platform
+	if platform == "" {
+		platform = "windows"
+	}
+	catalog = modules.FilterCatalogForPlatform(catalog, platform)
 	if request.Selection.active() {
 		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
 		if scopeErr != nil {
@@ -512,6 +520,7 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		EndstateVersion:        config.ReadVersion(prepared.RepoRoot),
 		Modules:                planning.Modules,
 		GenerationPlans:        planning.GenerationPlans,
+		HomeManagerFiles:       request.Flags.linuxHomeManagerFiles,
 		PreplanningDiagnostics: planning.PreplanningDiagnostics,
 		Share:                  request.Flags.Share,
 		Name:                   request.Flags.Name,

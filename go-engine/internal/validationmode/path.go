@@ -117,6 +117,22 @@ func NormalizeProductionAuthoredPath(value string) string {
 	if strings.HasPrefix(value, `~\`) || strings.HasPrefix(value, "~/") {
 		return `%USERPROFILE%\` + value[2:]
 	}
+	for _, mapping := range []struct {
+		coordinate string
+		alias      string
+	}{
+		{coordinate: "${home}", alias: "%USERPROFILE%"},
+		{coordinate: "${windows.appdata}", alias: "%APPDATA%"},
+		{coordinate: "${windows.localAppData}", alias: "%LOCALAPPDATA%"},
+	} {
+		if value == mapping.coordinate {
+			return mapping.alias
+		}
+		if strings.HasPrefix(value, mapping.coordinate) && len(value) > len(mapping.coordinate) &&
+			(value[len(mapping.coordinate)] == '/' || value[len(mapping.coordinate)] == '\\') {
+			return mapping.alias + value[len(mapping.coordinate):]
+		}
+	}
 	return value
 }
 

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "direnv",
+  "displayName": "direnv",
+  "nix": { "attribute": "direnv" },
+  "aliases": {
+    "debian": ["direnv"],
+    "rpm": ["direnv"],
+    "arch": ["direnv"],
+    "executable": ["direnv"]
+  }
+}

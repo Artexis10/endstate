@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "xclip",
+  "displayName": "xclip",
+  "nix": { "attribute": "xclip" },
+  "aliases": {
+    "debian": ["xclip"],
+    "rpm": ["xclip"],
+    "arch": ["xclip"],
+    "executable": ["xclip"]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "gh",
+  "displayName": "GitHub CLI",
+  "nix": { "attribute": "gh" },
+  "aliases": {
+    "debian": ["gh"],
+    "rpm": ["gh"],
+    "arch": ["github-cli"],
+    "executable": ["gh"]
+  },
+  "configModule": "apps.github-cli"
+}

@@ -32,6 +32,32 @@ func TestPlatformInfoFor_UsesStableRegistryOrder(t *testing.T) {
 	}
 }
 
+func TestLinuxDiscoveryCapabilitiesExposeThinGUIContractAndImmutableInputs(t *testing.T) {
+	feature := linuxDiscoveryFeatureFor("linux")
+	if !feature.Supported || feature.SchemaVersion != "1.0" || feature.PlatformModuleSchemaVersion != 3 {
+		t.Fatalf("linux discovery feature = %+v", feature)
+	}
+	if !feature.ImmutableInputs || len(feature.NixpkgsRevision) != 40 || len(feature.HomeManagerRevision) != 40 {
+		t.Fatalf("immutable input capability = %+v", feature)
+	}
+	wantAdapters := []string{
+		"endstate-profile",
+		"nix-user-profile",
+		"debian-explicit",
+		"rpm-explicit",
+		"arch-explicit",
+		"flatpak-applications",
+		"xdg-desktop-applications",
+		"home-manager-live-settings",
+	}
+	if !reflect.DeepEqual(feature.Adapters, wantAdapters) {
+		t.Fatalf("linux discovery adapters = %v, want %v", feature.Adapters, wantAdapters)
+	}
+	if other := linuxDiscoveryFeatureFor("windows"); other.Supported || len(other.Adapters) != 0 {
+		t.Fatalf("non-Linux host advertised Linux discovery: %+v", other)
+	}
+}
+
 // TestRunCapabilities_HostedBackupIfChangedAdvertised verifies that the
 // capabilities envelope includes features.hostedBackup.ifChanged = true,
 // which is the canonical GUI gate for the conditional auto-backup flow.

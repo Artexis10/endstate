@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "unzip",
+  "displayName": "unzip",
+  "nix": { "attribute": "unzip" },
+  "aliases": {
+    "debian": ["unzip"],
+    "rpm": ["unzip"],
+    "arch": ["unzip"],
+    "executable": ["unzip"]
+  }
+}

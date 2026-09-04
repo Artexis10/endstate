@@ -215,7 +215,7 @@ func (s *HomeManagerSettings) UnmarshalJSON(data []byte) error {
 }
 
 // GitSettings are the curated git concepts the engine maps to home-manager's
-// stable programs.git.extraConfig (which insulates the user from option renames).
+// pinned programs.git.settings surface (which insulates the user from option renames).
 type GitSettings struct {
 	UserName      string `json:"userName,omitempty"`
 	UserEmail     string `json:"userEmail,omitempty"`

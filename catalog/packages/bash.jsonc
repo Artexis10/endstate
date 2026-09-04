@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "bash",
+  "displayName": "Bash",
+  "nix": { "attribute": "bash" },
+  "aliases": {
+    "debian": ["bash"],
+    "rpm": ["bash"],
+    "arch": ["bash"],
+    "executable": ["bash"]
+  },
+  "configModule": "apps.bash-profile"
+}

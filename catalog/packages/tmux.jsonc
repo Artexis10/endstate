@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "tmux",
+  "displayName": "tmux",
+  "nix": { "attribute": "tmux" },
+  "aliases": {
+    "debian": ["tmux"],
+    "rpm": ["tmux"],
+    "arch": ["tmux"],
+    "executable": ["tmux"]
+  },
+  "configModule": "apps.tmux"
+}

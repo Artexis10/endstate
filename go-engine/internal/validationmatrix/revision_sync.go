@@ -138,6 +138,13 @@ func preflightRevisionSync(repoRoot string, now time.Time) ([]revisionSyncPlan, 
 		}
 		mod.Revision = revision
 		mod.FilePath = modulePath
+		if mod.EffectiveSchemaVersion() == 3 {
+			projected := modules.FilterCatalogForPlatform(map[string]*modules.Module{mod.ID: mod}, "windows")[mod.ID]
+			if projected == nil {
+				return nil, validationError(CodeInvalidModuleCatalog, mod.ID, modulePath, "schema-v3 module has no Windows validation variant")
+			}
+			mod = projected
+		}
 
 		sidecarPath, err := safepath.Resolve(repoRoot, filepath.ToSlash(filepath.Join("modules", "apps", entry.Name(), "validation.jsonc")))
 		if err != nil {

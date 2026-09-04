@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "jujutsu",
+  "displayName": "Jujutsu",
+  "nix": { "attribute": "jujutsu" },
+  "aliases": {
+    "debian": ["jujutsu"],
+    "rpm": ["jujutsu"],
+    "arch": ["jujutsu"],
+    "executable": ["jj"]
+  }
+}

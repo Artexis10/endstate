@@ -442,7 +442,7 @@ func TestValidateModuleV2_Rejections(t *testing.T) {
 		code string
 	}{
 		{"config requires schema v2", func(m *Module) { m.ModuleSchemaVersion = 0 }, DiagnosticSchemaVersionRequired},
-		{"unsupported schema", func(m *Module) { m.ModuleSchemaVersion = 3 }, DiagnosticUnsupportedSchema},
+		{"unsupported schema", func(m *Module) { m.ModuleSchemaVersion = 4 }, DiagnosticUnsupportedSchema},
 		{"invalid module id", func(m *Module) { m.ID = "Apps.Versioned" }, DiagnosticInvalidID},
 		{"invalid detector id", func(m *Module) { m.Config.InstanceDetectors[0].ID = "Bad ID" }, DiagnosticInvalidID},
 		{"duplicate detector id", func(m *Module) {

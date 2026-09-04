@@ -16,6 +16,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
@@ -59,6 +60,19 @@ type CaptureFlags struct {
 	// Requires --only: an unscoped share would attach every matched module's
 	// config, which is the opposite of handing over a curated setup.
 	Share bool
+
+	// linuxHomeManagerFiles is private execution state populated by the Linux
+	// discovery lane. Absolute host sources must never enter an envelope.
+	linuxHomeManagerFiles []bundle.HomeManagerFileCapturePlan
+	// linuxSettingsApps/linuxSettingsModules allow a Linux --only selection to
+	// name detected settings even when no portable package was resolved. They
+	// contain identifiers only; live paths remain in linuxHomeManagerFiles.
+	linuxSettingsApps    map[string]bool
+	linuxSettingsModules map[string]bool
+	// linuxDiscoveryCounts marks an ordinary-machine Linux capture. It lets the
+	// shared finalizer reject an empty artifact before writing while reporting
+	// useful discovery counts to the caller.
+	linuxDiscoveryCounts *discovery.Counts
 }
 
 // validateShareFlags rejects --share combinations that cannot produce a useful
@@ -119,6 +133,15 @@ func parseCaptureOnly(only string) captureSelection {
 // returning the selection and the filtered apps. Mirrors validateOnly's posture:
 // every rejection happens before anything is written.
 func validateCaptureOnly(only string, captured []capturedApp) (captureSelection, []capturedApp, *envelope.Error) {
+	return validateCaptureOnlyWithSettings(only, captured, nil, nil)
+}
+
+func validateCaptureOnlyWithSettings(
+	only string,
+	captured []capturedApp,
+	settingsApps map[string]bool,
+	settingsModules map[string]bool,
+) (captureSelection, []capturedApp, *envelope.Error) {
 	if only == "" {
 		return captureSelection{}, captured, nil
 	}
@@ -132,10 +155,27 @@ func validateCaptureOnly(only string, captured []capturedApp) (captureSelection,
 			WithRemediation("Provide one or more comma-separated ids, e.g. --only git-git,apps.vscode.")
 	}
 
-	// A module-only selection yields a manifest with no apps, which collides with
-	// the zero-apps capture failure and leaves nothing for module matching to work
-	// from. Reject it explicitly rather than failing later with a worse message.
+	selectedSettings := false
+	for _, id := range sel.moduleIDs {
+		if settingsModules[id] {
+			selectedSettings = true
+			continue
+		}
+		if len(sel.appIDs) == 0 {
+			return sel, nil, envelope.NewError(
+				envelope.ErrManifestValidationError,
+				fmt.Sprintf("--only references settings that were not detected on this machine: %s", id)).
+				WithRemediation("Run capture without --only to see the detected settings ids, then select from those.")
+		}
+	}
+
+	// Module-only capture is useful on Linux when discovery produced a reviewed
+	// live settings plan. Other capture lanes retain the established app-backed
+	// contract because their settings maps are nil.
 	if len(sel.appIDs) == 0 {
+		if selectedSettings {
+			return sel, nil, nil
+		}
 		return sel, nil, envelope.NewError(
 			envelope.ErrManifestValidationError,
 			"--only selected config modules but no apps; a capture must contain at least one app").
@@ -157,7 +197,10 @@ func validateCaptureOnly(only string, captured []capturedApp) (captureSelection,
 
 	var unknown []string
 	for _, id := range sel.appIDs {
-		if !matched[id] {
+		if settingsApps[id] {
+			selectedSettings = true
+		}
+		if !matched[id] && !settingsApps[id] {
 			unknown = append(unknown, id)
 		}
 	}
@@ -168,7 +211,7 @@ func validateCaptureOnly(only string, captured []capturedApp) (captureSelection,
 			WithRemediation("Run capture without --only to see the detected app ids, then select from those.")
 	}
 
-	if len(filtered) == 0 {
+	if len(filtered) == 0 && !selectedSettings {
 		return sel, nil, envelope.NewError(
 			envelope.ErrManifestValidationError,
 			"--only produced an empty app selection; no apps would be captured").
@@ -199,6 +242,7 @@ type CaptureResult struct {
 	ManifestVersion      int                   `json:"manifestVersion,omitempty"`
 	CaptureWarnings      []string              `json:"captureWarnings"`
 	ConfigCapture        *CaptureConfigSummary `json:"configCapture,omitempty"`
+	Discovery            *discovery.Result     `json:"discovery,omitempty"`
 
 	// Manifest identifies the manifest that was produced (kept for tooling
 	// and test compatibility).
@@ -274,10 +318,14 @@ var resolveRepoRootFn = config.ResolveRepoRoot
 // user profile directory.
 var resolveProfileDirFn = config.ProfileDir
 
-// loadModuleCatalogFn loads the module catalog from the given repo root. It
-// defaults to modules.GetCatalog and can be replaced in tests.
+// loadModuleCatalogFn loads only the current host's executable module
+// projections from the given repo root and can be replaced in tests.
 var loadModuleCatalogFn = func(repoRoot string) (map[string]*modules.Module, error) {
-	return modules.GetCatalog(repoRoot)
+	catalog, err := modules.GetCatalog(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	return modules.FilterCatalogForPlatform(catalog, captureGOOSFn()), nil
 }
 
 // matchModulesForAppsFn is the narrow matching boundary used after capture.
@@ -705,7 +753,19 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		return runCaptureRealizerSelected(flags, rz, emitter, selection)
 	}
 
-	// --- 0. Realizer path (whole-set, e.g. Nix on linux/darwin) ---
+	// --- 0. Linux ordinary-machine discovery path ---
+	// Linux discovery is useful without Nix or prior Endstate state. A working
+	// realizer remains additive profile evidence and preserves the established
+	// profile-only capture behavior while the common reconciliation lane fills in.
+	if captureGOOSFn() == "linux" {
+		var rz realizer.Realizer
+		if candidate, rerr := newRealizerFn(); rerr == nil {
+			rz = candidate
+		}
+		return runCaptureLinux(flags, rz, emitter)
+	}
+
+	// --- 0b. Realizer path (whole-set, e.g. Nix on darwin) ---
 	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
 	// the winget capture path below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
@@ -1102,6 +1162,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
 		Apps:              buildModuleMatchApps(captured),
+		Platform:          captureGOOSFn(),
 		Selection:         selection,
 		Prepared:          preparedCapture,
 		ValidationContext: currentValidationMode,

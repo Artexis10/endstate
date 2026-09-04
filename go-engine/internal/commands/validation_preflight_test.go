@@ -80,6 +80,54 @@ func TestPreflightValidationProductionModuleRequiresCatalogAuthority(t *testing.
 	}
 }
 
+func TestPreflightValidationProductionModuleReprojectsPinnedSchemaV3Authority(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*modules.Module)
+		wantErr bool
+	}{
+		{name: "exact Windows projection"},
+		{name: "mutated Windows projection", wantErr: true, mutate: func(mod *modules.Module) {
+			mod.Restore[0].Target = `${windows.appdata}/ripgrep/forged`
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authored, err := modules.GetCatalog(filepath.Join("..", "..", ".."))
+			if err != nil {
+				t.Fatal(err)
+			}
+			catalog := modules.FilterCatalogForPlatform(authored, "windows")
+			candidate := catalog["apps.ripgrep"]
+			if candidate == nil || candidate.SourceSchemaVersion != 3 || candidate.Platform != "windows" {
+				t.Fatalf("production ripgrep Windows projection = %+v", candidate)
+			}
+			if tt.mutate != nil {
+				tt.mutate(candidate)
+			}
+
+			context, session := validationPreflightSessionFor(t, "ripgrep")
+			err = preflightValidationProductionModule(validationProductionModulePreflight{
+				Context: context, Session: session, Catalog: catalog, Modules: []*modules.Module{candidate},
+				Manifest: manifestForValidationModule(candidate), PortableRoot: context.Root(),
+			})
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("exact schema-v3 projection: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, validationmode.ErrUnsafePath) {
+				t.Fatalf("error = %v, want unsafe path", err)
+			}
+			if got := session.IsolationError(); got == nil || !strings.Contains(got.Error(), "coordinate=modules") {
+				t.Fatalf("isolation = %v", got)
+			}
+		})
+	}
+}
+
 func TestPreflightValidationProductionModuleAcceptsEstablishedCaptureProjection(t *testing.T) {
 	mod := loadValidationProductionModule(t, "notepad-plus-plus")
 	for _, test := range []struct {

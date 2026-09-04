@@ -48,7 +48,7 @@ func (b *Backend) ActivateHome(flake string) (int, error) {
 	}
 	// `--` separates nix's args from the home-manager program's args; the runner
 	// inserts the experimental-features flag before it (see nixArgs).
-	args := []string{"run", pin, "--", "switch", "--flake", flake, "-b", "endstate-backup"}
+	args := []string{"run", pin, "--", "switch", "--flake", normalizeHomeFlakeRef(flake), "-b", "endstate-backup"}
 
 	_, stderr, exit, err := b.Run(args...)
 	if err != nil { // spawn failure (nix missing/unrunnable)
@@ -58,6 +58,43 @@ func (b *Backend) ActivateHome(flake string) (int, error) {
 		return 0, classify(exit, parsePlainLog(stderr), false)
 	}
 	return b.homeGen(), nil
+}
+
+// normalizeHomeFlakeRef makes generated absolute directories explicit path
+// references. Nix 3 otherwise searches for a containing Git repository and
+// rejects an Endstate state directory that correctly lives outside one.
+func normalizeHomeFlakeRef(flake string) string {
+	if strings.HasPrefix(flake, "path:") {
+		return flake
+	}
+	location, fragment, hasFragment := strings.Cut(flake, "#")
+	normalizedPath, absolute := portableAbsoluteHomePath(location)
+	if !absolute {
+		return flake
+	}
+	normalized := "path:" + normalizedPath
+	if hasFragment {
+		normalized += "#" + fragment
+	}
+	return normalized
+}
+
+func portableAbsoluteHomePath(value string) (string, bool) {
+	// Generated flakes use POSIX paths on Linux and Darwin. Recognise them
+	// independently of the host compiling or testing the reference.
+	if strings.HasPrefix(value, "/") {
+		return strings.ReplaceAll(value, "\\", "/"), true
+	}
+	if filepath.IsAbs(value) {
+		return filepath.ToSlash(value), true
+	}
+	// Keep drive-letter paths deterministic when manifests or tests cross an
+	// OS boundary; filepath.IsAbs intentionally follows only the current host.
+	if len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) &&
+		value[1] == ':' && (value[2] == '/' || value[2] == '\\') {
+		return strings.ReplaceAll(value, "\\", "/"), true
+	}
+	return "", false
 }
 
 // homeGen returns the active home-manager generation number, via homeGenFn when

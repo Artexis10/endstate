@@ -14,18 +14,19 @@ import (
 
 // Module represents a parsed config module definition from module.jsonc.
 type Module struct {
-	ModuleSchemaVersion int           `json:"moduleSchemaVersion,omitempty"`
-	ID                  string        `json:"id"`
-	DisplayName         string        `json:"displayName"`
-	Sensitivity         string        `json:"sensitivity"`
-	Matches             MatchCriteria `json:"matches"`
-	Verify              []VerifyDef   `json:"verify,omitempty"`
-	Restore             []RestoreDef  `json:"restore,omitempty"`
-	Capture             *CaptureDef   `json:"capture,omitempty"`
-	Secrets             *SecretsDef   `json:"secrets,omitempty"`
-	Notes               string        `json:"notes,omitempty"`
-	Config              *ConfigDef    `json:"config,omitempty"`
-	Curation            *CurationDef  `json:"curation,omitempty"`
+	ModuleSchemaVersion int                        `json:"moduleSchemaVersion,omitempty"`
+	ID                  string                     `json:"id"`
+	DisplayName         string                     `json:"displayName"`
+	Sensitivity         string                     `json:"sensitivity"`
+	Matches             MatchCriteria              `json:"matches"`
+	Verify              []VerifyDef                `json:"verify,omitempty"`
+	Restore             []RestoreDef               `json:"restore,omitempty"`
+	Capture             *CaptureDef                `json:"capture,omitempty"`
+	Secrets             *SecretsDef                `json:"secrets,omitempty"`
+	Notes               string                     `json:"notes,omitempty"`
+	Config              *ConfigDef                 `json:"config,omitempty"`
+	Curation            *CurationDef               `json:"curation,omitempty"`
+	Platforms           map[string]PlatformVariant `json:"platforms,omitempty"`
 
 	// FilePath is the absolute path to the module.jsonc file (set at load time).
 	FilePath string `json:"-"`
@@ -35,9 +36,28 @@ type Module struct {
 	Revision string `json:"-"`
 	// Unversioned distinguishes schema-v1 modules from generation-aware modules.
 	Unversioned bool `json:"-"`
+	// SourceSchemaVersion and Platform are populated on an executable projection
+	// of a schema-v3 module. The projected legacy/generation shape lets the
+	// established collectors run while provenance retains the authored schema
+	// and host variant.
+	SourceSchemaVersion int    `json:"-"`
+	Platform            string `json:"-"`
+	Realization         string `json:"-"`
 	// canonicalSnapshot pins the parsed declarative module bytes at catalog load.
 	// It is intentionally private so callers cannot mutate the catalog snapshot.
 	canonicalSnapshot []byte
+}
+
+// PlatformVariant owns every executable declaration for one host operating
+// system. Shared identity/presentation stays on Module.
+type PlatformVariant struct {
+	Realization string        `json:"realization"`
+	Matches     MatchCriteria `json:"matches"`
+	Verify      []VerifyDef   `json:"verify,omitempty"`
+	Restore     []RestoreDef  `json:"restore,omitempty"`
+	Capture     *CaptureDef   `json:"capture,omitempty"`
+	Secrets     *SecretsDef   `json:"secrets,omitempty"`
+	Config      *ConfigDef    `json:"config,omitempty"`
 }
 
 // CurationDef carries repository-maintenance metadata used to reproduce and

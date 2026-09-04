@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "git",
+  "displayName": "Git",
+  "nix": { "attribute": "git" },
+  "aliases": {
+    "debian": ["git"],
+    "rpm": ["git"],
+    "arch": ["git"],
+    "executable": ["git"]
+  },
+  "configModule": "apps.git"
+}

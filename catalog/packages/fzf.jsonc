@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "fzf",
+  "displayName": "fzf",
+  "nix": { "attribute": "fzf" },
+  "aliases": {
+    "debian": ["fzf"],
+    "rpm": ["fzf"],
+    "arch": ["fzf"],
+    "executable": ["fzf"]
+  }
+}

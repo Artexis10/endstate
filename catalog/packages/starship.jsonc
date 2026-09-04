@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "starship",
+  "displayName": "Starship",
+  "nix": { "attribute": "starship" },
+  "aliases": {
+    "debian": ["starship"],
+    "rpm": ["starship"],
+    "arch": ["starship"],
+    "executable": ["starship"]
+  },
+  "configModule": "apps.starship"
+}

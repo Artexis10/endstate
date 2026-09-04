@@ -10,7 +10,7 @@ import (
 )
 
 // seedCatalog builds a minimal source tree shaped like the repo: modules/apps
-// with one module, plus a payload tree.
+// with one module, a payload tree, and the reviewed package identity catalog.
 func seedCatalog(t *testing.T, root string, moduleIDs ...string) {
 	t.Helper()
 	for _, id := range moduleIDs {
@@ -29,11 +29,18 @@ func seedCatalog(t *testing.T, root string, moduleIDs ...string) {
 	if err := os.WriteFile(filepath.Join(payload, "seed.txt"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	packages := filepath.Join(root, "catalog", "packages")
+	if err := os.MkdirAll(packages, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packages, "seed.jsonc"), []byte(`{"schemaVersion":1}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 }
 
-// TestInstallCatalog_CopiesModulesAndPayload is the core of the fix: an install
-// that carries no catalog makes capture silently record apps without settings.
-func TestInstallCatalog_CopiesModulesAndPayload(t *testing.T) {
+// TestInstallCatalog_CopiesRuntimeCatalogs is the core of the fix: an install
+// must carry both config modules and reviewed native-to-Nix package mappings.
+func TestInstallCatalog_CopiesRuntimeCatalogs(t *testing.T) {
 	src := t.TempDir()
 	dst := t.TempDir()
 	seedCatalog(t, src, "vscode", "git")
@@ -43,13 +50,14 @@ func TestInstallCatalog_CopiesModulesAndPayload(t *testing.T) {
 		t.Fatalf("installCatalog: %v", err)
 	}
 
-	if len(installed) != 2 {
-		t.Errorf("expected both trees installed, got %v", installed)
+	if len(installed) != 3 {
+		t.Errorf("expected all runtime catalog trees installed, got %v", installed)
 	}
 	for _, rel := range []string{
 		filepath.Join("modules", "apps", "vscode", "module.jsonc"),
 		filepath.Join("modules", "apps", "git", "module.jsonc"),
 		filepath.Join("payload", "apps", "seed.txt"),
+		filepath.Join("catalog", "packages", "seed.jsonc"),
 	} {
 		if _, statErr := os.Stat(filepath.Join(dst, rel)); statErr != nil {
 			t.Errorf("expected %s in the install, got %v", rel, statErr)
@@ -99,8 +107,8 @@ func TestInstallCatalog_SamePathIsNotDestructive(t *testing.T) {
 		t.Fatalf("installCatalog: %v", err)
 	}
 
-	if len(installed) != 2 {
-		t.Errorf("expected both trees reported as present, got %v", installed)
+	if len(installed) != 3 {
+		t.Errorf("expected all runtime catalog trees reported as present, got %v", installed)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "modules", "apps", "vscode", "module.jsonc")); err != nil {
 		t.Errorf("copying a tree onto itself destroyed it: %v", err)

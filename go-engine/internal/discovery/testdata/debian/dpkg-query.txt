@@ -1,0 +1,6 @@
+bash	5.2.21-2ubuntu4	ii 	yes	required	shells
+base-files	13ubuntu10.3	ii 	yes	required	admin
+fd-find	9.0.0-2	ii 	no	optional	utils
+libpcre2-8-0:amd64	10.42-4ubuntu2	ii 	no	optional	libs
+ripgrep	14.1.0-1	ii 	no	optional	utils
+ubuntu-minimal	1.539.2	ii 	no	optional	metapackages

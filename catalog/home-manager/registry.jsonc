@@ -1,0 +1,1475 @@
+{
+  "schemaVersion": 1,
+  "inputs": {
+    "nixpkgsRevision": "5880666fd9eb563038431edb35c2d0aa595884e6",
+    "homeManagerRevision": "65258d5c65a250189fde2e35f490d15e064c4c62"
+  },
+  "docsJsonSha256": "f609ca1cd712e200dcda099b022b5a3e6b34af53cf866fdb5d0b51c8da95e216",
+  "programs": [
+    "abaddon",
+    "abook",
+    "acd-cli",
+    "aerc",
+    "aerospace",
+    "afew",
+    "ahoviewer",
+    "aiac",
+    "aichat",
+    "aider-chat",
+    "airlift",
+    "alacritty",
+    "algia",
+    "aliae",
+    "alistral",
+    "alot",
+    "am2rlauncher",
+    "amber",
+    "amfora",
+    "amoco",
+    "amp",
+    "andcli",
+    "animdl",
+    "anime-downloader",
+    "anki",
+    "antigravity",
+    "antigravity-cli",
+    "anup",
+    "anvil-editor",
+    "anyrun",
+    "aperture",
+    "aphorme",
+    "aria2",
+    "aria2p",
+    "asciinema",
+    "ashell",
+    "astroid",
+    "atool",
+    "atuin",
+    "autojump",
+    "autorandr",
+    "awscli",
+    "bacon",
+    "bash",
+    "bashmount",
+    "bat",
+    "beets",
+    "bemenu",
+    "bluetuith",
+    "borgmatic",
+    "bottom",
+    "boxxy",
+    "broot",
+    "browserpass",
+    "btop",
+    "bun",
+    "calibre",
+    "carapace",
+    "cargo",
+    "cava",
+    "cavalier",
+    "chawan",
+    "chromium",
+    "claude-code",
+    "clock-rs",
+    "cmus",
+    "codex",
+    "command-not-found",
+    "comodoro",
+    "cudatext",
+    "cursor",
+    "darcs",
+    "dbeaver",
+    "delta",
+    "desktoppr",
+    "diff-highlight",
+    "diff-so-fancy",
+    "difftastic",
+    "dircolors",
+    "direnv",
+    "discocss",
+    "discord",
+    "distrobox",
+    "docker-cli",
+    "earthly",
+    "ec",
+    "eclipse",
+    "element-desktop",
+    "emacs",
+    "equibop",
+    "eww",
+    "eza",
+    "fabric-ai",
+    "fastfetch",
+    "fd",
+    "feedr",
+    "feh",
+    "firefox",
+    "firefoxpwa",
+    "fish",
+    "flashspace",
+    "floorp",
+    "foliate",
+    "foot",
+    "formiko",
+    "freetube",
+    "fresh-editor",
+    "fuzzel",
+    "fzf",
+    "gallery-dl",
+    "gcc",
+    "gh",
+    "gh-dash",
+    "ghostty",
+    "git",
+    "git-cliff",
+    "git-credential-keepassxc",
+    "git-credential-oauth",
+    "git-worktree-switcher",
+    "github-copilot-cli",
+    "gitui",
+    "gnome-shell",
+    "gnome-terminal",
+    "go",
+    "goto",
+    "gpg",
+    "gradle",
+    "granted",
+    "grep",
+    "grype",
+    "gurk-rs",
+    "halloy",
+    "havoc",
+    "helix",
+    "hexchat",
+    "himalaya",
+    "home-manager",
+    "hstr",
+    "htop",
+    "hwatch",
+    "hyfetch",
+    "hyprlock",
+    "hyprpanel",
+    "hyprshot",
+    "i3bar-river",
+    "i3blocks",
+    "i3status",
+    "i3status-rust",
+    "iamb",
+    "imv",
+    "infat",
+    "info",
+    "inori",
+    "intelli-shell",
+    "ion",
+    "irssi",
+    "java",
+    "jetbrains-remote",
+    "jjui",
+    "joplin-desktop",
+    "joshuto",
+    "jq",
+    "jqp",
+    "jrnl",
+    "jujutsu",
+    "k9s",
+    "kakoune",
+    "keepassxc",
+    "keychain",
+    "khal",
+    "khard",
+    "kickoff",
+    "kiro",
+    "kitty",
+    "kodi",
+    "kraftkit",
+    "kubecolor",
+    "kubeswitch",
+    "lapce",
+    "lazydocker",
+    "lazygit",
+    "lazysql",
+    "lazyworktree",
+    "ledger",
+    "less",
+    "lesspipe",
+    "lf",
+    "librewolf",
+    "lieer",
+    "looking-glass-client",
+    "lsd",
+    "lutris",
+    "macchina",
+    "man",
+    "mangohud",
+    "matplotlib",
+    "mbsync",
+    "mc",
+    "mcfly",
+    "mcp",
+    "meli",
+    "mercurial",
+    "mergiraf",
+    "micro",
+    "mise",
+    "mistral-vibe",
+    "mods",
+    "mpv",
+    "mpvpaper",
+    "mr",
+    "msmtp",
+    "mu",
+    "mujmap",
+    "mullvad-vpn",
+    "mypy",
+    "navi",
+    "ncmpcpp",
+    "ncspot",
+    "ne",
+    "neomutt",
+    "neovide",
+    "neovim",
+    "newsboat",
+    "nh",
+    "nheko",
+    "nix-index",
+    "nix-init",
+    "nix-search-tv",
+    "nix-your-shell",
+    "nnn",
+    "nom",
+    "noti",
+    "notmuch",
+    "npm",
+    "numbat",
+    "nushell",
+    "nvchecker",
+    "nyxt",
+    "obs-studio",
+    "obsidian",
+    "offlineimap",
+    "oh-my-posh",
+    "onagre",
+    "onedrive",
+    "onlyoffice",
+    "opam",
+    "opencode",
+    "openstackclient",
+    "opkssh",
+    "pandoc",
+    "papis",
+    "parallel",
+    "password-store",
+    "patdiff",
+    "pay-respects",
+    "pazi",
+    "pet",
+    "pgcli",
+    "pianobar",
+    "pidgin",
+    "pimsync",
+    "pistol",
+    "piston-cli",
+    "pls",
+    "poetry",
+    "powerline-go",
+    "pqiv",
+    "prismlauncher",
+    "ptyxis",
+    "pubs",
+    "pyenv",
+    "pylint",
+    "pyradio",
+    "pywal",
+    "qalculate",
+    "qcal",
+    "quickshell",
+    "qutebrowser",
+    "radicle",
+    "radio-active",
+    "radio-cli",
+    "ranger",
+    "rbenv",
+    "rbw",
+    "rclone",
+    "readline",
+    "rectangle",
+    "retext",
+    "retroarch",
+    "riff",
+    "rio",
+    "ripgrep",
+    "ripgrep-all",
+    "rizin",
+    "rmpc",
+    "rofi",
+    "rtorrent",
+    "ruff",
+    "sagemath",
+    "sapling",
+    "satty",
+    "sbt",
+    "scmpuff",
+    "screen",
+    "script-directory",
+    "senpai",
+    "sesh",
+    "sftpman",
+    "sheldon",
+    "sherlock",
+    "sioyek",
+    "sketchybar",
+    "skim",
+    "sm64ex",
+    "smug",
+    "spotify-player",
+    "sqls",
+    "ssh",
+    "starship",
+    "streamlink",
+    "superfile",
+    "swappy",
+    "sway-easyfocus",
+    "swayimg",
+    "swaylock",
+    "swayr",
+    "t3code",
+    "taskwarrior",
+    "tealdeer",
+    "television",
+    "terminator",
+    "termite",
+    "tex-fmt",
+    "texlive",
+    "thunderbird",
+    "timidity",
+    "tint2",
+    "tiny",
+    "tirith",
+    "tmate",
+    "tmux",
+    "todoman",
+    "tofi",
+    "topgrade",
+    "translate-shell",
+    "tray-tui",
+    "trippy",
+    "ttyper",
+    "twitch-tui",
+    "ty",
+    "urxvt",
+    "uv",
+    "vdirsyncer",
+    "vesktop",
+    "vicinae",
+    "vifm",
+    "vim",
+    "vim-vint",
+    "vinegar",
+    "visidata",
+    "vivid",
+    "vscode",
+    "vscodium",
+    "w3m",
+    "wallust",
+    "watson",
+    "waveterm",
+    "waybar",
+    "waylogout",
+    "wayprompt",
+    "wezterm",
+    "windsurf",
+    "wleave",
+    "wlogout",
+    "wofi",
+    "workstyle",
+    "xmobar",
+    "xplr",
+    "yambar",
+    "yarn",
+    "yazi",
+    "yofi",
+    "yt-dlp",
+    "z-lua",
+    "zapzap",
+    "zathura",
+    "zed-editor",
+    "zellij",
+    "zk",
+    "zoxide",
+    "zsh"
+  ],
+  "entries": [
+    {
+      "id": "alacritty",
+      "program": "alacritty",
+      "displayName": "Alacritty",
+      "packageId": "alacritty",
+      "moduleId": "apps.alacritty",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.alacritty.settings": {
+            "general": {
+              "live_config_reload": false
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/alacritty/alacritty.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.alacritty.settings",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/alacritty.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/alacritty/alacritty.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/alacritty.nix": "d0b39108757cb17cc56960c60331e36ae9f1dddaef9333c31e69b73b7e0279d1"
+      },
+      "reviewFingerprint": "c0d1d2c5e874065ee7f1651d64cbd2eecc3657dcb85494c65a489292c6f10e90"
+    },
+    {
+      "id": "atuin",
+      "program": "atuin",
+      "displayName": "Atuin",
+      "packageId": "atuin",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.atuin.settings": {
+            "auto_sync": false
+          }
+        },
+        "targets": [
+          "${xdg.config}/atuin/config.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.atuin.settings",
+          "type": "Atuin configuration",
+          "declarations": [
+            "modules/programs/atuin.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/atuin/config.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/atuin.nix": "0ac54b6f7af665aea6877220d6a95e5676cf0775e2f7347b496b1da99f49a91d"
+      },
+      "reviewFingerprint": "5438ada7b416ce13df79c37adbb80d6ba6058c59979ac24b1fe33bb282fadfd7"
+    },
+    {
+      "id": "bash",
+      "program": "bash",
+      "displayName": "Bash",
+      "packageId": "bash",
+      "moduleId": "apps.bash-profile",
+      "disposition": "excluded",
+      "exclusionReason": "startup files are executable shell programs and can contain inline credentials; a shell-aware secret-filtering codec is required",
+      "options": [
+        {
+          "name": "programs.bash.initExtra",
+          "type": "strings concatenated with \"\\n\"",
+          "declarations": [
+            "modules/programs/bash.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/bash.nix": "598f970f6599d5520fea3b1cf0ffc3a22ee34867d49f1cbcf38b7658577e7b58"
+      },
+      "reviewFingerprint": "9f098843064d48652c75127e2513ef9dbeeec099d6410fbd41b2890a0067882b"
+    },
+    {
+      "id": "bat",
+      "program": "bat",
+      "displayName": "bat",
+      "packageId": "bat",
+      "moduleId": "apps.bat",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.bat.config": {
+            "theme": "TwoDark"
+          }
+        },
+        "targets": [
+          "${xdg.config}/bat/config"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.bat.config",
+          "type": "attribute set of (string or list of string or boolean)",
+          "declarations": [
+            "modules/programs/bat.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/bat/config",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/bat.nix": "997b0dab7d2b24c7231dc618b6c012d7dd8ec09aaf967b9c98f12470f94d75a7"
+      },
+      "reviewFingerprint": "4299011cf95a3b8d5a1625dc23eb2d0e3f8b6018243514a9bdf374714dcc559e"
+    },
+    {
+      "id": "btop",
+      "program": "btop",
+      "displayName": "btop++",
+      "packageId": "btop",
+      "moduleId": "apps.btop",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.btop.settings": {
+            "theme_background": false
+          }
+        },
+        "targets": [
+          "${xdg.config}/btop/btop.conf"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.btop.settings",
+          "type": "attribute set of (boolean or floating point number or signed integer or string)",
+          "declarations": [
+            "modules/programs/btop.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/btop/btop.conf",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/btop.nix": "511b2170036c14d8a3e1e33391c64788dcaa139c535792fcb5e214f7099dfa9f"
+      },
+      "reviewFingerprint": "57cd122f333071d502a947ade311a37f10cd78223e640273fff86c7256a1879f"
+    },
+    {
+      "id": "direnv",
+      "program": "direnv",
+      "displayName": "direnv",
+      "packageId": "direnv",
+      "disposition": "excluded",
+      "exclusionReason": "the valuable state is project-local executable .envrc content, which can contain credentials and cannot be safely inferred from the global option surface",
+      "options": [
+        {
+          "name": "programs.direnv.config",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/direnv.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/direnv.nix": "b982ffbf1237b10ff2b3481fb75bee17eb304e85e2edad31299b3d13ed2a67ac"
+      },
+      "reviewFingerprint": "c46cb27a9c6d1a33e30b57932eb5e0af2e52f9da2905b2ad639dabb830622d4d"
+    },
+    {
+      "id": "eza",
+      "program": "eza",
+      "displayName": "eza",
+      "packageId": "eza",
+      "moduleId": "apps.eza",
+      "disposition": "excluded",
+      "exclusionReason": "Home Manager combines generated shell integration and theme data rather than exposing one reversible live configuration file",
+      "options": [
+        {
+          "name": "programs.eza.theme",
+          "type": "YAML 1.1 value",
+          "declarations": [
+            "modules/programs/eza.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/eza.nix": "e9ee47b883c86d2468659a07eef2d7340261e012fc31ba542f6820752978a7b0"
+      },
+      "reviewFingerprint": "65be836f225ee31d745315485db971e51e3c2790d402a2530336fb99f57535b8"
+    },
+    {
+      "id": "fastfetch",
+      "program": "fastfetch",
+      "displayName": "Fastfetch",
+      "packageId": "fastfetch",
+      "moduleId": "apps.fastfetch",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.fastfetch.settings": {
+            "display": {
+              "color": "blue"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/fastfetch/config.jsonc"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.fastfetch.settings",
+          "type": "JSON value",
+          "declarations": [
+            "modules/programs/fastfetch.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/fastfetch/config.jsonc",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/fastfetch.nix": "dde86063c6d40c81b5ca01b2e96b0fc092c3d15e9b9b08236162b2f1e6a6d5ac"
+      },
+      "reviewFingerprint": "1ee19e42286aaffabc8a9773f49af7c14f21cb44662c25aba1e52e7c8e6723f7"
+    },
+    {
+      "id": "fd",
+      "program": "fd",
+      "displayName": "fd",
+      "packageId": "fd",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.fd.ignores": [
+            ".git"
+          ]
+        },
+        "targets": [
+          "${xdg.config}/fd/ignore"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.fd.ignores",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/fd.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/fd/ignore",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/fd.nix": "a4782892b2b6a085b8f0229b8bd6249f2c12dd153fbaebfd1a1e6065d34f378a"
+      },
+      "reviewFingerprint": "ff760f79bd9ff8151999ce9433e36637b5478c42c4e886ed6f3d5e4c9b0c23c9"
+    },
+    {
+      "id": "fzf",
+      "program": "fzf",
+      "displayName": "fzf",
+      "packageId": "fzf",
+      "disposition": "excluded",
+      "exclusionReason": "the Home Manager surface is generated shell integration and environment options, not a reversible live configuration file",
+      "options": [
+        {
+          "name": "programs.fzf.defaultOptions",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/fzf.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/fzf.nix": "88b9ce318acfbcb4a041980f9cf5945d5c76c209d992666186bf3b433b3b342a"
+      },
+      "reviewFingerprint": "1d24a8adc08cd86e4e0894cdc9f2ce0f151a1d38bf1f12be00c045224042466f"
+    },
+    {
+      "id": "gh",
+      "program": "gh",
+      "displayName": "GitHub CLI",
+      "packageId": "github-cli",
+      "moduleId": "apps.github-cli",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.gh.settings": {
+            "git_protocol": "https"
+          }
+        },
+        "targets": [
+          "${xdg.config}/gh/config.yml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.gh.settings",
+          "type": "open submodule of (YAML 1.1 value)",
+          "declarations": [
+            "modules/programs/gh.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/gh/config.yml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/gh.nix": "b57920be52800d9444826f361f58a8544a15a99d1e6ee65ef541316a73984338"
+      },
+      "reviewFingerprint": "2f546c4d51f91fc11129472b73df9ce73af0539fd43fbc931899ad0d06526939"
+    },
+    {
+      "id": "git",
+      "program": "git",
+      "displayName": "Git",
+      "packageId": "git",
+      "moduleId": "apps.git",
+      "disposition": "curated-codec",
+      "codec": "git-config-safe-v1",
+      "probe": {
+        "values": {
+          "programs.git.attributes": [
+            "*.pdf diff=pdf"
+          ],
+          "programs.git.ignores": [
+            "*.tmp"
+          ],
+          "programs.git.settings": {
+            "user": {
+              "name": "Endstate Probe"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/git/attributes",
+          "${xdg.config}/git/config",
+          "${xdg.config}/git/ignore"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.git.attributes",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/git.nix"
+          ]
+        },
+        {
+          "name": "programs.git.ignores",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/git.nix"
+          ]
+        },
+        {
+          "name": "programs.git.settings",
+          "type": "(attribute set of attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer) or attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer)))) or list of attribute set of attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer) or attribute set of (string or boolean or signed integer or list of (string or boolean or signed integer)))",
+          "declarations": [
+            "modules/programs/git.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${home}/.gitattributes",
+          "optional": true
+        },
+        {
+          "coordinate": "${home}/.gitconfig",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/git/attributes",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/git/config",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/git/ignore",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/git.nix": "d6bd012795457bda5cc1672ea229124f88ad2944e96fd9b87d723f42841a06b8"
+      },
+      "reviewFingerprint": "4192a7a9af103afc1603cff0ae593f60190ee8c8567305c42f9cc7c685fab8ca"
+    },
+    {
+      "id": "helix",
+      "program": "helix",
+      "displayName": "Helix",
+      "packageId": "helix",
+      "moduleId": "apps.helix",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.helix.extraConfig": "# endstate target probe",
+          "programs.helix.ignores": [
+            ".git"
+          ],
+          "programs.helix.languages": {
+            "language": [
+              {
+                "auto-format": false,
+                "name": "rust"
+              }
+            ]
+          },
+          "programs.helix.settings": {
+            "editor": {
+              "line-number": "relative"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/helix/config.toml",
+          "${xdg.config}/helix/ignore",
+          "${xdg.config}/helix/languages.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.helix.extraConfig",
+          "type": "strings concatenated with \"\\n\"",
+          "declarations": [
+            "modules/programs/helix.nix"
+          ]
+        },
+        {
+          "name": "programs.helix.ignores",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/helix.nix"
+          ]
+        },
+        {
+          "name": "programs.helix.languages",
+          "type": "(TOML value) or (list of (TOML value)) convertible to it",
+          "declarations": [
+            "modules/programs/helix.nix"
+          ]
+        },
+        {
+          "name": "programs.helix.settings",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/helix.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/helix/config.toml",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/helix/ignore",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/helix/languages.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/helix.nix": "44c49469add005e2094514488cce6ed3d92e6c6ae5281c2ce120f14dccfd8739"
+      },
+      "reviewFingerprint": "cf0bab3299b13b3c69e70f642f1a9cc80bd4097b0194ce46e7c2573ce6f34700"
+    },
+    {
+      "id": "jujutsu",
+      "program": "jujutsu",
+      "displayName": "Jujutsu",
+      "packageId": "jujutsu",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.jujutsu.settings": {
+            "user": {
+              "name": "Endstate Probe"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/jj/config.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.jujutsu.settings",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/jujutsu.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/jj/config.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/jujutsu.nix": "271b65f72c67e80923e950f2d525a93de34da8a87b8cad6830ba4991b15117a4"
+      },
+      "reviewFingerprint": "c845ba43b7940e88925d4e665d390a37d98dd69127c042e14079a3c5e792deb4"
+    },
+    {
+      "id": "keepassxc",
+      "program": "keepassxc",
+      "displayName": "KeePassXC",
+      "packageId": "keepassxc",
+      "moduleId": "apps.keepassxc",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.keepassxc.settings": {
+            "GUI": {
+              "ApplicationTheme": "dark"
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/keepassxc/keepassxc.ini"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.keepassxc.settings",
+          "type": "attribute set of section of an INI file (attrs of INI atom (null, bool, int, float or string))",
+          "declarations": [
+            "modules/programs/keepassxc.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/keepassxc/keepassxc.ini",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/keepassxc.nix": "f09ac4793b579e1cf7a3877999d8af75398ea4264b94f37bbc9cbee6639517d6"
+      },
+      "reviewFingerprint": "d09d2b90b6e7be2f8b120ab83d98d3f18c339a4cea218ea9c964a84c6be396ac"
+    },
+    {
+      "id": "kitty",
+      "program": "kitty",
+      "displayName": "Kitty",
+      "packageId": "kitty",
+      "disposition": "excluded",
+      "exclusionReason": "kitty.conf can contain remote-control passwords, includes, launch commands, and machine-local paths; it requires a semantic codec",
+      "options": [
+        {
+          "name": "programs.kitty.settings",
+          "type": "attribute set of (string or boolean or signed integer or floating point number)",
+          "declarations": [
+            "modules/programs/kitty.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/kitty.nix": "2211bd12befd560c936928ee2b75bb46f71c4c50ffa502d181c18c8e9f7dfcf7"
+      },
+      "reviewFingerprint": "d73961845b733dee0160817a61f48d2a32c7dee3e88b040ee0c5e2d0e7b2c74c"
+    },
+    {
+      "id": "lazydocker",
+      "program": "lazydocker",
+      "displayName": "lazydocker",
+      "packageId": "lazydocker",
+      "moduleId": "apps.lazydocker",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.lazydocker.settings": {
+            "gui": {
+              "showIcons": false
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/lazydocker/config.yml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.lazydocker.settings",
+          "type": "YAML 1.1 value",
+          "declarations": [
+            "modules/programs/lazydocker.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/lazydocker/config.yml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/lazydocker.nix": "9c9650449c9c92758645918e3d099747ba173fdb8094de6e116b1b247476a872"
+      },
+      "reviewFingerprint": "afdbcb6e67fa208bfcbf7b91e3060665085cf125b8491a8028444a4b1e0345bc"
+    },
+    {
+      "id": "lazygit",
+      "program": "lazygit",
+      "displayName": "lazygit",
+      "packageId": "lazygit",
+      "moduleId": "apps.lazygit",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.lazygit.settings": {
+            "gui": {
+              "showIcons": false
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/lazygit/config.yml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.lazygit.settings",
+          "type": "YAML 1.1 value",
+          "declarations": [
+            "modules/programs/lazygit.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/lazygit/config.yml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/lazygit.nix": "ba4f4934e3d0b0497882fc1b087f7cb0dd210e2246c6c191950e34763a619f7e"
+      },
+      "reviewFingerprint": "98d0cae80603943eb2e7a51142ee045bebf3224bf0426295535f76ea9d208138"
+    },
+    {
+      "id": "neovim",
+      "program": "neovim",
+      "displayName": "Neovim",
+      "packageId": "neovim",
+      "moduleId": "apps.neovim",
+      "disposition": "excluded",
+      "exclusionReason": "Neovim configuration is executable, multi-file, and intertwined with plugins; caches, state, histories, and plugin data need an explicit boundary",
+      "options": [
+        {
+          "name": "programs.neovim.extraConfig",
+          "type": "strings concatenated with \"\\n\"",
+          "declarations": [
+            "modules/programs/neovim"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/neovim": "b396ce0c518c6fd641c8c07a95e295272aae00a0a59e6c59c53be642e995e2f8"
+      },
+      "reviewFingerprint": "4db89347170c202586fe802254ec7eaac0ee5f252433163909298311bca79286"
+    },
+    {
+      "id": "poetry",
+      "program": "poetry",
+      "displayName": "Poetry",
+      "packageId": "poetry",
+      "moduleId": "apps.poetry",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.poetry.settings": {
+            "virtualenvs": {
+              "in-project": true
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/pypoetry/config.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.poetry.settings",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/poetry.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/pypoetry/config.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/poetry.nix": "70cfe8807ebe638bcb8096d60430e4a609ffd4ae42b57d10dd741e0acd0ad5eb"
+      },
+      "reviewFingerprint": "82c1f9378fbcc06f02bc3e0a5caaca2e166e6c46c5d7db316d7fd4ce990342e2"
+    },
+    {
+      "id": "ripgrep",
+      "program": "ripgrep",
+      "displayName": "ripgrep",
+      "packageId": "ripgrep",
+      "moduleId": "apps.ripgrep",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.ripgrep.arguments": [
+            "--hidden"
+          ]
+        },
+        "targets": [
+          "${xdg.config}/ripgrep/ripgreprc"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.ripgrep.arguments",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/ripgrep.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/ripgrep/ripgreprc",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/ripgrep.nix": "dbb0b32aec87298873898ef19e7fea9d36560389ab41a28634b5c7fd7f34740e"
+      },
+      "reviewFingerprint": "74fed436a6ee4594d4213d6ded7b65776df6eca9ec0a44541eb2628739604f0a"
+    },
+    {
+      "id": "ssh",
+      "program": "ssh",
+      "displayName": "OpenSSH client",
+      "packageId": "openssh",
+      "moduleId": "apps.ssh-config",
+      "disposition": "excluded",
+      "exclusionReason": "SSH config can expose host identity, key paths, includes, and proxy commands; a portable semantic codec is required and private keys must never be captured",
+      "options": [
+        {
+          "name": "programs.ssh.settings",
+          "type": "DAG of open submodule of attribute set of anything",
+          "declarations": [
+            "modules/programs/ssh.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/ssh.nix": "1f27924cad7528e31d12ad8ab8b13753132a1fc6a386bfa427049abb295b440f"
+      },
+      "reviewFingerprint": "ceccec9da7bc6664dfa10b7f022a5c44407c6bda90ea75366462de3a5cc794a7"
+    },
+    {
+      "id": "starship",
+      "program": "starship",
+      "displayName": "Starship",
+      "packageId": "starship",
+      "moduleId": "apps.starship",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.starship.settings": {
+            "add_newline": false
+          }
+        },
+        "targets": [
+          "${xdg.config}/starship.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.starship.settings",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/starship.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/starship.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/starship.nix": "e8e2c7094693df539333e241998c5c8ec1ec9b3aa125f84d0b741f0f000827b4"
+      },
+      "reviewFingerprint": "bdb7d6508879a3e2ec5486584383369e83dcb3c90372ce62627fa6edffa1ce4a"
+    },
+    {
+      "id": "tmux",
+      "program": "tmux",
+      "displayName": "tmux",
+      "packageId": "tmux",
+      "moduleId": "apps.tmux",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.tmux.extraConfig": "# endstate target probe"
+        },
+        "targets": [
+          "${xdg.config}/tmux/tmux.conf"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.tmux.extraConfig",
+          "type": "strings concatenated with \"\\n\"",
+          "declarations": [
+            "modules/programs/tmux.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/tmux/tmux.conf",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/tmux.nix": "89bd74de0b4bedbfe90f0642f714dcef28b18f98af6dedf5e72fb2076cf1913e"
+      },
+      "reviewFingerprint": "6b856fc21d652976a12641776c75b359d31c10a539fcb70e32734b10c1af8a9c"
+    },
+    {
+      "id": "wezterm",
+      "program": "wezterm",
+      "displayName": "WezTerm",
+      "packageId": "wezterm",
+      "moduleId": "apps.wezterm",
+      "disposition": "excluded",
+      "exclusionReason": "WezTerm configuration is executable Lua and can embed commands, environment data, and credentials; it requires a semantic codec",
+      "options": [
+        {
+          "name": "programs.wezterm.extraConfig",
+          "type": "strings concatenated with \"\\n\"",
+          "declarations": [
+            "modules/programs/wezterm.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/wezterm.nix": "ad774b32a9d1c778d53326b03607263b2ed7cc9bb1ddb108f0b2973a4e0b881c"
+      },
+      "reviewFingerprint": "eda48e73e263144db7962e45840ade3ef67e1d221afcb334628066fca0435b68"
+    },
+    {
+      "id": "yazi",
+      "program": "yazi",
+      "displayName": "Yazi",
+      "packageId": "yazi",
+      "moduleId": "apps.yazi",
+      "disposition": "file-roundtrip",
+      "codec": "bounded-regular-file-v1",
+      "probe": {
+        "values": {
+          "programs.yazi.keymap": {
+            "mgr": {
+              "prepend_keymap": [
+                {
+                  "on": [
+                    "q"
+                  ],
+                  "run": "quit"
+                }
+              ]
+            }
+          },
+          "programs.yazi.settings": {
+            "mgr": {
+              "show_hidden": false
+            }
+          },
+          "programs.yazi.theme": {
+            "filetype": {
+              "rules": [
+                {
+                  "fg": "#ffffff",
+                  "mime": "text/*"
+                }
+              ]
+            }
+          },
+          "programs.yazi.vfs": {
+            "services": {
+              "endstate-probe": {
+                "host": "127.0.0.1",
+                "type": "sftp"
+              }
+            }
+          }
+        },
+        "targets": [
+          "${xdg.config}/yazi/keymap.toml",
+          "${xdg.config}/yazi/theme.toml",
+          "${xdg.config}/yazi/vfs.toml",
+          "${xdg.config}/yazi/yazi.toml"
+        ]
+      },
+      "options": [
+        {
+          "name": "programs.yazi.keymap",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/yazi.nix"
+          ]
+        },
+        {
+          "name": "programs.yazi.settings",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/yazi.nix"
+          ]
+        },
+        {
+          "name": "programs.yazi.theme",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/yazi.nix"
+          ]
+        },
+        {
+          "name": "programs.yazi.vfs",
+          "type": "TOML value",
+          "declarations": [
+            "modules/programs/yazi.nix"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "coordinate": "${xdg.config}/yazi/keymap.toml",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/yazi/theme.toml",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/yazi/vfs.toml",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/yazi/yazi.toml",
+          "optional": true
+        }
+      ],
+      "sourceHashes": {
+        "modules/programs/yazi.nix": "6a256b4d6b1a8b7d11a4a9df80f12a50dbc01d90ef7ec897f118eca0ed9b11f3"
+      },
+      "reviewFingerprint": "952a2592fa45cb1188338f0e24653129cac7410cb318bb9da46910ca4714e522"
+    },
+    {
+      "id": "zoxide",
+      "program": "zoxide",
+      "displayName": "zoxide",
+      "packageId": "zoxide",
+      "moduleId": "apps.zoxide",
+      "disposition": "excluded",
+      "exclusionReason": "Home Manager provides generated shell integration while the live navigation database is history/state and must not be captured",
+      "options": [
+        {
+          "name": "programs.zoxide.options",
+          "type": "list of string",
+          "declarations": [
+            "modules/programs/zoxide.nix"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/zoxide.nix": "53fc41260f075546cdf845bb05af3565ca05b6481fa23894e964a77be9ac1324"
+      },
+      "reviewFingerprint": "d9c8913b31a73ef84768c471651b0cdbc597f34688bbaf93492b5431061405e4"
+    },
+    {
+      "id": "zsh",
+      "program": "zsh",
+      "displayName": "Zsh",
+      "packageId": "zsh",
+      "disposition": "excluded",
+      "exclusionReason": "startup files are executable shell programs and can contain inline credentials; a shell-aware secret-filtering codec is required",
+      "options": [
+        {
+          "name": "programs.zsh.initContent",
+          "type": "strings concatenated with \"\\n\"",
+          "declarations": [
+            "modules/programs/zsh"
+          ]
+        }
+      ],
+      "targets": [],
+      "sourceHashes": {
+        "modules/programs/zsh": "a822f31b12bcb588c6e981b7c745a1f45cba0d2bc2d8e319ffbb11400d15c6c2"
+      },
+      "reviewFingerprint": "e5e58c78c0fe49846f4739e5358771bb1f0e1df99a0d6d9b0255ccc67d7ef678"
+    }
+  ]
+}

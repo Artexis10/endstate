@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "kitty",
+  "displayName": "kitty",
+  "nix": { "attribute": "kitty" },
+  "aliases": {
+    "debian": ["kitty"],
+    "rpm": ["kitty"],
+    "arch": ["kitty"],
+    "flatpak": ["net.kovidgoyal.kitty"],
+    "desktop": ["kitty.desktop"],
+    "executable": ["kitty"]
+  }
+}
