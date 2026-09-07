@@ -69,6 +69,9 @@ Module files are JSONC (JSON with comments). The Go engine handles loading in `g
 # Run module-related unit tests
 cd go-engine && go test ./internal/modules/...
 
+# Run related command tests
+cd go-engine && go test ./internal/commands/...
+
 # Load all modules and check for load errors
 cd go-engine && go run ./cmd/endstate capture --dry-run --json 2>&1
 ```
@@ -93,4 +96,3 @@ Symmetry mismatches: 3
 Path issues: 0
 Duplicate IDs: 0
 ```
-

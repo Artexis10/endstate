@@ -125,6 +125,12 @@ $env:ENDSTATE_ALLOW_DIRECT = '1'
 .\bin\endstate.ps1 capture --dry-run --json 2>&1 | Select-Object -Last 1
 ```
 
+For engine-source verification, use:
+
+```bash
+cd go-engine && go run ./cmd/endstate capture --dry-run --json
+```
+
 ## Common Mistakes
 
 - Forgetting `"optional": true` on restore entries (causes failure if payload not yet captured)
