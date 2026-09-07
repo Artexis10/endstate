@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.31.0](https://github.com/Artexis10/endstate/compare/v2.30.0...v2.31.0) (2026-09-07)
+
+
+### Features
+
+* **cloud:** harden scheduled protection and recovery ([#218](https://github.com/Artexis10/endstate/issues/218)) ([7e1a8df](https://github.com/Artexis10/endstate/commit/7e1a8dfc7e94323fb6eb2f2001e654670cb14656))
+
+
+### Bug Fixes
+
+* **modules:** make capture modules declare a matcher the engine consults ([#212](https://github.com/Artexis10/endstate/issues/212)) ([e0ba52e](https://github.com/Artexis10/endstate/commit/e0ba52e26ee40a1ead35bfb46beb112a88001ef4))
+
 ## [2.30.0](https://github.com/Artexis10/endstate/compare/v2.29.0...v2.30.0) (2026-08-01)
 
 
