@@ -1,7 +1,8 @@
 # nix-native-rollback Specification
 
 ## Purpose
-TBD - created by archiving change nix-native-rollback. Update Purpose after archive.
+Provides the top-level `rollback` command, which reverts the installed package set to a prior Provisioning Generation on backends with native rollback. It requires explicit confirmation, supports preview, and appends a new generation so history stays append-only.
+
 ## Requirements
 ### Requirement: Native package rollback to a prior generation
 

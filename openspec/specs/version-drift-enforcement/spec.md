@@ -1,7 +1,8 @@
 # version-drift-enforcement Specification
 
 ## Purpose
-TBD - created by archiving change version-drift-enforcement. Update Purpose after archive.
+Makes declared package versions enforceable. `verify` reports drift when an installed version differs from the declared one, and an opt-in apply mode reinstalls the declared version, on per-package backends that can install a specific version.
+
 ## Requirements
 ### Requirement: Verify reports version drift for declared versions
 

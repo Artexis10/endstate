@@ -20,11 +20,11 @@ The apply command SHALL extend its JSON envelope with `restoreItems[]` and `rest
 - **THEN** the JSON envelope `data` object contains a `restoreSummary` object
 - **AND** restoreSummary includes: total, restored, skipped, failed, backupLocation
 
-#### Scenario: Existing items array unchanged
+#### Scenario: Existing actions array unchanged
 
 - **WHEN** `apply --EnableRestore --json` is run
-- **THEN** the existing `items[]` array contains only app (install) entries
-- **AND** restore results are NOT mixed into `items[]`
+- **THEN** the existing `actions[]` array contains only app (install) entries
+- **AND** restore results are NOT mixed into `actions[]`
 
 #### Scenario: No restore fields when EnableRestore not active
 

@@ -1,7 +1,8 @@
 # nix-package-capture Specification
 
 ## Purpose
-TBD - created by archiving change nix-package-capture. Update Purpose after archive.
+Lets `capture` work on whole-set realizer backends such as Nix on Linux and macOS: it records the installed packages as host-keyed references that round-trip through `apply`, and captures packages only, not configuration modules.
+
 ## Requirements
 ### Requirement: Capture works on realizer backends
 

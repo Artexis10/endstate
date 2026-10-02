@@ -1,7 +1,8 @@
 # nix-home-manager-capture Specification
 
 ## Purpose
-TBD - created by archiving change nix-home-manager-capture. Update Purpose after archive.
+Makes capture round-trip the home-manager configuration the engine provisioned: it records the originally declared home-manager input in the captured manifest, without failing capture and without capturing the configuration's content.
+
 ## Requirements
 ### Requirement: Capture records the engine-provisioned home-manager config
 

@@ -1,7 +1,8 @@
 # converge-to-exact-set Specification
 
 ## Purpose
-TBD - created by archiving change converge-to-exact-set. Update Purpose after archive.
+Lets a user make the installed package set match the manifest exactly. An opt-in `apply --prune`, behind explicit confirmation and only on backends that can remove a whole set, uninstalls undeclared packages and records the result in a Provisioning Generation.
+
 ## Requirements
 ### Requirement: Convergence prunes undeclared packages
 

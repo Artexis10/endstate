@@ -37,3 +37,19 @@ The Go engine capture command SHALL pass display names to `EmitItem` for capture
 - **WHEN** the Go engine capture emits item events for detected apps
 - **AND** the captured app has an empty `Name` field
 - **THEN** the `EmitItem` call SHALL pass empty string for name
+
+#### Scenario: Item event includes name when parameter provided
+
+- **WHEN** `Write-ItemEvent` is called with `-Name "Visual Studio Code"`
+- **THEN** the emitted NDJSON event SHALL include `"name": "Visual Studio Code"`
+
+#### Scenario: Item event omits name when parameter not provided
+
+- **WHEN** `Write-ItemEvent` is called without the `-Name` parameter
+- **THEN** the emitted NDJSON event SHALL NOT include a `name` field
+
+#### Scenario: Capture item events pass display name
+
+- **WHEN** capture emits item events for detected apps (status "present", reason "detected")
+- **AND** the app object has a non-null `_name` value
+- **THEN** the `Write-ItemEvent` call SHALL include `-Name` with the display name value
