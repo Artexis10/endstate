@@ -330,7 +330,7 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 
 ### Account endpoints
 
-- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt, plan, currentPeriodEnd, scheduledCancelAt, gracePeriodEndsAt, retentionEndsAt, paddleSubscriptionId, paddleCustomerId, lastBackupAt, quotaUsedBytes, quotaTotalBytes, versionCount }` — bearer-authenticated. Date fields are ISO-8601 strings or `null`. `retentionEndsAt` is the authoritative final managed-data deletion deadline during grace or cancellation; clients MUST display it rather than inferring a date from the billing period. `lastBackupAt` is the newest visible version's `createdAt`; `quotaUsedBytes` and `versionCount` cover visible (published) versions only, and `quotaTotalBytes` is the limit the server enforces (§8).
+- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt, plan, currentPeriodEnd, scheduledCancelAt, gracePeriodEndsAt, retentionEndsAt, paddleSubscriptionId, paddleCustomerId, lastBackupAt, quotaUsedBytes, quotaTotalBytes, versionCount }` — bearer-authenticated. Date fields are ISO-8601 strings or `null`. `retentionEndsAt` is the authoritative final managed-data deletion deadline during grace or cancellation; clients MUST display it rather than inferring a date from the billing period. `lastBackupAt` is the newest visible version's `createdAt`; `quotaUsedBytes` and `versionCount` cover visible (published) versions only (plus the temporary Release-A bridge history, §8), and `quotaTotalBytes` is the limit the server enforces (§8).
 - `DELETE /api/account` → bearer-authenticated; triggers GDPR deletion (Section 12).
 - `POST /api/account/web-delete` → **cookie-authenticated** sibling of `DELETE /api/account` for the `/account` web page. Same cascade as the bearer-auth variant; invalidates the account session cookie on completion. The dual surface (bearer + cookie) is deliberate: the engine's bearer flow stays unchanged, and the cookie-auth path serves the in-browser surface without dual-auth on the canonical route.
 - `POST /api/account/session/logout` → cookie-authenticated. Invalidates the account session row, clears the cookie, 204.
@@ -368,7 +368,7 @@ server MUST return them so a replay is distinguishable from a first commit.
 write, not a management operation, so it is gated exactly like version creation
 and is NOT covered by the delete/rename read-access exemption in §10.
 
-Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and it is the only signal the server has to that effect. New engines MUST carry a stable operation identity in `X-Endstate-Operation-ID`; the additive body field `operationId` is accepted for older callers, but the two values must match when both are present (otherwise 400). When discovery advertises `version-create-operation-replay-v1` (§9), a replay with the same principal, backup, operation ID and identical payload returns the original pending version with fresh staging URLs. Before minting them, the server atomically places a replay fence covering their full validity window; GC cannot claim the generation while that fence is active. A replay after commit returns HTTP 200 with that `versionId`, `alreadyCommitted: true`, and an empty `uploadUrls` list. A changed payload returns 409 `OPERATION_PAYLOAD_MISMATCH` and leaves the stored version untouched. The operation's immutable payload binding and terminal state survive retention soft- and hard-deletion, so delayed replays cannot create a new generation or bypass mismatch validation. While GC owns the pending version, or a concurrent replay holds the fence, lookup, publication and URL minting return a retryable 503 (`VERSION_RECLAIM_IN_PROGRESS` / `VERSION_REPLAY_IN_PROGRESS`) and produce no URLs.
+Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and for a client that can commit it is the only signal the server has to that effect (older callers are verified by server-side reconciliation instead). New engines MUST carry a stable operation identity in `X-Endstate-Operation-ID`; the additive body field `operationId` is accepted for older callers, but the two values must match when both are present (otherwise 400). When discovery advertises `version-create-operation-replay-v1` (§9), a replay with the same principal, backup, operation ID and identical payload returns the original pending version with fresh staging URLs. Before minting them, the server atomically places a replay fence covering their full validity window; GC cannot claim the generation while that fence is active. A replay after commit returns HTTP 200 with that `versionId`, `alreadyCommitted: true`, and an empty `uploadUrls` list. A changed payload returns 409 `OPERATION_PAYLOAD_MISMATCH` and leaves the stored version untouched. The operation's immutable payload binding and terminal state survive retention soft- and hard-deletion, so delayed replays cannot create a new generation or bypass mismatch validation. While GC owns the pending version, or a concurrent replay holds the fence, lookup, publication and URL minting return a retryable 503 (`VERSION_RECLAIM_IN_PROGRESS` / `VERSION_REPLAY_IN_PROGRESS`) and produce no URLs.
 
 The server sets `committed_at` and only then applies retention (§8). The endpoint is **idempotent**: committing an already-committed version returns 200 and changes nothing, so a client that retries after an ambiguous network result is safe.
 
@@ -381,7 +381,7 @@ For a create issued by a 2.1+ client, upload URLs are single-use publication sta
 | `2.0`, absent, or malformed | The server's bounded reconciliation path HEAD-checks every expected encrypted object and length before publication.                                                          |
 | `2.1` or newer              | The client calls the explicit commit endpoint; the server HEAD-checks every expected encrypted object, exact length, and signed ciphertext-hash metadata before publication. |
 
-New clients MUST send `X-Endstate-API-Version` on every request; the header is no longer response-only. A syntactically valid major other than `2` is rejected with 400 before any write. Older callers remain compatible but cannot make an unverified generation visible.
+New clients MUST send `X-Endstate-API-Version` on every request; the header is no longer response-only. On create-version, a syntactically valid major other than `2` is rejected with 400 before any row is created. Older callers remain compatible but cannot make an unverified generation visible.
 
 During the compatibility window, a backend MAY continue returning response
 schema version `2.0` while accepting a `2.1` request and advertising the
@@ -505,17 +505,17 @@ server compatibility.
 
 **Whole-snapshot versioning.** Each `POST /api/backups/:backupId/versions` creates a complete new copy of the backup. No chunk-level deduplication across versions. Storage cost grows linearly with version count. This is a deliberate v1 simplification; content-addressed deduplication is a possible v2 optimisation if real usage demands it.
 
-**A version is durable only once committed (schema 2.1).** Creating a version is not the durability point — it mints a row and a set of presigned URLs, nothing more. The blobs travel client→R2 over paths the server never sees, so the server cannot know a version is complete until the client says so via `POST .../versions/:versionId/commit` (§7).
+**A version is durable only once committed (schema 2.1).** Creating a version is not the durability point — it mints a row and a set of presigned URLs, nothing more. The blobs travel client→R2 over paths the server never sees, so the server cannot know a version is complete until the client says so via `POST .../versions/:versionId/commit` (§7) or, for older callers that cannot commit, until the server's own reconciliation has verified every object in R2.
 
 For every version on a current backend, the server treats pending state as "does not exist yet":
 
-| Surface                                                                | Uncommitted version                             |
-| ---------------------------------------------------------------------- | ----------------------------------------------- |
-| `GET /api/backups/:backupId/versions`                                  | Not listed                                      |
-| `latestVersionId` / `versionCount` / `totalSize` on `GET /api/backups` | Not counted                                     |
-| Storage quota                                                          | Not counted                                     |
-| Restore target selection                                               | Never selected                                  |
-| Retention pruning                                                      | Does not trigger it, and is not protected by it |
+| Surface                                                                | Uncommitted version                                                 |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `GET /api/backups/:backupId/versions`                                  | Not listed                                                          |
+| `latestVersionId` / `versionCount` / `totalSize` on `GET /api/backups` | Not counted                                                         |
+| Storage quota                                                          | Reserved by the create-time quota check; not shown in visible usage |
+| Restore target selection                                               | Never selected                                                      |
+| Retention pruning                                                      | Does not trigger it, and is not protected by it                     |
 
 This closes a real failure mode. Before 2.1, a push that died between "create version" and "last chunk uploaded" left a row the server considered real: it was listed, it consumed quota, it pruned the oldest good generation out of retention, and a subsequent restore could select it as "latest" and fail — or worse, restore a truncated profile. The commit call moves the durability boundary to the only point at which the data is actually complete.
 
@@ -552,7 +552,7 @@ cutover, a pre-bridge application release must not be restored.
 
 **1 GiB per active subscriber.** Enforced server-side at version creation. Reservation counts every non-deleted generation, including pending uploads (quarantined historical rows excepted), so repeated abandoned creates cannot bypass quota. The account UI and `GET /api/account/me` report only visible, published usage (plus the temporary Release-A bridge history). Quota exceeded → version creation fails with `STORAGE_QUOTA_EXCEEDED`. Calibrated against realistic profile sizes (apps + configs typically <200 MB); intended as a backstop against pathological cases, not a feature limit. May be raised post-launch based on real usage data.
 
-Because the quota check runs at create time and uncommitted versions do not count, a pathological client that creates versions it never commits is bounded by the cleanup job's cadence, not by the quota. Rate limiting at the substrate edge is the control for that case.
+Because the quota check runs at create time and pending versions count toward it, a pathological client that creates versions it never commits is bounded by the quota: abandoned creates keep holding quota until the cleanup job reclaims them (stale uncommitted versions are reclaimed after 6 hours). Rate limiting at the substrate edge covers create churn within that bound.
 
 ### Why client uses presigned URLs (not direct R2 credentials)
 
