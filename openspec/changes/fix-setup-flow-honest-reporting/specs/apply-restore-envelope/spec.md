@@ -2,7 +2,7 @@
 
 ### Requirement: JSON Envelope Restore Extensions and Journal
 
-The apply command SHALL extend its JSON envelope with `restoreItems[]` when `--EnableRestore` is active and the manifest carries config payloads, and write a restore journal for revert support.
+The apply command SHALL extend its JSON envelope with `restoreItems[]` whenever the manifest carries config payloads, whether or not restore is enabled, and SHALL write a restore journal for revert support when restore is enabled.
 
 The app-result array in the apply envelope is named `actions[]`, matching `docs/contracts/cli-json-contract.md` and the engine's `ApplyResult`. Earlier wording in this spec referred to it as `items[]`; `items[]` is the `generations` command's field and has never existed on the apply envelope.
 
@@ -19,6 +19,13 @@ The app-result array in the apply envelope is named `actions[]`, matching `docs/
 - **WHEN** `apply --EnableRestore --json` is run
 - **THEN** the existing `actions[]` array contains only app (install) entries
 - **AND** restore results are NOT mixed into `actions[]`
+
+#### Scenario: Apply envelope exposes no items or counts field
+
+- **WHEN** `apply --json` is run in any mode
+- **THEN** the envelope `data` object SHALL NOT contain an `items` field
+- **AND** SHALL NOT contain a `counts` field
+- **AND** app results SHALL be carried by `actions[]` and aggregates by `summary`
 
 #### Scenario: No restore fields without config payloads
 

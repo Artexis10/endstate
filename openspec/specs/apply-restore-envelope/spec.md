@@ -5,7 +5,7 @@ Defines the JSON envelope extensions and restore journal for `apply --EnableRest
 ## Requirements
 ### Requirement: JSON Envelope Restore Extensions and Journal
 
-The apply command SHALL extend its JSON envelope with `restoreItems[]` when `--EnableRestore` is active and the manifest carries config payloads, and write a restore journal for revert support.
+The apply command SHALL extend its JSON envelope with `restoreItems[]` whenever the manifest carries config payloads, whether or not restore is enabled, and SHALL write a restore journal for revert support when restore is enabled.
 
 #### Scenario: restoreItems array in JSON envelope
 
