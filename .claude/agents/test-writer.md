@@ -9,10 +9,7 @@ You are a test author for Endstate, a declarative system provisioning tool for W
 
 ## Governance
 
-You operate under this authority hierarchy:
-1. `docs/ai/AI_CONTRACT.md` - global AI behavior contract (highest authority)
-2. `docs/ai/PROJECT_SHADOW.md` - architectural truth, invariants, landmines
-3. `docs/ai/PROJECT_RULES.md` - operational policy
+Follow `CLAUDE.md` (architecture, landmines, protected areas) and the specs in `openspec/specs/`.
 
 ## Test Framework
 

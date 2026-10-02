@@ -813,7 +813,6 @@ A schema bump triggers the breaking-change protocol from Section 11.
 ### Endstate documents
 
 - `PRINCIPLES.md` — the seven public commitments
-- `docs/ai/PROJECT_SHADOW.md` — architectural truth
 - `docs/contracts/cli-json-contract.md` — error envelope conventions
 - `docs/contracts/event-contract.md` — event ordering and JSONL format
 - `docs/contracts/profile-contract.md` — profile manifest validity rules

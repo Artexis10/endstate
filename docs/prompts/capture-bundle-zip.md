@@ -134,7 +134,6 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
 - `docs/contracts/capture-artifact-contract.md` — new zip output format
 - `docs/contracts/profile-contract.md` — three-format discovery
 - `docs/contracts/cli-json-contract.md` — updated capture response schema
-- `docs/ai/PROJECT_SHADOW.md` — profile format change
 
 ## OpenSpec
 
@@ -166,7 +165,6 @@ Before implementation, verify:
 8. **Engine: profile discovery** — update resolution to handle zip/folder/bare
 9. **Engine: apply.ps1 integration** — extract zip to temp, apply, cleanup
 10. **Tests** — unit tests for matcher, collector, bundler, discovery
-11. **PROJECT_SHADOW.md** — update profile format documentation
 
 ---
 

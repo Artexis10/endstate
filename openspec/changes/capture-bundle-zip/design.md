@@ -120,4 +120,3 @@ For each app in captured manifest:
 - `docs/contracts/capture-artifact-contract.md` — new zip output format
 - `docs/contracts/profile-contract.md` — three-format discovery
 - `docs/contracts/cli-json-contract.md` — updated capture response schema
-- `docs/ai/PROJECT_SHADOW.md` — profile format change

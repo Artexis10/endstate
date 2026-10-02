@@ -10,4 +10,3 @@
 6. [x] Engine: profile discovery — zip → folder → bare manifest resolution
 7. [x] Engine: apply zip integration — extract, apply, cleanup
 8. [x] Tests — unit tests for bundler, profile discovery (32/32 passing)
-9. [x] `docs/ai/PROJECT_SHADOW.md` — update profile format documentation
