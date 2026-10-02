@@ -8,6 +8,8 @@ Endstate is a declarative system provisioning and recovery tool for Windows. It 
 
 Make the smallest change satisfying acceptance criteria. Do not make unrelated refactors or formatting sweeps. Use contract-first edits (schema → implementation → tests); significant changes must be represented in OpenSpec specs (`openspec/specs/`, loaded on demand). CLI command or flag changes update `readme.md` and `docs/contracts/` in the same commit; contract changes land in both Endstate and endstate-gui.
 
+Commits are Conventional; `feat`/`fix` trigger a release-please release, `chore`/`docs`/`ci`/`test` do not; never hand-edit versions or tags.
+
 ## Commands
 
 ```bash
@@ -50,7 +52,7 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 - Verification-first: observable state is success
 - Install ≠ configure ≠ verify
 - Back up before overwrite to `state/backups/<timestamp>/`
-- State writes (`.endstate/state.json`, run history) use temp file + atomic move and carry `schemaVersion`; no automatic state migrations
+- Engine-written state files use temp file + atomic rename (`internal/state`, `safepath.AtomicWriteFile`)
 - CLI is source of truth; GUI is thin presentation
 
 ## Testing
