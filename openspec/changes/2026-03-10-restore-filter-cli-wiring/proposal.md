@@ -16,7 +16,7 @@ The restore-filter spec is implemented at the engine level (Invoke-Apply, Invoke
 - `restore-filter`: CLI entrypoint now exposes the flag that was already implemented in engine functions
 
 ## Impact
-- Modified file: bin/endstate.ps1 (CLI entrypoint — requires explicit instruction per PROJECT_RULES.md)
+- Modified file: bin/endstate.ps1 (CLI entrypoint — requires explicit instruction per CLAUDE.md)
 - Modified file: docs/contracts/cli-json-contract.md (add --restore-filter to apply and restore flags)
 - Modified file: docs/contracts/gui-integration-contract.md (add restore command to supported commands table)
 - No new engine logic; purely wiring

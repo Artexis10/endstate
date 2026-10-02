@@ -269,5 +269,5 @@ cd go-engine && go test ./internal/manifest/...
 
 - `docs/catalog-layout.md` — Module/bundle/manifest structure
 - `docs/curation-matrix.md` — Full Golden App assessment
-- `docs/ai/PROJECT_SHADOW.md` — Architectural truth and invariants
+- `CLAUDE.md` — Architecture context, commands, and landmines
 - `docs/contracts/` — Integration contracts

@@ -4,16 +4,9 @@
 
 Endstate is a declarative system provisioning and recovery tool for Windows. It enables repeatable machine rebuilds from a single manifest. The primary language is Go; the engine lives in `go-engine/`.
 
-## Governance Documents (Read These First)
+## Working Rules
 
-This repo has an explicit authority hierarchy for AI collaborators:
-
-1. `docs/ai/AI_CONTRACT.md` — AI behavior contract (highest authority)
-2. `docs/ai/PROJECT_RULES.md` — operational policy (env vars, testing, protected areas)
-3. `CLAUDE.md` — architecture context, commands, landmines (this file, auto-loaded by Claude Code)
-4. `openspec/specs/` — invariants and behavior specifications (lazy-loaded on demand)
-
-Make the smallest change satisfying acceptance criteria. Do not make unrelated refactors or formatting sweeps. Use contract-first edits (schema → implementation → tests); significant changes must be represented in OpenSpec specs.
+Make the smallest change satisfying acceptance criteria. Do not make unrelated refactors or formatting sweeps. Use contract-first edits (schema → implementation → tests); significant changes must be represented in OpenSpec specs (`openspec/specs/`, loaded on demand). CLI command or flag changes update `readme.md` and `docs/contracts/` in the same commit; contract changes land in both Endstate and endstate-gui.
 
 ## Commands
 
@@ -57,6 +50,7 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 - Verification-first: observable state is success
 - Install ≠ configure ≠ verify
 - Back up before overwrite to `state/backups/<timestamp>/`
+- State writes (`.endstate/state.json`, run history) use temp file + atomic move and carry `schemaVersion`; no automatic state migrations
 - CLI is source of truth; GUI is thin presentation
 
 ## Testing
@@ -66,7 +60,8 @@ Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI
 ## Protected Areas
 
 - `go-engine/cmd/endstate/`, `docs/contracts/*.md`, `.github/workflows/` require explicit instruction.
-- `docs/ai/AI_CONTRACT.md`, `LICENSE`, and `NOTICE` are never modified without explicit request.
+- `LICENSE` and `NOTICE` are never modified without explicit request.
+- New driver/restore/verifier implementations, manifest schema (`version`) changes, JSON envelope or event schema changes, and module system changes (bundles, config modules) need architectural review.
 
 ## Environment Variables
 
@@ -88,10 +83,10 @@ Behavior specs are enforced at Level 2 by the lefthook pre-push hook. Specs live
 
 ## Specialized Agent Definitions
 
-Before starting the corresponding task, read the matching role definition. Each role also follows the governance hierarchy above and `docs/ai/PROJECT_SHADOW.md`.
+Before starting the corresponding task, read the matching role definition. Each role follows this file and the specs in `openspec/specs/`.
 
 - Module creation or capture/restore work: [`.claude/agents/module-author.md`](.claude/agents/module-author.md)
 - Go unit tests or regressions: [`.claude/agents/test-writer.md`](.claude/agents/test-writer.md)
-- Contract, spec, or invariant review: [`.claude/agents/contract-guard.md`](.claude/agents/contract-guard.md)
 - Core engine package changes: [`.claude/agents/engine-dev.md`](.claude/agents/engine-dev.md)
 - Catalog-wide module validation or pre-release audits: [`.claude/agents/module-validator.md`](.claude/agents/module-validator.md)
+- Reviewing a diff against contracts, specs, or invariants: the `review-endstate` skill (`.claude/skills/review-endstate/SKILL.md`)
