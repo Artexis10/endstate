@@ -1,7 +1,8 @@
 # windows-version-capture-pinning Specification
 
 ## Purpose
-TBD - created by archiving change windows-version-capture-pinning. Update Purpose after archive.
+Brings version tracking to the Windows per-package backends (Winget and Chocolatey): installed versions are recorded in generations, a version declared in the manifest pins the install to that exact version, and an unavailable pinned version fails the package.
+
 ## Requirements
 ### Requirement: The winget backend records installed package versions
 When recording a Provisioning Generation for a Windows per-package driver (Winget or Chocolatey), the engine SHALL include the installed version of each package whose version that package manager exposes, so history reflects what was actually committed. A version the package manager does not expose SHALL be recorded as empty rather than failing the run.

@@ -1,7 +1,8 @@
 # nix-home-manager-config Specification
 
 ## Purpose
-TBD - created by archiving change nix-home-manager-config. Update Purpose after archive.
+Lets `apply` activate a declared home-manager configuration on the Nix realizer, as an opt-in configuration stage. The configuration can come from a config file or the Endstate catalog, existing files are backed up first, and the result is recorded in the Provisioning Generation.
+
 ## Requirements
 ### Requirement: Apply activates a declared home-manager config
 

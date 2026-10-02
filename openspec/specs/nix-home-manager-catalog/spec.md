@@ -1,7 +1,8 @@
 # nix-home-manager-catalog Specification
 
 ## Purpose
-TBD - created by archiving change nix-home-manager-catalog-broaden. Update Purpose after archive.
+Defines the curated home-manager catalog of Endstate-format settings for common developer programs, mapped to stable home-manager options, with load-time and compile-time guards against unknown sub-keys and conflicts with raw passthrough.
+
 ## Requirements
 ### Requirement: The curated catalog maps additional developer programs to stable home-manager options
 

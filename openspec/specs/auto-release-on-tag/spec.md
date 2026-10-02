@@ -1,7 +1,8 @@
 # auto-release-on-tag Specification
 
 ## Purpose
-TBD - created by archiving change auto-release-on-tag. Update Purpose after archive.
+Publishes releases automatically. Pushing a `v*` tag creates a GitHub Release whose notes come from the matching `CHANGELOG.md` entry, with the Windows `endstate.exe` binary and its checksum attached.
+
 ## Requirements
 ### Requirement: Release triggered on version tag push
 The system SHALL create a GitHub Release when a tag matching `v*` is pushed to the repository.
