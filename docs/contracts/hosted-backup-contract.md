@@ -2,9 +2,9 @@
 
 **Status:** Locked
 **Schema Version:** 2.1
-**Last Updated:** 2026-08-08
+**Last Updated:** 2026-10-03
 
-This document is the canonical specification for Endstate Hosted Backup — the optional paid tier that allows users to upload encrypted profile backups to Endstate-operated infrastructure and restore Endstate-managed applications and supported non-secret settings on another supported Windows PC.
+This document is the canonical specification for Endstate Hosted Backup — the optional paid tier, publicly named Endstate Cloud, that allows users to upload encrypted profile backups to Endstate-operated infrastructure and restore Endstate-managed applications and supported non-secret settings on another supported Windows PC.
 
 This contract is referenced by three repositories:
 
@@ -49,14 +49,14 @@ Recovery key generation, presentation, and verification are mandatory parts of t
 
 All key derivation uses Argon2id (RFC 9106) with the following parameters:
 
-| Parameter | Value | Rationale |
-|---|---|---|
-| Algorithm | Argon2id | Memory-hard, side-channel-resistant; current OWASP recommendation |
-| Memory | 65536 KiB (64 MiB) | OWASP 2024 minimum for password derivation |
-| Iterations | 3 | OWASP 2024 minimum |
-| Parallelism | 4 | Balance between desktop-class hardware utilisation and server load |
-| Output length | 64 bytes | 32 bytes serverPassword + 32 bytes masterKey |
-| Salt length | 16 bytes | Per-user, generated at signup, stored on server, returned at login |
+| Parameter     | Value              | Rationale                                                          |
+| ------------- | ------------------ | ------------------------------------------------------------------ |
+| Algorithm     | Argon2id           | Memory-hard, side-channel-resistant; current OWASP recommendation  |
+| Memory        | 65536 KiB (64 MiB) | OWASP 2024 minimum for password derivation                         |
+| Iterations    | 3                  | OWASP 2024 minimum                                                 |
+| Parallelism   | 4                  | Balance between desktop-class hardware utilisation and server load |
+| Output length | 64 bytes           | 32 bytes serverPassword + 32 bytes masterKey                       |
+| Salt length   | 16 bytes           | Per-user, generated at signup, stored on server, returned at login |
 
 The salt is treated as non-secret. The server returns it to the client during the login pre-handshake so the client can derive `serverPassword` and `masterKey` consistently across machines.
 
@@ -80,9 +80,7 @@ Each encrypted backup version is structured as a manifest plus chunks. Chunks ar
   "originalSize": 0,
   "chunkSize": 4194304,
   "chunkCount": 0,
-  "chunks": [
-    { "index": 0, "encryptedSize": 0, "sha256": "<hex>" }
-  ],
+  "chunks": [{ "index": 0, "encryptedSize": 0, "sha256": "<hex>" }],
   "kdf": {
     "algorithm": "argon2id",
     "memory": 65536,
@@ -99,11 +97,11 @@ The manifest's AAD when encrypted is the 4-byte big-endian unsigned value `0xFFF
 
 ### Chunk format (AES-256-GCM, RFC 5116)
 
-| Field | Size | Contents |
-|---|---|---|
-| `nonce` | 12 bytes | Random per chunk, generated client-side via CSPRNG |
-| `ciphertext` | variable | Encrypted plaintext |
-| `tag` | 16 bytes | GCM authentication tag |
+| Field        | Size     | Contents                                           |
+| ------------ | -------- | -------------------------------------------------- |
+| `nonce`      | 12 bytes | Random per chunk, generated client-side via CSPRNG |
+| `ciphertext` | variable | Encrypted plaintext                                |
+| `tag`        | 16 bytes | GCM authentication tag                             |
 
 Plaintext chunk size is fixed at 4 MiB except for the final chunk. Each chunk is encrypted independently with a freshly generated random nonce. The chunk index (4-byte big-endian unsigned integer) is included as Additional Authenticated Data (AAD) to bind chunks to their position and prevent reordering attacks.
 
@@ -133,15 +131,15 @@ Authentication tokens are JWTs signed with EdDSA (Ed25519) per RFC 8032 and RFC 
 
 ### Claims
 
-| Claim | Type | Description |
-|---|---|---|
-| `iss` | string | Issuer URL — `https://substratesystems.io` for Endstate Cloud, the self-host URL otherwise |
-| `sub` | string | User ID (UUID) |
-| `aud` | string | `endstate-backup` |
-| `iat` | int | Issued-at, Unix epoch seconds |
-| `exp` | int | Expiry, Unix epoch seconds — `iat + 900` (15 min) |
-| `nbf` | int | Not-before, equal to `iat` |
-| `jti` | string | JWT ID (UUID) for revocation lookup |
+| Claim                 | Type   | Description                                                                                                   |
+| --------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
+| `iss`                 | string | Issuer URL — `https://substratesystems.io` for Endstate Cloud, the self-host URL otherwise                    |
+| `sub`                 | string | User ID (UUID)                                                                                                |
+| `aud`                 | string | `endstate-backup`                                                                                             |
+| `iat`                 | int    | Issued-at, Unix epoch seconds                                                                                 |
+| `exp`                 | int    | Expiry, Unix epoch seconds — `iat + 900` (15 min)                                                             |
+| `nbf`                 | int    | Not-before, equal to `iat`                                                                                    |
+| `jti`                 | string | JWT ID (UUID) for revocation lookup                                                                           |
 | `subscription_status` | string | One of `none`, `active`, `grace`, `cancelled` — UI hint only, server is authoritative for write authorisation |
 
 ### Browser-session token (audience `endstate-account`)
@@ -150,14 +148,14 @@ A short-lived (60 seconds) bearer credential minted by `POST /api/auth/browser-s
 
 The token uses the same EdDSA infrastructure as access tokens (`kid` rotation aware, JWKS-verifiable). The audience claim is enforced server-side: it is NOT a refresh token, NOT a recovery token, and NOT usable for `/api/backups/*` calls.
 
-| Claim | Type | Description |
-|---|---|---|
-| `iss` | string | Same as access token |
-| `sub` | string | User ID (UUID) |
-| `aud` | string | `endstate-account` |
-| `iat` | int | Issued-at |
-| `exp` | int | `iat + 60` |
-| `nbf` | int | Equal to `iat` |
+| Claim | Type   | Description                                                              |
+| ----- | ------ | ------------------------------------------------------------------------ |
+| `iss` | string | Same as access token                                                     |
+| `sub` | string | User ID (UUID)                                                           |
+| `aud` | string | `endstate-account`                                                       |
+| `iat` | int    | Issued-at                                                                |
+| `exp` | int    | `iat + 60`                                                               |
+| `nbf` | int    | Equal to `iat`                                                           |
 | `jti` | string | Single-use; burned at redeem (replays return `BROWSER_SESSION_CONSUMED`) |
 
 ### JWKS endpoint
@@ -179,6 +177,7 @@ All auth endpoints rate-limited at the substrate edge. Rate limits are documente
 ### POST /api/auth/signup
 
 **Request:**
+
 ```json
 {
   "email": "user@example.com",
@@ -192,6 +191,7 @@ All auth endpoints rate-limited at the substrate edge. Rate limits are documente
 ```
 
 **Response:**
+
 ```json
 { "userId": "<uuid>", "accessToken": "<jwt>", "refreshToken": "<opaque>" }
 ```
@@ -241,6 +241,7 @@ Bearer-authenticated. Mints a single-use 60-second JWT (`aud: endstate-account`)
 **Request:** no body.
 
 **Response:**
+
 ```json
 { "sessionToken": "<jwt>", "accountUrl": "<issuer>/account/start" }
 ```
@@ -329,7 +330,7 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 
 ### Account endpoints
 
-- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt, plan, currentPeriodEnd, gracePeriodEndsAt, paddleSubscriptionId, paddleCustomerId }` — bearer-authenticated.
+- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt, plan, currentPeriodEnd, scheduledCancelAt, gracePeriodEndsAt, retentionEndsAt, paddleSubscriptionId, paddleCustomerId, lastBackupAt, quotaUsedBytes, quotaTotalBytes, versionCount }` — bearer-authenticated. Date fields are ISO-8601 strings or `null`. `retentionEndsAt` is the authoritative final managed-data deletion deadline during grace or cancellation; clients MUST display it rather than inferring a date from the billing period. `lastBackupAt` is the newest visible version's `createdAt`; `quotaUsedBytes` and `versionCount` cover visible (published) versions only, and `quotaTotalBytes` is the limit the server enforces (§8).
 - `DELETE /api/account` → bearer-authenticated; triggers GDPR deletion (Section 12).
 - `POST /api/account/web-delete` → **cookie-authenticated** sibling of `DELETE /api/account` for the `/account` web page. Same cascade as the bearer-auth variant; invalidates the account session cookie on completion. The dual surface (bearer + cookie) is deliberate: the engine's bearer flow stays unchanged, and the cookie-auth path serves the in-browser surface without dual-auth on the canonical route.
 - `POST /api/account/session/logout` → cookie-authenticated. Invalidates the account session row, clears the cookie, 204.
@@ -346,7 +347,7 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 - `PATCH /api/backups/:backupId` → update a backup's mutable metadata (partial body; today `{ name }`) → `{ id, name, updatedAt }`. The id is immutable identity; only the label changes. Future metadata fields extend the body additively. Same read-access gating as DELETE (see below).
 - `DELETE /api/backups/:backupId` → permanently delete a backup and all its versions
 - `GET /api/backups/:backupId/versions` → list versions: `{ versions: [{ versionId, createdAt, size, manifestSha256 }] }`
-- `POST /api/backups/:backupId/versions` → create a new version: `{ encryptedManifest, chunkMetadata: [{ index, encryptedSize, sha256 }] }` → `{ versionId, uploadUrls: [{ chunkIndex, presignedUrl, expiresAt }], requiresCommit }`
+- `POST /api/backups/:backupId/versions` → create a new version: `{ encryptedManifest, chunkMetadata: [{ index, encryptedSize, sha256 }], operationId? }` plus preferred `X-Endstate-Operation-ID` → `{ versionId, uploadUrls: [{ chunkIndex, presignedUrl, expiresAt }], requiresCommit, alreadyCommitted? }`
 - `POST /api/backups/:backupId/versions/:versionId/commit` → finalise an uploaded version (see below)
 - `DELETE /api/backups/:backupId/versions/:versionId` → soft-delete a version (purged after 7 days)
 
@@ -367,18 +368,20 @@ server MUST return them so a replay is distinguishable from a first commit.
 write, not a management operation, so it is gated exactly like version creation
 and is NOT covered by the delete/rename read-access exemption in §10.
 
-Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and it is the only signal the server has to that effect.
+Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and it is the only signal the server has to that effect. New engines MUST carry a stable operation identity in `X-Endstate-Operation-ID`; the additive body field `operationId` is accepted for older callers, but the two values must match when both are present (otherwise 400). When discovery advertises `version-create-operation-replay-v1` (§9), a replay with the same principal, backup, operation ID and identical payload returns the original pending version with fresh staging URLs. Before minting them, the server atomically places a replay fence covering their full validity window; GC cannot claim the generation while that fence is active. A replay after commit returns HTTP 200 with that `versionId`, `alreadyCommitted: true`, and an empty `uploadUrls` list. A changed payload returns 409 `OPERATION_PAYLOAD_MISMATCH` and leaves the stored version untouched. The operation's immutable payload binding and terminal state survive retention soft- and hard-deletion, so delayed replays cannot create a new generation or bypass mismatch validation. While GC owns the pending version, or a concurrent replay holds the fence, lookup, publication and URL minting return a retryable 503 (`VERSION_RECLAIM_IN_PROGRESS` / `VERSION_REPLAY_IN_PROGRESS`) and produce no URLs.
 
 The server sets `committed_at` and only then applies retention (§8). The endpoint is **idempotent**: committing an already-committed version returns 200 and changes nothing, so a client that retries after an ambiguous network result is safe.
 
-**Client-version negotiation.** The server decides whether a version requires a commit from the `X-Endstate-API-Version` **minor** on the request that created it:
+For a create issued by a 2.1+ client, upload URLs are single-use publication staging URLs. The engine sends `If-None-Match: *`, the base64 SHA-256 ciphertext checksum, and immutable `x-amz-meta-endstate-sha256` metadata for every PUT; the server signs all three. Commit compares the exact length and signed metadata hash with the manifest/chunk metadata. If R2 also returns a checksum from `HeadObject`, a mismatch is fatal, but its absence is not relied upon for compatibility. That makes a 412 after a lost 2xx safe to treat as the already-uploaded object, while preventing a retry from overwriting a key. A replay after the version is committed returns the terminal replay response and never mints further PUT URLs. URLs issued to older callers (header absent, malformed or `2.0`) are unsigned and checksum-free because their shipped engines do not send those headers; their bounded reconciliation remains size-based.
 
-| Client minor | Behaviour |
-|---|---|
-| legacy/no header | Version begins pending. The server reconciles it only after HEAD-verifying every expected object and length; it is not visible or restorable before that succeeds. |
-| `2.1` | Version begins pending and requires explicit commit. The server verifies every expected object and exact length before exposing it to listing, quota, or restore. |
+**Client-version negotiation.** Every new version starts pending, regardless of the `X-Endstate-API-Version` value on the request that created it. The header only decides who completes publication:
 
-Clients therefore MUST send `X-Endstate-API-Version` on every request; the header is no longer response-only.
+| Client minor                | Behaviour                                                                                                                                                                    |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `2.0`, absent, or malformed | The server's bounded reconciliation path HEAD-checks every expected encrypted object and length before publication.                                                          |
+| `2.1` or newer              | The client calls the explicit commit endpoint; the server HEAD-checks every expected encrypted object, exact length, and signed ciphertext-hash metadata before publication. |
+
+New clients MUST send `X-Endstate-API-Version` on every request; the header is no longer response-only. A syntactically valid major other than `2` is rejected with 400 before any write. Older callers remain compatible but cannot make an unverified generation visible.
 
 During the compatibility window, a backend MAY continue returning response
 schema version `2.0` while accepting a `2.1` request and advertising the
@@ -417,7 +420,7 @@ replay protocol. `POST /api/backups` is not covered by the capability; when no
 existing backup ID is available, a scheduler MUST NOT automatically repeat an
 ambiguous backup-row creation.
 
-**Uncommitted versions.** A version created by a 2.1 client that is never committed is reclaimed by the same scheduled cleanup job that handles retention (§8). Until then it is invisible to every user-facing surface.
+**Uncommitted versions.** A version that is never published (never committed by a 2.1+ client, or never verified by reconciliation for an older one) is reclaimed by the same scheduled cleanup job that handles retention (§8). Until then it is invisible to every user-facing surface.
 
 ### Blob storage endpoints
 
@@ -506,13 +509,13 @@ server compatibility.
 
 For every version on a current backend, the server treats pending state as "does not exist yet":
 
-| Surface | Uncommitted version |
-|---|---|
-| `GET /api/backups/:backupId/versions` | Not listed |
-| `latestVersionId` / `versionCount` / `totalSize` on `GET /api/backups` | Not counted |
-| Storage quota | Not counted |
-| Restore target selection | Never selected |
-| Retention pruning | Does not trigger it, and is not protected by it |
+| Surface                                                                | Uncommitted version                             |
+| ---------------------------------------------------------------------- | ----------------------------------------------- |
+| `GET /api/backups/:backupId/versions`                                  | Not listed                                      |
+| `latestVersionId` / `versionCount` / `totalSize` on `GET /api/backups` | Not counted                                     |
+| Storage quota                                                          | Not counted                                     |
+| Restore target selection                                               | Never selected                                  |
+| Retention pruning                                                      | Does not trigger it, and is not protected by it |
 
 This closes a real failure mode. Before 2.1, a push that died between "create version" and "last chunk uploaded" left a row the server considered real: it was listed, it consumed quota, it pruned the oldest good generation out of retention, and a subsequent restore could select it as "latest" and fail — or worse, restore a truncated profile. The commit call moves the durability boundary to the only point at which the data is actually complete.
 
@@ -520,6 +523,21 @@ Only a genuinely old 2.0 server retains create-is-durable behaviour. A current
 backend reconciles legacy/no-header clients after complete object verification;
 the server distinguishes explicit 2.1 commit from that reconciliation by the
 client's advertised `X-Endstate-API-Version` minor (§7).
+
+**Release-A migration bridge.** Migration 0040 records one database policy
+row with a `legacy_cutoff` timestamp and `strict_generation_visibility=false`.
+Only rows created before that cutoff and marked `legacy_unverified` remain
+temporarily listable, downloadable, retention-eligible, and included in the
+visible-usage display. Every row created after the cutoff — including an old
+client's row — remains pending and invisible until verification publishes it.
+An explicit R2 absence or incorrect encrypted length quarantines a historical
+row immediately; it remains retained as metadata but is excluded from every
+bridge predicate. Transport uncertainty remains pending and retryable.
+The operator runs the bounded R2 backfill, then a guarded strict-cutover
+command. The command refuses while any pre-cutoff row remains pending; strict
+mode is never enabled by migration or cron. Operational order is Release A,
+backfill, strict cutover, then the follow-on application release. After strict
+cutover, a pre-bridge application release must not be restored.
 
 ### Versioning policy
 
@@ -532,7 +550,7 @@ client's advertised `X-Endstate-API-Version` minor (§7).
 
 ### Storage quota (v1)
 
-**1 GiB per active subscriber.** Enforced server-side at version creation. Quota check uses the sum of `size` across non-deleted, committed versions. Quota exceeded → version creation fails with `STORAGE_QUOTA_EXCEEDED`. Calibrated against realistic profile sizes (apps + configs typically <200 MB); intended as a backstop against pathological cases, not a feature limit. May be raised post-launch based on real usage data.
+**1 GiB per active subscriber.** Enforced server-side at version creation. Reservation counts every non-deleted generation, including pending uploads (quarantined historical rows excepted), so repeated abandoned creates cannot bypass quota. The account UI and `GET /api/account/me` report only visible, published usage (plus the temporary Release-A bridge history). Quota exceeded → version creation fails with `STORAGE_QUOTA_EXCEEDED`. Calibrated against realistic profile sizes (apps + configs typically <200 MB); intended as a backstop against pathological cases, not a feature limit. May be raised post-launch based on real usage data.
 
 Because the quota check runs at create time and uncommitted versions do not count, a pathological client that creates versions it never commits is bounded by the cleanup job's cadence, not by the quota. Rate limiting at the substrate edge is the control for that case.
 
@@ -548,10 +566,10 @@ The substrate backend exposes standard OIDC discovery endpoints. Self-hosters ru
 
 ### Engine configuration (two environment variables)
 
-| Variable | Default (Endstate Cloud) | Self-host example |
-|---|---|---|
-| `ENDSTATE_OIDC_ISSUER_URL` | `https://substratesystems.io` | `https://my-endstate.example.com` |
-| `ENDSTATE_OIDC_AUDIENCE` | `endstate-backup` | `endstate-backup` (or any value matching the self-hoster's issuer) |
+| Variable                   | Default (Endstate Cloud)      | Self-host example                                                  |
+| -------------------------- | ----------------------------- | ------------------------------------------------------------------ |
+| `ENDSTATE_OIDC_ISSUER_URL` | `https://substratesystems.io` | `https://my-endstate.example.com`                                  |
+| `ENDSTATE_OIDC_AUDIENCE`   | `endstate-backup`             | `endstate-backup` (or any value matching the self-hoster's issuer) |
 
 The engine fetches `${ENDSTATE_OIDC_ISSUER_URL}/.well-known/openid-configuration` on startup, caches it for 1 hour, and uses the discovered endpoints for auth and JWKS validation.
 
@@ -596,7 +614,10 @@ self-hoster from advertising a different direct endpoint URL such as
 caller-owned `X-Endstate-Operation-ID` and retry the same create-version body.
 Missing, malformed, or unknown values remain legacy one-shot creates. A replay
 may return `{ "versionId": "...", "alreadyCommitted": true, "uploadUrls": [] }`;
-that is terminal and the engine sends no object PUTs.
+that is terminal and the engine sends no object PUTs. The managed service advertises
+the capability only when `ENDSTATE_VERSION_CREATE_OPERATION_REPLAY_V1=true`; a
+self-hosted server may support the same additive capability under its own explicit
+rollout control.
 
 Automatic scheduled delivery persists an existing `backupId`, operation ID and
 the encrypted create payload before the first create POST. If that capability
@@ -640,12 +661,12 @@ Subscription state is authoritative on the substrate backend. The JWT carries `s
 
 ### States
 
-| State | Meaning | Backup write | Backup read / restore |
-|---|---|---|---|
-| `none` | Never subscribed, or fully cancelled past retention | Blocked | Blocked (no data to read) |
-| `active` | Subscription paid, current | Allowed | Allowed |
-| `grace` | Payment failed, in 30-day grace window | Blocked | Allowed |
-| `cancelled` | User cancelled, in 30-day retention window | Blocked | Allowed |
+| State       | Meaning                                             | Backup write | Backup read / restore     |
+| ----------- | --------------------------------------------------- | ------------ | ------------------------- |
+| `none`      | Never subscribed, or fully cancelled past retention | Blocked      | Blocked (no data to read) |
+| `active`    | Subscription paid, current                          | Allowed      | Allowed                   |
+| `grace`     | Payment failed, in 30-day grace window              | Blocked      | Allowed                   |
+| `cancelled` | User cancelled, in 30-day retention window          | Blocked      | Allowed                   |
 
 ### Delete operations are NOT subscription-gated
 
@@ -661,14 +682,14 @@ This is a deliberate kindness exception. Three reasons:
 
 ### Transitions (Paddle-driven)
 
-| Paddle event | Transition | Notes |
-|---|---|---|
-| `subscription.created` (first-time) | `none → active` | |
-| `subscription.activated` (after grace recovery) | `grace → active` | Card succeeded after past_due |
-| `subscription.past_due` (payment failed) | `active → grace`, set `grace_started_at` | |
-| `subscription.canceled` (user-initiated) | `active → cancelled`, set `cancel_started_at` | Note Paddle spelling: "canceled" |
-| `subscription.canceled` (failed payment, grace expired) | `grace → cancelled` | |
-| Internal: 30 days in `cancelled` | `cancelled → none`, schedule blob purge | |
+| Paddle event                                            | Transition                                    | Notes                            |
+| ------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
+| `subscription.created` (first-time)                     | `none → active`                               |                                  |
+| `subscription.activated` (after grace recovery)         | `grace → active`                              | Card succeeded after past_due    |
+| `subscription.past_due` (payment failed)                | `active → grace`, set `grace_started_at`      |                                  |
+| `subscription.canceled` (user-initiated)                | `active → cancelled`, set `cancel_started_at` | Note Paddle spelling: "canceled" |
+| `subscription.canceled` (failed payment, grace expired) | `grace → cancelled`                           |                                  |
+| Internal: 30 days in `cancelled`                        | `cancelled → none`, schedule blob purge       |                                  |
 
 ### Restore-during-grace rationale
 
@@ -678,10 +699,10 @@ A subscription lapse is the worst time to lock users out of their own data. Card
 
 These two durations are the only time-based state transitions in the subscription machine. Both are **30 days**, and both are enforced server-side; no client enforces or displays a locally computed deadline.
 
-| Window | Duration | Starts at | Ends with |
-|---|---|---|---|
-| Grace (payment failed) | **30 days** | `grace_started_at`, set on `subscription.past_due` | `grace → active` on recovery, or `grace → cancelled` on expiry |
-| Cancellation retention | **30 days** | `cancel_started_at`, set on `subscription.canceled` | `cancelled → none`, then blob purge |
+| Window                 | Duration    | Starts at                                           | Ends with                                                      |
+| ---------------------- | ----------- | --------------------------------------------------- | -------------------------------------------------------------- |
+| Grace (payment failed) | **30 days** | `grace_started_at`, set on `subscription.past_due`  | `grace → active` on recovery, or `grace → cancelled` on expiry |
+| Cancellation retention | **30 days** | `cancel_started_at`, set on `subscription.canceled` | `cancelled → none`, then blob purge                            |
 
 Backups remain readable and restorable for the whole of both windows. Writes are blocked for the whole of both windows. Deletes and renames stay allowed throughout (see above).
 
@@ -714,25 +735,25 @@ HMAC-SHA256 over the raw request body, using the `Paddle-Signature` header. Subs
 
 Three independent version axes, with explicit compatibility checks at every boundary.
 
-| Axis | Owner | Format | Source of truth |
-|---|---|---|---|
-| `apiSchemaVersion` | Substrate | `MAJOR.MINOR` | This contract |
-| `engineVersion` | Engine | `MAJOR.MINOR.PATCH` (semver) | `engine/VERSION.txt` |
-| `guiVersion` | GUI | `MAJOR.MINOR.PATCH` (semver) | `endstate-gui/package.json` |
+| Axis               | Owner     | Format                       | Source of truth             |
+| ------------------ | --------- | ---------------------------- | --------------------------- |
+| `apiSchemaVersion` | Substrate | `MAJOR.MINOR`                | This contract               |
+| `engineVersion`    | Engine    | `MAJOR.MINOR.PATCH` (semver) | `engine/VERSION.txt`        |
+| `guiVersion`       | GUI       | `MAJOR.MINOR.PATCH` (semver) | `endstate-gui/package.json` |
 
 **Contract version:** Currently `2.1`. The bump from `2.0` added the version commit endpoint (§7) and the durability semantics that hang off it (§8) — additive per §13 (a new endpoint, negotiated per-client), so it is a minor bump and does not trigger the breaking-change protocol. The earlier bump from `1.0` to `2.0` was the recovery-flow shape change (see §6 and the Changelog) — a breaking auth-flow change. Changes per the rules in Section 13.
 
 ### Compatibility check at each boundary
 
-1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. The engine includes `X-Endstate-API-Version` on every request, while this bridge release returns `X-Endstate-API-Version: 2.0` on every response. Request version and the advertised replay capability control behavior; no response-header bump occurs until old-engine retirement (§7, §8). Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
+1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. The engine includes `X-Endstate-API-Version` on every request, while this bridge release returns `X-Endstate-API-Version: 2.0` on every response. Request version and the advertised replay capability control behavior: the backend reads an incoming `2.1` header to select explicit commit, while absent, malformed, and `2.0` callers use bounded reconciliation; no response-header bump occurs until old-engine retirement (§7, §8). Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
 
    **Minor-version behaviour is asymmetric and deliberate:**
 
-   | Engine | Backend | Reads | Writes |
-   |---|---|---|---|
-   | 2.1 | 2.1 | Allowed | Allowed; commit required for durability |
-   | 2.1 | 2.0 | Allowed | Allowed only for a genuinely old server that omits `requiresCommit`; the engine retains its legacy create-is-durable compatibility path |
-   | 2.0 | 2.1 | Allowed, warned in logs | **Blocked** with `SCHEMA_INCOMPATIBLE` |
+   | Engine | Backend | Reads                   | Writes                                                                                                                                  |
+   | ------ | ------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+   | 2.1    | 2.1     | Allowed                 | Allowed; commit required for durability                                                                                                 |
+   | 2.1    | 2.0     | Allowed                 | Allowed only for a genuinely old server that omits `requiresCommit`; the engine retains its legacy create-is-durable compatibility path |
+   | 2.0    | 2.1     | Allowed, warned in logs | **Blocked** with `SCHEMA_INCOMPATIBLE`                                                                                                  |
 
    The 2.0-engine/2.1-backend write block is the pre-existing "higher backend minor blocks writes, warns on reads" rule. Current backends reconcile legacy writes only after complete object verification; the engine-side block remains defence in depth for engines that cannot participate in explicit commit.
 
@@ -771,7 +792,7 @@ A user can delete their account at any time. Deletion is hard-delete by default;
 
 ### What the user sees
 
-Confirmation dialog with explicit warning: *"This deletes your account, your subscription, and all backed-up data. This cannot be undone."* On confirmation, account deletion is immediate. The user is signed out. Re-signup with the same email is allowed; previous data is unrecoverable.
+Confirmation dialog with explicit warning: _"This deletes your account, your subscription, and all backed-up data. This cannot be undone."_ On confirmation, account deletion is immediate. The user is signed out. Re-signup with the same email is allowed; previous data is unrecoverable.
 
 ### Active subscription
 
@@ -839,12 +860,13 @@ A schema bump triggers the breaking-change protocol from Section 11.
 
 ## Changelog
 
+- **2026-10-03 — documentation reconciliation** (no wire change; Schema Version stays `2.1`). The canonical file and the substrate mirror had drifted; both were checked against the server and engine code and merged. Added or corrected: full `GET /api/account/me` response shape including `retentionEndsAt`; create-version `operationId` / `alreadyCommitted` and the replay, fence and error semantics (§7); server-side staging-URL signing and the 2.0/absent/malformed vs 2.1+ negotiation table (§7); every-version-starts-pending in §8, the Release-A migration bridge, and quota reservation counting pending generations; the replay-capability rollout flag (§9).
 - **2026-08-08 — v2.1** (additive; minor bump).
-  - **§7 API surface.** New endpoint `POST /api/backups/:backupId/versions/:versionId/commit`. Idempotent; sets `committed_at`. Current backends keep every new version pending: legacy clients are reconciled after exact object verification and 2.1 clients explicitly commit. `X-Endstate-API-Version` is now a request header as well as a response header.
-  - **§8 versioning model.** A version created by a 2.1 client is durable only once committed: until then it is not listed, not counted against quota or `versionCount`/`totalSize`, and never selected as a restore target. Retention prunes at commit rather than at create, so a failed upload can no longer evict a good generation. Uncommitted versions are reclaimed by the existing cleanup job.
+  - **§7 API surface.** New endpoint `POST /api/backups/:backupId/versions/:versionId/commit`. Idempotent; sets `committed_at` only after R2 verifies the manifest and all expected chunks. Every new generation begins pending; `X-Endstate-API-Version` selects explicit client commit (2.1+) or bounded server reconciliation (older callers). `X-Endstate-Operation-ID` is the stable create-retry identity. `X-Endstate-API-Version` is now a request header as well as a response header.
+  - **§8 versioning model.** A generation is durable only once published (explicit commit, or verified reconciliation for older callers): until then it is not listed, not shown in visible usage or `versionCount`/`totalSize`, and never selected as a restore target (it still reserves quota, §8). Retention prunes only after durable publication, so a failed upload can no longer evict a good generation. Uncommitted versions are reclaimed by the existing cleanup job.
   - **§8 client responsibilities.** The encrypted manifest blob is verified against the API-supplied `manifestSha256` before decryption, mirroring the existing per-chunk gate. A missing `manifestSha256` skips the check rather than failing the restore.
   - **§10 grace and retention.** Both the payment-failure grace window and the post-cancellation retention window are stated normatively as **30 days**, with the purge timeline spelled out step by step. The document already specified 30 days; substrate's implementation used 14 for grace and is being corrected to match this contract. The contract is the source of truth for the value.
-  - **§11 compatibility.** Contract version `2.1`; commit-aware engines send the request header `X-Endstate-API-Version: 2.1`, while this compatibility bridge deliberately keeps response headers at `2.0` for old-engine safety. The engine/backend matrix and the server reconciliation path are stated explicitly.
+  - **§11 compatibility.** Contract version `2.1`; commit-aware engines send the request header `X-Endstate-API-Version: 2.1`, while this compatibility bridge deliberately keeps response headers at `2.0` until released 2.0 engines (which reject a newer response schema after mutation) are retired. Incoming `2.1` selects explicit commit. The engine/backend matrix and the server reconciliation path are stated explicitly, including graceful degradation of a 2.1 engine against a genuinely old 2.0 backend.
   - Additive per §13 (new endpoint, negotiated per client) — no major bump, no 90-day overlap window required.
 - **2026-05-27 — additive.**
   - **§4 JWT format.** New audience `endstate-account` for the GUI→web `/account` portal handoff. 60-second TTL, single-use via `jti` burn at redeem. Reuses the existing EdDSA signing infrastructure.
