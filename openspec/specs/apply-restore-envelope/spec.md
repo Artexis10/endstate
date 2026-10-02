@@ -5,20 +5,15 @@ Defines the JSON envelope extensions and restore journal for `apply --EnableRest
 ## Requirements
 ### Requirement: JSON Envelope Restore Extensions and Journal
 
-The apply command SHALL extend its JSON envelope with `restoreItems[]` and `restoreSummary` when `--EnableRestore` is active, and write a restore journal for revert support.
+The apply command SHALL extend its JSON envelope with `restoreItems[]` when `--EnableRestore` is active and the manifest carries config payloads, and write a restore journal for revert support.
 
 #### Scenario: restoreItems array in JSON envelope
 
 - **WHEN** `apply --EnableRestore --json` is run with restore entries
 - **THEN** the JSON envelope `data` object contains a `restoreItems` array
-- **AND** each element includes: id, module, restorer, source, target, status, reason, backupPath, targetExisted, message
+- **AND** each element includes: id, source, target, status, backupCreated, targetExistedBefore
+- **AND** each element includes backupPath when a backup was made, and error, warnings, and restoreType when applicable
 - **AND** status is one of: "restored", "skipped_up_to_date", "skipped_missing_source", "failed"
-
-#### Scenario: restoreSummary object in JSON envelope
-
-- **WHEN** `apply --EnableRestore --json` is run with restore entries
-- **THEN** the JSON envelope `data` object contains a `restoreSummary` object
-- **AND** restoreSummary includes: total, restored, skipped, failed, backupLocation
 
 #### Scenario: Existing actions array unchanged
 
@@ -26,10 +21,10 @@ The apply command SHALL extend its JSON envelope with `restoreItems[]` and `rest
 - **THEN** the existing `actions[]` array contains only app (install) entries
 - **AND** restore results are NOT mixed into `actions[]`
 
-#### Scenario: No restore fields when EnableRestore not active
+#### Scenario: No restore fields without config payloads
 
-- **WHEN** `apply --json` is run WITHOUT `--EnableRestore`
-- **THEN** the JSON envelope does NOT contain `restoreItems` or `restoreSummary` fields
+- **WHEN** `apply --json` is run with a manifest that carries no config payloads
+- **THEN** the JSON envelope does NOT contain `restoreItems`
 
 #### Scenario: Restore journal written from apply
 
@@ -45,12 +40,6 @@ The apply command SHALL extend its JSON envelope with `restoreItems[]` and `rest
 - **AND** copy, merge-json, merge-ini, and append restorer types are supported
 - **AND** requiresAdmin and requiresClosed checks are enforced
 - **AND** exclude patterns are applied
-
-#### Scenario: Consistency across apply paths
-
-- **WHEN** `apply --Plan <plan.json> --EnableRestore --json` is run
-- **THEN** the same restore convergence behavior applies as manifest-based apply
-- **AND** restoreItems[], restoreSummary, and journal are produced identically
 
 ### Requirement: Restore Envelope Includes Config Generation Resolutions
 When restore-capable input contains config payloads, apply, standalone restore, and rebuild JSON output SHALL include `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]`. Each resolution SHALL include `captureId`, `moduleId`, `configSetId`, portable `sourceInstance`, source/target instance IDs, non-null `targetCandidates[]`, source/target generations and source-generation fingerprint when known, `resolution`, nullable `reason`, `migrationPath`, capture/restore module revisions, terminal `status`, and engine-authored `label`, `message`, and nullable `remediation`. Target candidates SHALL contain only portable, non-secret identity/version evidence; host-local roots SHALL remain internal. Legacy inputs SHALL use `legacy_unverified` rather than fabricated generation values.
