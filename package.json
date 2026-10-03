@@ -13,7 +13,7 @@
     "version:schema": "pwsh -Command \"Get-Content SCHEMA_VERSION\""
   },
   "devDependencies": {
-    "@fission-ai/openspec": "^1.13.1",
+    "@fission-ai/openspec": "^1.14.0",
     "lefthook": "^1.11.0"
   }
 }
