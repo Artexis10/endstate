@@ -61,7 +61,7 @@ Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI
 
 ## Protected Areas
 
-- Changes to `go-engine/cmd/endstate/` command/flag surface, `docs/contracts/*.md` or `.github/workflows/` are contract changes: route them through OpenSpec and update both Endstate and endstate-gui.
+- Changes to the `go-engine/cmd/endstate/` command/flag surface or `docs/contracts/*.md` are contract changes: route them through OpenSpec and update both Endstate and endstate-gui.
 - `LICENSE` and `NOTICE` are never modified without explicit request.
 - New driver/restore/verifier implementations, manifest schema (`version`) changes, JSON envelope or event schema changes, and module system changes (bundles, config modules) need architectural review.
 
