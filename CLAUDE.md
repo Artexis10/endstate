@@ -6,7 +6,7 @@ Endstate is a declarative system provisioning and recovery tool for Windows. It 
 
 ## Working Rules
 
-Make the smallest change satisfying acceptance criteria. Do not make unrelated refactors or formatting sweeps. Use contract-first edits (schema → implementation → tests); significant changes must be represented in OpenSpec specs (`openspec/specs/`, loaded on demand). CLI command or flag changes update `readme.md` and `docs/contracts/` in the same commit; contract changes land in both Endstate and endstate-gui.
+Make the smallest change satisfying acceptance criteria. Do not make unrelated refactors or formatting sweeps. Use contract-first edits (schema → failing test → implementation); significant changes must be represented in OpenSpec specs (`openspec/specs/`, loaded on demand). CLI command or flag changes update `readme.md` and `docs/contracts/` in the same commit; contract changes land in both Endstate and endstate-gui.
 
 Commits are Conventional; `feat`/`fix`/`perf` (and reverts) trigger a release-please release, `chore`/`docs`/`ci`/`test` do not; never hand-edit versions or tags.
 
@@ -61,7 +61,7 @@ Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI
 
 ## Protected Areas
 
-- `go-engine/cmd/endstate/`, `docs/contracts/*.md`, `.github/workflows/` require explicit instruction.
+- Changes to the `go-engine/cmd/endstate/` command/flag surface or `docs/contracts/*.md` are contract changes: route them through OpenSpec and update both Endstate and endstate-gui.
 - `LICENSE` and `NOTICE` are never modified without explicit request.
 - New driver/restore/verifier implementations, manifest schema (`version`) changes, JSON envelope or event schema changes, and module system changes (bundles, config modules) need architectural review.
 
