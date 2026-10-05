@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package backup wires the hosted-backup component stack from environment
-// configuration. Command handlers call NewAuthenticator() to obtain a
-// fully configured authenticator without re-doing the env-var plumbing.
+// configuration. Command handlers call NewStack() to obtain a
+// fully configured authenticator stack without re-doing the env-var plumbing.
 //
 // Two env vars are read here, both per docs/contracts/hosted-backup-contract.md
 // §9:
@@ -103,14 +103,6 @@ func NewStack() *Stack {
 	return newStack(keychain.NewSystem())
 }
 
-// NewStackForTest is a test seam: substitutes the keychain (typically
-// keychain.NewMemory()). Hydrates the same way NewStack does — tests
-// that pre-seed AccountForCurrentUser get a hydrated session; tests
-// that don't get an empty one.
-func NewStackForTest(kc keychain.Keychain) *Stack {
-	return newStack(kc)
-}
-
 func newStack(kc keychain.Keychain) *Stack {
 	issuer := IssuerURL()
 	audience := Audience()
@@ -132,12 +124,6 @@ func newStack(kc keychain.Keychain) *Stack {
 		HTTP:    hc,
 		Session: store,
 	}
-}
-
-// NewAuthenticator is retained as the convenience constructor existing
-// code uses; equivalent to `NewStack().Auth`.
-func NewAuthenticator() *auth.Authenticator {
-	return NewStack().Auth
 }
 
 func envOrDefault(key, def string) string {

@@ -131,13 +131,6 @@ func hmGenConfig(config, generatedFlake string, genNum int) *provision.Generatio
 	return &provision.Generation{HomeManager: &provision.HomeGenRef{Config: config, Flake: generatedFlake, Generation: genNum}}
 }
 
-// hmGenSettings builds a generation from a homeManager.settings (catalog) apply:
-// it records the user's declared catalog settings AND the engine-compiled
-// (machine-local) flake the engine actually activated.
-func hmGenSettings(settings *manifest.HomeManagerSettings, generatedFlake string, genNum int) *provision.Generation {
-	return &provision.Generation{HomeManager: &provision.HomeGenRef{Settings: settings, Flake: generatedFlake, Generation: genNum}}
-}
-
 func readCapturedManifest(t *testing.T, path string) capturedManifestFile {
 	t.Helper()
 	data := readCaptureManifestBytes(t, path)

@@ -36,10 +36,10 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/backup/redirect"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
@@ -88,7 +88,7 @@ type Options struct {
 func New(opts Options) *Client {
 	hc := opts.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 60 * time.Second, CheckRedirect: blockCrossOriginRedirect}
+		hc = &http.Client{Timeout: 60 * time.Second, CheckRedirect: redirect.BlockCrossOrigin(errCrossOriginRedirect)}
 	}
 	rp := DefaultRetryPolicy()
 	if opts.Retry != nil {
@@ -109,36 +109,6 @@ func New(opts Options) *Client {
 }
 
 var errCrossOriginRedirect = errors.New("backup client: cross-origin redirect blocked")
-
-// blockCrossOriginRedirect prevents a self-hosted endpoint from replaying a
-// request body or bearer credential to another origin. Same-origin redirects
-// remain supported for normal endpoint routing.
-func blockCrossOriginRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) == 0 || sameOrigin(req.URL, via[0].URL) {
-		return nil
-	}
-	return errCrossOriginRedirect
-}
-
-func sameOrigin(a, b *url.URL) bool {
-	return strings.EqualFold(a.Scheme, b.Scheme) &&
-		strings.EqualFold(a.Hostname(), b.Hostname()) &&
-		effectivePort(a) == effectivePort(b)
-}
-
-func effectivePort(u *url.URL) string {
-	if port := u.Port(); port != "" {
-		return port
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "http":
-		return "80"
-	case "https":
-		return "443"
-	default:
-		return ""
-	}
-}
 
 // Request carries the per-call options for Do.
 type Request struct {
