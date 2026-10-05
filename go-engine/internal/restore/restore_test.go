@@ -2237,6 +2237,15 @@ func TestExpandPath_TildeExpansion(t *testing.T) {
 	}
 }
 
+func TestExpandPath_LeavesOtherUserTilde(t *testing.T) {
+	// "~otheruser/..." must not be rewritten against the current home.
+	in := "~otheruser/.config/app"
+	result := expandPath(in)
+	if result != in {
+		t.Fatalf("expandPath(%q) = %q, want unchanged", in, result)
+	}
+}
+
 func TestExpandPath_GoStyleEnvVar(t *testing.T) {
 	// Go-style $VAR expansion via os.ExpandEnv.
 	t.Setenv("ENDSTATE_GO_VAR_TEST", "/go/expanded")
