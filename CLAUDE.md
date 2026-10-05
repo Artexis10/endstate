@@ -57,7 +57,7 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 
 ## Testing
 
-Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI-safe, with fixtures in each package's `testdata/` directory. CI runs `cd go-engine && go test ./...` on `windows-latest`. Run minimum targeted verification; do not run the full suite unless requested.
+Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI-safe, with fixtures in each package's `testdata/` directory and in the shared `go-engine/testdata/` (e.g. `config-generations`). CI runs `cd go-engine && go test ./...` on `windows-latest`. Run minimum targeted verification; do not run the full suite unless requested.
 
 ## Protected Areas
 

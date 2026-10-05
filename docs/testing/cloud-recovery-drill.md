@@ -1,11 +1,11 @@
 # Cloud Recovery Drill
 
-**Status:** Acceptance procedure for releases that change Endstate Cloud behaviour
+**Status:** Acceptance procedure for releases that change Hosted Backup behaviour (signup, login, capture, push, recovery or pull)
 **Applies to:** Endstate Cloud, contract schema 2.1
 **Owner:** whoever is cutting the release
 **Runtime:** ~20 minutes wall clock, mostly unattended
 
-This is the acceptance procedure for any release that changes Endstate Cloud behaviour; releases that do not touch Cloud ship without it. It is the only procedure that proves the whole promise end to end — that a machine which has never seen your data can, given nothing but an email address, a passphrase, and a 24-word recovery phrase, reconstruct a profile byte for byte.
+This is the acceptance procedure for Endstate Cloud. The drill gates any release that changes Hosted Backup behaviour, that is, its signup, login, capture, push, recovery or pull path; other releases ship without it. It is the only procedure that proves the whole promise end to end — that a machine which has never seen your data can, given nothing but an email address, a passphrase, and a 24-word recovery phrase, reconstruct a profile byte for byte.
 
 It is a documented, deterministic procedure with explicit pass/fail criteria, not a manual-test bullet someone ticks from memory. Every step below produces an artifact. The drill passes only when the final byte comparison passes; every other step is a precondition.
 
