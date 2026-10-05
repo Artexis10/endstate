@@ -460,11 +460,3 @@ func TestExecuteConfigSetTransactionRejectsClosedIntentBeforeMutation(t *testing
 		})
 	}
 }
-
-func assertNoCommittedMarker(t *testing.T, transactionRoot, digest string) {
-	t.Helper()
-	path := filepath.Join(transactionRoot, "journal", "terminal-"+digest+".json")
-	if _, err := os.Lstat(path); !os.IsNotExist(err) {
-		t.Fatalf("committed marker exists: %v", err)
-	}
-}

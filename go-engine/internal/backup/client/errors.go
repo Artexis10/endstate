@@ -108,16 +108,6 @@ func defaultDocsKey(c envelope.ErrorCode) string {
 	return "errors/" + strings.ToLower(strings.ReplaceAll(string(c), "_", "-"))
 }
 
-// IsAuthRequired reports whether err is an APIError mapped to AUTH_REQUIRED.
-// Helper used by the auth retry-after-refresh path.
-func IsAuthRequired(err error) bool {
-	var ae *APIError
-	if errors.As(err, &ae) {
-		return ae.Code == envelope.ErrAuthRequired
-	}
-	return false
-}
-
 // IsRetryable reports whether err is a transport error or a 5xx APIError
 // that the retry loop is allowed to attempt again. 4xx (except 429) are
 // never retried per the locked policy.
