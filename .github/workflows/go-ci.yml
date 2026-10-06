@@ -395,3 +395,34 @@ jobs:
         run: cd go-engine && go vet ./...
       - name: Test
         run: cd go-engine && go test ./...
+
+  # Engineering-practices quality check (https://github.com/Artexis10/engineering-practices):
+  # fails on Go functions a pull request adds that nothing reaches (deadcode on windows, linux, darwin)
+  # and posts the Quality report. It is not a required check.
+  quality:
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
+    # The test jobs named in .github/quality.yml, so their runtime is known.
+    needs: [test, test-unix, integration-windows, synthetic-shards, catalog-matrix, notepad-engine-contract]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: quality-${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go
+        # v6.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go-engine/go.sum
+      - uses: Artexis10/engineering-practices@v1

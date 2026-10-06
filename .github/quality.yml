@@ -1,0 +1,84 @@
+# Engineering-practices quality check: https://github.com/Artexis10/engineering-practices
+# Read by the `quality` job in .github/workflows/go-ci.yml. Patterns are globs on
+# repository-relative paths; `*` also matches `/`. A file takes the first class
+# that matches, in the order listed.
+
+classes:
+  fixtures:
+    - "*/testdata/*"
+    - "modules/apps/*/validation-fixtures/*"
+  tests:
+    - "*_test.go"
+    - "go-engine/integration-test.ps1"
+    - "sandbox-tests/*"
+    - "scripts/smoke/*"
+    - "scripts/cloud-recovery-gate.tests.ps1"
+  # The validation tool CI builds to drive the engine over the module catalog, the
+  # per-module seeds that prepare its sandbox runs, and the sandbox validation scripts.
+  eval:
+    - "go-engine/cmd/endstate-validation/*"
+    - "go-engine/internal/validationharness/*"
+    - "go-engine/internal/validationci/*"
+    - "modules/apps/*/seed.ps1"
+    - "scripts/sandbox-validate.ps1"
+    - "scripts/sandbox-validate-batch.ps1"
+    - "scripts/sandbox-discovery.ps1"
+    - "scripts/batch-validate.ps1"
+  # Dev and CI scripts by name, because scripts/ is where a product script would land too.
+  # None of these ships or runs in the release build.
+  scripts:
+    - "scripts/audit/*.ps1"
+    - "scripts/cloud-recovery-gate.ps1"
+    - "scripts/generate-crypto-vectors.py"
+    - "scripts/requirements.txt"
+    - "scripts/openspec_validate.ps1"
+    - "scripts/version_format.ps1"
+    - "scripts/update-ruleset-bundle.ps1"
+  # CI and hook configuration. The release workflows publish, so they stay product.
+  tooling:
+    - ".github/quality.yml"
+    - ".github/validation/*"
+    - ".github/workflows/go-ci.yml"
+    - ".github/workflows/nix-integration.yml"
+    - ".github/workflows/ci-efficacy-audit.yml"
+    - "lefthook.yml"
+    - "package.json"
+  specs:
+    - "openspec/*"
+  product:
+    - "go-engine/*"
+    - "modules/*"
+    - "bundles/*"
+    - "manifests/*"
+    - "SCHEMA_VERSION"
+  docs:
+    - "docs/*"
+    - "*.md"
+
+# deadcode gate. Go CI tests on Windows, Ubuntu and macOS, and the release ships all three,
+# so deadcode runs for each GOOS. A function is dead only if every GOOS that builds its file
+# finds it unreachable, so a helper used only by one platform's files is not reported.
+go:
+  root: go-engine
+  goos: [windows, linux, darwin]
+
+# jscpd: exact token clones in product code.
+duplicates:
+  paths: ["go-engine"]
+  ignore: ["**/testdata/**", "**/*_test.go"]
+
+test_jobs:
+  - "Go Tests"
+  - "Go Tests (macos-latest)"
+  - "Go Tests (ubuntu-latest)"
+  - "Integration Test (windows)"
+  - "Synthetic Shard 0"
+  - "Synthetic Shard 1"
+  - "Synthetic Shard 2"
+  - "Synthetic Shard 3"
+  - "Synthetic Shard 4"
+  - "Synthetic Shard 5"
+  - "Synthetic Shard 6"
+  - "Synthetic Shard 7"
+  - "Catalog Matrix"
+  - "Notepad++ Synthetic Engine Contract"
