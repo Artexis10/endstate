@@ -14,8 +14,8 @@ import (
 // VersionsResult is the data payload for `backup versions`. Mirrors
 // substrate's GET /api/backups/:id/versions response.
 type VersionsResult struct {
-	BackupID string                 `json:"backupId"`
-	Versions []storage.VersionInfo  `json:"versions"`
+	BackupID string                `json:"backupId"`
+	Versions []storage.VersionInfo `json:"versions"`
 }
 
 func runBackupVersions(flags BackupFlags) (interface{}, *envelope.Error) {

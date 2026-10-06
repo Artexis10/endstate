@@ -391,6 +391,15 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: go-engine/go.sum
+      - name: Check gofmt
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          unformatted=$(gofmt -l go-engine)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would reformat these files; run gofmt -w on them:"
+            echo "$unformatted"
+            exit 1
+          fi
       - name: Vet
         run: cd go-engine && go vet ./...
       - name: Test
