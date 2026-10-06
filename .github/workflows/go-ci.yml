@@ -397,7 +397,7 @@ jobs:
         run: cd go-engine && go test ./...
 
   # Engineering-practices quality check (https://github.com/Artexis10/engineering-practices):
-  # fails on Go functions a pull request adds that nothing reaches (deadcode, GOOS=windows)
+  # fails on Go functions a pull request adds that nothing reaches (deadcode on windows, linux, darwin)
   # and posts the Quality report. It is not a required check.
   quality:
     if: ${{ github.event_name == 'pull_request' && !cancelled() }}

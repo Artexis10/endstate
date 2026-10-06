@@ -55,12 +55,12 @@ classes:
     - "docs/*"
     - "*.md"
 
-# deadcode gate. 313 of the 339 non-test Go files that build for Windows build on every
-# GOOS and 26 are Windows-only. deadcode analyses GOOS=windows, the platform Go CI builds
-# and tests; under linux the findings differ.
+# deadcode gate. Go CI tests on Windows, Ubuntu and macOS, and the release ships all three,
+# so deadcode runs for each GOOS. A function is dead only if every GOOS that builds its file
+# finds it unreachable, so a helper used only by one platform's files is not reported.
 go:
   root: go-engine
-  goos: windows
+  goos: [windows, linux, darwin]
 
 # jscpd: exact token clones in product code.
 duplicates:
