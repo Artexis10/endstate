@@ -61,6 +61,11 @@ classes:
 go:
   root: go-engine
   goos: [windows, linux, darwin]
+  # staticcheck gate: a finding counts only if every GOOS that builds its file reports it.
+  staticcheck: true
+
+# ShellCheck gate (warnings and errors) on the shell scripts a pull request changes.
+shellcheck: {}
 
 # jscpd: exact token clones in product code.
 duplicates:
