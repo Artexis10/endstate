@@ -11,15 +11,30 @@ classes:
     - "*_test.go"
     - "go-engine/integration-test.ps1"
     - "sandbox-tests/*"
-  # The validation tool CI builds to drive the engine over the module catalog, and the
-  # per-module seeds that prepare its sandbox runs.
+    - "scripts/smoke/*"
+    - "scripts/cloud-recovery-gate.tests.ps1"
+  # The validation tool CI builds to drive the engine over the module catalog, the
+  # per-module seeds that prepare its sandbox runs, and the sandbox validation scripts.
   eval:
     - "go-engine/cmd/endstate-validation/*"
     - "go-engine/internal/validationharness/*"
     - "go-engine/internal/validationci/*"
     - "modules/apps/*/seed.ps1"
+    - "scripts/sandbox-validate.ps1"
+    - "scripts/sandbox-validate-batch.ps1"
+    - "scripts/sandbox-discovery.ps1"
+    - "scripts/batch-validate.ps1"
+  # Dev and CI scripts by name, so a new script defaults to product. None of these ships
+  # or runs in the release build.
   scripts:
-    - "scripts/*"
+    - "scripts/audit/*.ps1"
+    - "scripts/cloud-recovery-gate.ps1"
+    - "scripts/generate-crypto-vectors.py"
+    - "scripts/requirements.txt"
+    - "scripts/openspec_validate.ps1"
+    - "scripts/version_format.ps1"
+    - "scripts/update-ruleset-bundle.ps1"
+  tooling:
     - ".github/*"
     - "lefthook.yml"
     - "package.json"
