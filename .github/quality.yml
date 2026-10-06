@@ -1,0 +1,60 @@
+# Engineering-practices quality check: https://github.com/Artexis10/engineering-practices
+# Read by the `quality` job in .github/workflows/go-ci.yml. Patterns are globs on
+# repository-relative paths; `*` also matches `/`. A file takes the first class
+# that matches, in the order listed.
+
+classes:
+  fixtures:
+    - "*/testdata/*"
+  tests:
+    - "*_test.go"
+    - "go-engine/integration-test.ps1"
+    - "sandbox-tests/*"
+  # The validation tool CI builds to drive the engine over the module catalog.
+  eval:
+    - "go-engine/cmd/endstate-validation/*"
+    - "go-engine/internal/validationharness/*"
+    - "go-engine/internal/validationci/*"
+  scripts:
+    - "scripts/*"
+    - ".github/*"
+    - "lefthook.yml"
+    - "package.json"
+  specs:
+    - "openspec/*"
+  product:
+    - "go-engine/*"
+    - "modules/*"
+    - "bundles/*"
+    - "manifests/*"
+    - "SCHEMA_VERSION"
+  docs:
+    - "docs/*"
+    - "*.md"
+
+# deadcode gate. Most of the engine is Windows-only (build tags), so it is
+# analysed as CI builds it; under linux the stubs read as different dead code.
+go:
+  root: go-engine
+  goos: windows
+
+# jscpd: exact token clones in product code.
+duplicates:
+  paths: ["go-engine"]
+  ignore: ["**/testdata/**", "**/*_test.go"]
+
+test_jobs:
+  - "Go Tests"
+  - "Go Tests (macos-latest)"
+  - "Go Tests (ubuntu-latest)"
+  - "Integration Test (windows)"
+  - "Synthetic Shard 0"
+  - "Synthetic Shard 1"
+  - "Synthetic Shard 2"
+  - "Synthetic Shard 3"
+  - "Synthetic Shard 4"
+  - "Synthetic Shard 5"
+  - "Synthetic Shard 6"
+  - "Synthetic Shard 7"
+  - "Catalog Matrix"
+  - "Notepad++ Synthetic Engine Contract"
