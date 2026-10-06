@@ -36,8 +36,8 @@ classes:
     - "*.md"
 
 # deadcode gate. 313 of the 339 non-test Go files that build for Windows build on every
-# GOOS; 26 are Windows-only and have non-Windows counterparts. deadcode analyses
-# GOOS=windows, the platform Go CI builds and tests; under linux the findings differ.
+# GOOS and 26 are Windows-only. deadcode analyses GOOS=windows, the platform Go CI builds
+# and tests; under linux the findings differ.
 go:
   root: go-engine
   goos: windows
