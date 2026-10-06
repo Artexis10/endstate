@@ -166,8 +166,10 @@ func CheckSensitivePath(path string) []string {
 func expandPath(p string) string {
 	expanded := config.ExpandEnvVars(p)
 	expanded = os.ExpandEnv(expanded)
-	// Handle ~ for home directory
-	if strings.HasPrefix(expanded, "~") {
+	// Only expand a lone "~" or a "~/" prefix as the current user's home.
+	// Forms like "~otheruser/..." must stay unchanged so they are not
+	// silently rewritten against the wrong home (e.g. "~alice" → "$HOMEalice").
+	if expanded == "~" || strings.HasPrefix(expanded, "~/") {
 		home, err := os.UserHomeDir()
 		if err == nil {
 			expanded = home + expanded[1:]
