@@ -24,8 +24,8 @@ classes:
     - "scripts/sandbox-validate-batch.ps1"
     - "scripts/sandbox-discovery.ps1"
     - "scripts/batch-validate.ps1"
-  # Dev and CI scripts by name, so a new script defaults to product. None of these ships
-  # or runs in the release build.
+  # Dev and CI scripts by name, because scripts/ is where a product script would land too.
+  # None of these ships or runs in the release build.
   scripts:
     - "scripts/audit/*.ps1"
     - "scripts/cloud-recovery-gate.ps1"
@@ -34,8 +34,13 @@ classes:
     - "scripts/openspec_validate.ps1"
     - "scripts/version_format.ps1"
     - "scripts/update-ruleset-bundle.ps1"
+  # CI and hook configuration. The release workflows publish, so they stay product.
   tooling:
-    - ".github/*"
+    - ".github/quality.yml"
+    - ".github/validation/*"
+    - ".github/workflows/go-ci.yml"
+    - ".github/workflows/nix-integration.yml"
+    - ".github/workflows/ci-efficacy-audit.yml"
     - "lefthook.yml"
     - "package.json"
   specs:
