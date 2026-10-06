@@ -151,8 +151,8 @@ func TestWriteTo_RecordsHomeManagerSettings(t *testing.T) {
 		RunID:   "apply-settings",
 		Backend: "nix",
 		HomeManager: &HomeGenRef{
-			Flake:    "/tmp/endstate/state/home-manager/flake#me",
-			Settings: settings,
+			Flake:      "/tmp/endstate/state/home-manager/flake#me",
+			Settings:   settings,
 			Generation: 3,
 		},
 	}

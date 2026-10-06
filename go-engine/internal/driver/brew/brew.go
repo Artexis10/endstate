@@ -55,6 +55,7 @@
 //     declares the kind.
 //
 //  6. VERSION PINNING is WEAK / advisory — see install_version.go.
+//
 // ---------------------------------------------------------------------------
 package brew
 
