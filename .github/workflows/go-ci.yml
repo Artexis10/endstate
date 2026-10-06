@@ -404,6 +404,7 @@ jobs:
     # The test jobs named in .github/quality.yml, so their runtime is known.
     needs: [test, test-unix, integration-windows, synthetic-shards, catalog-matrix, notepad-engine-contract]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
       group: quality-${{ github.workflow }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true

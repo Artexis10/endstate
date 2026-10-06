@@ -6,15 +6,18 @@
 classes:
   fixtures:
     - "*/testdata/*"
+    - "modules/apps/*/validation-fixtures/*"
   tests:
     - "*_test.go"
     - "go-engine/integration-test.ps1"
     - "sandbox-tests/*"
-  # The validation tool CI builds to drive the engine over the module catalog.
+  # The validation tool CI builds to drive the engine over the module catalog, and the
+  # per-module seeds that prepare its sandbox runs.
   eval:
     - "go-engine/cmd/endstate-validation/*"
     - "go-engine/internal/validationharness/*"
     - "go-engine/internal/validationci/*"
+    - "modules/apps/*/seed.ps1"
   scripts:
     - "scripts/*"
     - ".github/*"
@@ -32,8 +35,9 @@ classes:
     - "docs/*"
     - "*.md"
 
-# deadcode gate. Most of the engine is Windows-only (build tags), so it is
-# analysed as CI builds it; under linux the stubs read as different dead code.
+# deadcode gate. 313 of the 339 non-test Go files that build for Windows build on every
+# GOOS; 26 are Windows-only and have non-Windows counterparts. deadcode analyses
+# GOOS=windows, the platform Go CI builds and tests; under linux the findings differ.
 go:
   root: go-engine
   goos: windows
