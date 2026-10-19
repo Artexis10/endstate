@@ -167,9 +167,9 @@ func TestCollectRegistryKeysFiltersSecretsBeforePublishing(t *testing.T) {
 
 func TestCollectRegistryValuesRejectsSecretBeforeQueryOrOutput(t *testing.T) {
 	context := activeBundleValidationContext(t, "apps.example")
-	original := runRegistryQuery
-	runRegistryQuery = func(_, _ string) ([]byte, error) { panic("registry query reached") }
-	t.Cleanup(func() { runRegistryQuery = original })
+	original := readRegistryNamedValue
+	readRegistryNamedValue = func(_, _ string) (string, string, bool, error) { panic("registry read reached") }
+	t.Cleanup(func() { readRegistryNamedValue = original })
 	staging := bundleValidationWorkRoot(t, context, "registry-value-secret")
 	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryValues: []modules.CaptureRegistryValue{{Key: `HKCU\Software\Example\Secret\Child`, ValueName: "Theme"}}}, Secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\Example\Secret`}}}
 	if _, err := CollectRegistryValuesWithValidation(mod, staging, context); !errors.Is(err, validationmode.ErrUnsafeRegistry) {
@@ -184,14 +184,14 @@ func TestCollectRegistryValuesWithValidationReadsMappedKeyAndWritesSemanticIdent
 	context := activeBundleValidationContext(t, "apps.example")
 	semantic := `HKCU\Software\Vendor\Example`
 	physical, _ := context.MapHKCU(semantic)
-	original := runRegistryQuery
-	runRegistryQuery = func(key, valueName string) ([]byte, error) {
+	original := readRegistryNamedValue
+	readRegistryNamedValue = func(key, valueName string) (string, string, bool, error) {
 		if !strings.EqualFold(key, physical) || valueName != "Theme" {
-			t.Fatalf("reg query = %q %q", key, valueName)
+			t.Fatalf("registry read = %q %q", key, valueName)
 		}
-		return []byte("    Theme    REG_DWORD    0x0000002a\r\n"), nil
+		return "REG_DWORD", "42", true, nil
 	}
-	t.Cleanup(func() { runRegistryQuery = original })
+	t.Cleanup(func() { readRegistryNamedValue = original })
 	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryValues: []modules.CaptureRegistryValue{{Key: semantic, ValueName: "Theme"}}}}
 	staging := bundleValidationWorkRoot(t, context, "registry-value")
 	paths, err := CollectRegistryValuesWithValidation(mod, staging, context)
@@ -219,9 +219,9 @@ func TestCollectRegistryValuesWithValidationReadsMappedKeyAndWritesSemanticIdent
 
 func TestCollectRegistryValuesWithValidationMapsBeforeQuery(t *testing.T) {
 	context := activeBundleValidationContext(t, "apps.example")
-	original := runRegistryQuery
-	runRegistryQuery = func(_, _ string) ([]byte, error) { panic("registry query reached") }
-	t.Cleanup(func() { runRegistryQuery = original })
+	original := readRegistryNamedValue
+	readRegistryNamedValue = func(_, _ string) (string, string, bool, error) { panic("registry read reached") }
+	t.Cleanup(func() { readRegistryNamedValue = original })
 	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryValues: []modules.CaptureRegistryValue{{Key: `HKLM\Software\Vendor`, ValueName: "Theme"}}}}
 	if _, err := CollectRegistryValuesWithValidation(mod, bundleValidationWorkRoot(t, context, "registry-value-wrong-hive"), context); err == nil {
 		t.Fatal("wrong hive reached registry query")

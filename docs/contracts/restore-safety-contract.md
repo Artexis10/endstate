@@ -79,6 +79,9 @@ Instead, `registry-set`:
 1. Records the prior value — its `REG_*` type and data, or the fact that it was
    absent — to `state/backups/<runID>/` **before** any write. This backup is
    mandatory and unconditional (it is not gated on a `backup: true` flag).
+   When the prior value cannot be read, `registry-set` records no backup and
+   writes nothing; the item is `failed` in a live run and in a preview alike.
+   The same holds when the prior value has a type outside the supported set.
 2. Skips the write only when the named value already equals the desired
    type+data (idempotency); in that case no backup is written because nothing
    changes.

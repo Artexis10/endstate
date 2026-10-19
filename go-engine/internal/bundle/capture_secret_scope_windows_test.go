@@ -287,19 +287,75 @@ func TestCreateCaptureBundleSkipsContradictoryEntryKeepsOthers(t *testing.T) {
 	}
 }
 
+// TestCreateCaptureBundleExplainsEverySettingWhenAllAreAbsent catches a
+// settings module that captured nothing reporting no warning, so the user is
+// not told why none of its settings will be restored.
+func TestCreateCaptureBundleExplainsEverySettingWhenAllAreAbsent(t *testing.T) {
+	originalRead := readRegistryNamedValue
+	t.Cleanup(func() { readRegistryNamedValue = originalRead })
+	readRegistryNamedValue = func(string, string) (string, string, bool, error) { return "", "", false, nil }
+
+	explorer := loadShippedModule(t, "windows-settings", "explorer")
+	result, err := CreateCaptureBundle(testCaptureBundleRequest(t, t.TempDir(), []*modules.Module{explorer}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.LegacyModules) != 1 || result.LegacyModules[0].Status != LegacyCaptureStatusSkipped {
+		t.Fatalf("modules = %+v", result.LegacyModules)
+	}
+	warnings := strings.Join(result.LegacyModules[0].Warnings, "\n")
+	for _, restore := range explorer.Restore {
+		if !strings.Contains(warnings, restore.ValueName) {
+			t.Errorf("no warning names %s; warnings = %q", restore.ValueName, warnings)
+		}
+	}
+}
+
+// TestCreateCaptureBundleReportsAnUnreadableSettingAsUnread catches a value
+// that capture could not read being reported as "not set on this PC". The
+// user would then believe the old PC never had the setting.
+func TestCreateCaptureBundleReportsAnUnreadableSettingAsUnread(t *testing.T) {
+	originalRead := readRegistryNamedValue
+	t.Cleanup(func() { readRegistryNamedValue = originalRead })
+	readRegistryNamedValue = func(key, valueName string) (string, string, bool, error) {
+		if valueName == "Hidden" {
+			return "", "", false, errors.New("Access is denied.")
+		}
+		return "REG_DWORD", "1", true, nil
+	}
+
+	dir := t.TempDir()
+	explorer := loadShippedModule(t, "windows-settings", "explorer")
+	result, err := CreateCaptureBundle(testCaptureBundleRequest(t, dir, []*modules.Module{explorer}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := loadCaptureBundle(t, filepath.Join(dir, "capture.zip"))
+	if len(loaded.Restore) != 1 || loaded.Restore[0].ValueName != "HideFileExt" {
+		t.Fatalf("restore entries = %+v, want only the readable HideFileExt", loaded.Restore)
+	}
+	if len(result.LegacyModules) != 1 {
+		t.Fatalf("modules = %+v", result.LegacyModules)
+	}
+	warnings := strings.Join(result.LegacyModules[0].Warnings, "\n")
+	if !strings.Contains(warnings, "Hidden (") || !strings.Contains(warnings, "could not be read") || strings.Contains(warnings, "not set on this PC") {
+		t.Fatalf("warnings = %q, want Hidden reported as unreadable and nothing reported as not set", warnings)
+	}
+}
+
 // TestCreateCaptureBundleBindsRegistrySetToCapturedValues catches the
 // failure where the Windows Explorer module ships its preset data instead of
 // the old PC's value, or restores a value that was never set on the old PC.
 // HideFileExt is 1 at capture and Hidden is absent, so the bundle must restore
 // and verify exactly HideFileExt=1 and say why Hidden was left alone.
 func TestCreateCaptureBundleBindsRegistrySetToCapturedValues(t *testing.T) {
-	originalQuery := runRegistryQuery
-	t.Cleanup(func() { runRegistryQuery = originalQuery })
-	runRegistryQuery = func(key, valueName string) ([]byte, error) {
+	originalRead := readRegistryNamedValue
+	t.Cleanup(func() { readRegistryNamedValue = originalRead })
+	readRegistryNamedValue = func(key, valueName string) (string, string, bool, error) {
 		if valueName != "HideFileExt" {
-			return nil, errors.New("ERROR: The system was unable to find the specified registry key or value.")
+			return "", "", false, nil
 		}
-		return []byte("\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\r\n    HideFileExt    REG_DWORD    0x1\r\n\r\n"), nil
+		return "REG_DWORD", "1", true, nil
 	}
 
 	dir := t.TempDir()

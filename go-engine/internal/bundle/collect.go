@@ -17,12 +17,12 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
+	"github.com/Artexis10/endstate/go-engine/internal/registryvalue"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
@@ -31,8 +31,13 @@ var runRegistryExport = func(key, destination string) error {
 	return exec.Command("reg", "export", key, destination, "/y").Run()
 }
 
-var runRegistryQuery = func(key, valueName string) ([]byte, error) {
-	return exec.Command("reg", "query", key, "/v", valueName).Output()
+// readRegistryNamedValue reads one named value through the registry API and
+// returns its REG_* type and data in the form registry-set restore writes. ok
+// is false when the key or the value is missing; err reports a value that
+// cannot be read. Tests replace it to stay off the real registry.
+var readRegistryNamedValue = func(key, valueName string) (regType, data string, ok bool, err error) {
+	value, found, _, err := registryvalue.Read(key, valueName)
+	return value.Type, value.Data, found, err
 }
 
 // CollectConfigFiles copies config files from system paths to stagingDir
@@ -198,6 +203,9 @@ type RegistryCollection struct {
 	// Values are the named values read for capture.registryValues, present or
 	// absent, in declaration order.
 	Values []CapturedRegistryValue
+	// Unreadable names the optional values that could not be read. They are
+	// neither present nor absent, so capture records no data for them.
+	Unreadable []CapturedRegistryValue
 }
 
 // CollectRegistryKeysWithValidation maps only the native reg export argument,
@@ -578,7 +586,14 @@ func collectRegistryValueCapture(module *modules.Module, stagingDir string, cont
 				return RegistryCollection{}, captureIsolation(module.ID, fmt.Sprintf("capture.registryValues[%d].key", index), "registry", ve.Key, err)
 			}
 		}
-		valType, data, ok := readRegistryNamedValue(readKey, ve.ValueName)
+		valType, data, ok, readErr := readRegistryNamedValue(readKey, ve.ValueName)
+		if readErr != nil {
+			if !ve.Optional {
+				return RegistryCollection{}, fmt.Errorf("cannot read registry value %s\\%s (module: %s): %w", ve.Key, ve.ValueName, module.ID, readErr)
+			}
+			collection.Unreadable = append(collection.Unreadable, CapturedRegistryValue{Key: ve.Key, ValueName: ve.ValueName})
+			continue
+		}
 		if !ok {
 			if ve.Optional {
 				collection.Values = append(collection.Values, CapturedRegistryValue{
@@ -632,52 +647,6 @@ func collectRegistryValueCapture(module *modules.Module, stagingDir string, cont
 
 	collection.Paths = []string{relativePath}
 	return collection, nil
-}
-
-// readRegistryNamedValue reads a single named value via `reg query <key> /v
-// <name>` and returns its REG_* type string and string-form data. ok is false
-// when the key or value is missing. Output format from reg.exe is:
-//
-//	<ValueName>    <REG_TYPE>    <data>
-//
-// (whitespace-separated, with the data being the remainder of the line).
-func readRegistryNamedValue(key, valueName string) (regType, data string, ok bool) {
-	out, err := runRegistryQuery(key, valueName)
-	if err != nil {
-		return "", "", false
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		// Locate the REG_* token; everything before it is the (possibly
-		// space-containing) value name, everything after is the data.
-		for i, f := range fields {
-			if strings.HasPrefix(f, "REG_") {
-				if i == 0 {
-					break // no name before the type — not a value line
-				}
-				name := strings.Join(fields[:i], " ")
-				if !strings.EqualFold(name, valueName) {
-					break
-				}
-				regType = f
-				if i+1 < len(fields) {
-					data = strings.Join(fields[i+1:], " ")
-				}
-				// Normalize DWORD hex (0x...) to decimal for round-trip parity
-				// with registry-set's stored decimal form.
-				if regType == "REG_DWORD" {
-					if n, perr := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(data)), "0x"), 16, 64); perr == nil {
-						data = strconv.FormatUint(n, 10)
-					}
-				}
-				return regType, data, true
-			}
-		}
-	}
-	return "", "", false
 }
 
 // matchesExcludeGlobs checks if a path matches any of the exclude glob patterns.

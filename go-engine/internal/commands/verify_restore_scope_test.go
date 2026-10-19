@@ -9,10 +9,34 @@ import (
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
-	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 	"github.com/Artexis10/endstate/go-engine/internal/verifier"
 )
+
+// TestScopeRestoredVerifiesKeepsKeyAndValueNameApart catches verify checking a
+// captured setting that this run did not restore. A value name may contain a
+// backslash, so value Child\Value on key Example and value Value on key
+// Example\Child have the same joined text.
+func TestScopeRestoredVerifiesKeepsKeyAndValueNameApart(t *testing.T) {
+	const key = `HKCU\Software\Endstate\Example`
+	// An unsupported type fails before any registry call; a failed write
+	// still counts as acted on, so the identity must come from the action.
+	results, err := restore.RunRestore([]restore.RestoreAction{{
+		Type: "registry-set", Key: key + `\Child`, ValueName: "Value", ValueType: "REG_UNSUPPORTED",
+	}}, restore.RestoreOptions{BackupDir: t.TempDir()}, nil)
+	if err != nil || len(results) != 1 {
+		t.Fatalf("results = %+v, err = %v", results, err)
+	}
+	entries := []manifest.VerifyEntry{
+		{Type: "registry-value-equals", Path: key, ValueName: `Child\Value`, FromModule: "apps.example"},
+		{Type: "registry-value-equals", Path: key + `\Child`, ValueName: "Value", FromModule: "apps.example"},
+	}
+	evaluate, skipped := scopeRestoredVerifies(entries, restoredRegistryValues(results))
+	if len(evaluate) != 1 || evaluate[0].Path != key+`\Child` || len(skipped) != 1 {
+		t.Fatalf("evaluate = %+v, skipped = %+v; want only the restored value evaluated", evaluate, skipped)
+	}
+}
 
 // TestRunVerifyChecksCapturedSettingsOnlyWhenThisRunRestoredThem catches
 // verify reporting an OS setting captured on the old PC as a failure when the
@@ -48,13 +72,13 @@ func TestRunVerifyChecksCapturedSettingsOnlyWhenThisRunRestoredThem(t *testing.T
 
 	for _, test := range []struct {
 		name         string
-		restored     map[string]struct{}
+		restored     map[registryValueIdentity]struct{}
 		wantFail     int
 		wantSkipped  int
 		wantCaptured bool
 	}{
 		{name: "restore not selected", restored: nil, wantFail: 1, wantSkipped: 1, wantCaptured: false},
-		{name: "restored in this run", restored: map[string]struct{}{registryfile.MatchKey(advanced + `\HideFileExt`): {}}, wantFail: 2, wantSkipped: 0, wantCaptured: true},
+		{name: "restored in this run", restored: map[registryValueIdentity]struct{}{newRegistryValueIdentity(advanced, "HideFileExt"): {}}, wantFail: 2, wantSkipped: 0, wantCaptured: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			evaluated = nil

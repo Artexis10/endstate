@@ -711,6 +711,11 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			legacy.warnings = append(legacy.warnings, warning)
 			moduleWarnings = append(moduleWarnings, warning)
 		}
+		// Explain each setting that restore leaves unchanged before the empty
+		// exit below: a module whose every value is absent still owes the user
+		// one warning per value.
+		unbound, unboundWarnings := unboundRegistryRestores(mod, registryValues, registryValuesErr)
+		moduleWarnings = append(moduleWarnings, unboundWarnings...)
 		collected := append(fileCollected, registryKeys.Paths...)
 		collected = append(collected, registryValues.Paths...)
 		if len(collected) == 0 {
@@ -766,8 +771,6 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		}
 		_ = os.RemoveAll(workRoot)
 
-		unbound, unboundWarnings := unboundRegistryRestores(mod, registryValues.Values)
-		moduleWarnings = append(moduleWarnings, unboundWarnings...)
 		legacy.included = append(legacy.included, shortID)
 		legacy.moduleIDs = append(legacy.moduleIDs, mod.ID)
 		legacy.capturedModules = append(legacy.capturedModules, mod)
@@ -1205,8 +1208,10 @@ func boundRegistryValue(restore modules.RestoreDef, values []CapturedRegistryVal
 
 // unboundRegistryRestores lists the registry-set restores whose captured value
 // cannot be restored, with one plain-language warning for each. A restore
-// that names no captured value keeps its authored type and data.
-func unboundRegistryRestores(mod *modules.Module, values []CapturedRegistryValue) (map[int]struct{}, []string) {
+// that names no captured value keeps its authored type and data. A value that
+// could not be read is reported as such, never as absent: collectionErr means
+// the module's values were not captured at all.
+func unboundRegistryRestores(mod *modules.Module, collection RegistryCollection, collectionErr error) (map[int]struct{}, []string) {
 	unbound := map[int]struct{}{}
 	var warnings []string
 	for index, restore := range mod.Restore {
@@ -1216,7 +1221,13 @@ func unboundRegistryRestores(mod *modules.Module, values []CapturedRegistryValue
 		if !mod.Capture.CapturesRegistryValue(restore.Key, restore.ValueName) {
 			continue
 		}
-		value, found := findCapturedRegistryValue(values, restore.Key, restore.ValueName)
+		_, unreadable := findCapturedRegistryValue(collection.Unreadable, restore.Key, restore.ValueName)
+		if collectionErr != nil || unreadable {
+			unbound[index] = struct{}{}
+			warnings = append(warnings, fmt.Sprintf("%s (%s) could not be read on this PC, so restore leaves it unchanged.", restore.ValueName, captureModuleName(mod)))
+			continue
+		}
+		value, found := findCapturedRegistryValue(collection.Values, restore.Key, restore.ValueName)
 		switch {
 		case !found || !value.Existed:
 			unbound[index] = struct{}{}

@@ -66,7 +66,7 @@ Every `--json` output includes this envelope:
 | `schemaVersion` | string | JSON schema version |
 | `cliVersion` | string | CLI version (semver) |
 | `command` | string | Command that produced output |
-| `runId` | string | Unique run ID (yyyyMMdd-HHmmss) |
+| `runId` | string | Unique run ID, `<command>-YYYYMMDD-HHMMSS-mmm-<8 hex digits>-<host>` in UTC |
 | `timestampUtc` | string | ISO 8601 UTC timestamp |
 | `success` | boolean | Whether command succeeded |
 | `data` | object | Command-specific result |

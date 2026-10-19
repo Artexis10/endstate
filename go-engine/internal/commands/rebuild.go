@@ -199,7 +199,7 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 	// failures are data (summary.fail), not an envelope error.
 	var verifyResult interface{}
 	if !flags.DryRun {
-		var restored map[string]struct{}
+		var restored map[registryValueIdentity]struct{}
 		if applied, ok := applyResult.(*ApplyResult); ok && applied.ConfigResultFields != nil {
 			restored = restoredRegistryValues(applied.RestoreItems)
 		}

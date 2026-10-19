@@ -5,6 +5,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -16,14 +17,23 @@ import (
 // the same run did not restore.
 const verifyReasonNotRestored = "not_restored"
 
-// restoredRegistryValues returns the registry-set targets an apply run acted
-// on, in registryfile.MatchKey form. A failed write is included, so verify
-// still reports it.
-func restoredRegistryValues(items []restore.RestoreResult) map[string]struct{} {
-	restored := map[string]struct{}{}
+// registryValueIdentity names one registry value by its key and its value
+// name, kept apart. A value name may hold a backslash, so the joined text
+// cannot tell value `B\C` on key `A` from value `C` on key `A\B`. The registry
+// compares both parts case-insensitively.
+type registryValueIdentity struct{ key, valueName string }
+
+func newRegistryValueIdentity(key, valueName string) registryValueIdentity {
+	return registryValueIdentity{key: registryfile.MatchKey(key), valueName: strings.ToLower(valueName)}
+}
+
+// restoredRegistryValues returns the registry-set values an apply run acted
+// on. A failed write is included, so verify still reports it.
+func restoredRegistryValues(items []restore.RestoreResult) map[registryValueIdentity]struct{} {
+	restored := map[registryValueIdentity]struct{}{}
 	for _, item := range items {
 		if item.RestoreType == "registry-set" {
-			restored[registryfile.MatchKey(item.Target)] = struct{}{}
+			restored[newRegistryValueIdentity(item.RegistryKey, item.RegistryValueName)] = struct{}{}
 		}
 	}
 	return restored
@@ -33,7 +43,7 @@ func restoredRegistryValues(items []restore.RestoreResult) map[string]struct{} {
 // and visible skipped results. An entry that carries fromModule asserts a value
 // captured on the old PC; it holds only after this run restored that value, so
 // without that restore it is skipped rather than reported as a failure.
-func scopeRestoredVerifies(entries []manifest.VerifyEntry, restored map[string]struct{}) ([]manifest.VerifyEntry, []VerifyItem) {
+func scopeRestoredVerifies(entries []manifest.VerifyEntry, restored map[registryValueIdentity]struct{}) ([]manifest.VerifyEntry, []VerifyItem) {
 	evaluate := make([]manifest.VerifyEntry, 0, len(entries))
 	var skipped []VerifyItem
 	for _, entry := range entries {
@@ -42,7 +52,7 @@ func scopeRestoredVerifies(entries []manifest.VerifyEntry, restored map[string]s
 			continue
 		}
 		target := entry.Path + `\` + entry.ValueName
-		if _, ok := restored[registryfile.MatchKey(target)]; ok {
+		if _, ok := restored[newRegistryValueIdentity(entry.Path, entry.ValueName)]; ok {
 			evaluate = append(evaluate, entry)
 			continue
 		}

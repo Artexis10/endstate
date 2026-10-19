@@ -44,7 +44,7 @@ Every event **MUST** include:
 | Field | Type | Description |
 |-------|------|-------------|
 | `version` | integer | Event schema version (always `1` for this contract) |
-| `runId` | string | Run identifier (e.g., `"apply-20250101-120000-MACHINE"`) |
+| `runId` | string | Run identifier, unique per run (e.g., `"apply-20250101-120000-123-9f3a1c2e"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
 | `event` | string | Event type: `"phase"`, `"progress"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"`, `"config-resolution"`, `"config-migration"` |
 

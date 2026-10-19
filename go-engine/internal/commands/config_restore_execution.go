@@ -778,6 +778,9 @@ func configRestoreResultsForSet(
 			TargetInstanceID: set.Resolution.TargetInstanceID,
 			SourceGeneration: set.Source.Generation, TargetGeneration: set.Resolution.TargetGeneration,
 		}
+		if action.RegistryValue != nil {
+			item.RegistryKey, item.RegistryValueName = action.RegistryValue.Key, action.RegistryValue.ValueName
+		}
 		if outcome.Err != nil {
 			item.Error = outcome.Err.Error()
 		}

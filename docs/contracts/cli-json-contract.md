@@ -41,7 +41,7 @@ Every JSON output includes this envelope:
 | `schemaVersion` | string | Yes | JSON schema version (e.g., "1.0") |
 | `cliVersion` | string | Yes | Endstate CLI version (semver) |
 | `command` | string | Yes | Command that produced this output |
-| `runId` | string | Yes | Unique run identifier (format: `yyyyMMdd-HHmmss`) |
+| `runId` | string | Yes | Unique run identifier, `<command>-YYYYMMDD-HHMMSS-mmm-<8 hex digits>-<host>` in UTC. Two runs that start in the same second still get different identifiers. |
 | `timestampUtc` | string | Yes | ISO 8601 UTC timestamp |
 | `success` | boolean | Yes | Whether the command succeeded |
 | `testMode` | object | No | Present only for the internal disposable CI validation mode. Contains exactly `active: true`, `scenarioId`, and `moduleId`; omitted for ordinary runs. |

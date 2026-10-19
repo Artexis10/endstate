@@ -66,6 +66,11 @@ type RestoreResult struct {
 	// Label is the entry's authored reason, a plain description of what the
 	// item restores. It is empty when the entry declares none.
 	Label string `json:"label,omitempty"`
+	// RegistryKey and RegistryValueName name a registry-set target as two
+	// parts. Target joins them for display, but a value name may itself hold a
+	// backslash, so only the parts identify the value. They stay off the wire.
+	RegistryKey       string `json:"-"`
+	RegistryValueName string `json:"-"`
 }
 
 // RestoreOptions holds configuration for a restore run.
@@ -267,6 +272,9 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		// emits it and collects it.
 		record := func(result RestoreResult) {
 			result.Label = entry.Reason
+			if entry.Type == "registry-set" {
+				result.RegistryKey, result.RegistryValueName = entry.Key, entry.ValueName
+			}
 			emitRestoreItemEvent(emitter, entry, result)
 			results = append(results, result)
 		}

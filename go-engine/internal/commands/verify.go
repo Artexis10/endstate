@@ -64,10 +64,9 @@ type VerifyFlags struct {
 	Manifest string
 	// Events controls streaming event output. "jsonl" enables it; "" disables.
 	Events string
-	// restoredRegistryValues holds the registry-set targets that the same
-	// run restored (registryfile.MatchKey form). Only rebuild sets it; a
-	// standalone verify restored nothing.
-	restoredRegistryValues map[string]struct{}
+	// restoredRegistryValues holds the registry-set values that the same run
+	// restored. Only rebuild sets it; a standalone verify restored nothing.
+	restoredRegistryValues map[registryValueIdentity]struct{}
 }
 
 // VerifyResult is the data payload for the verify command JSON envelope.
@@ -471,8 +470,9 @@ func resolveAppRef(app manifest.App) string {
 	return manifest.ResolveRef(app, runtime.GOOS)
 }
 
-// buildRunID constructs a simple run identifier for use with the emitter.
-// Format matches envelope.BuildRunID: <command>-YYYYMMDD-HHMMSS.
+// buildRunID constructs the run identifier that a command uses for its
+// events, backups and journals: <command>-<envelope.RunStamp>. It carries no
+// host name, because a capture can be shared with another person.
 func buildRunID(command string) string {
-	return command + "-" + time.Now().UTC().Format("20060102-150405")
+	return command + "-" + envelope.RunStamp(time.Now())
 }

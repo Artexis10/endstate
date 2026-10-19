@@ -10,17 +10,24 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/registryvalue"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 	"golang.org/x/sys/windows/registry"
 )
 
 var (
-	registrySetReadNative = func(key, valueName string) (bool, string, string, bool) {
-		hive, subkey, err := splitHKCUKey(key)
+	registrySetReadNative = func(key, valueName string) (bool, string, string, bool, error) {
+		value, found, keyFound, err := registryvalue.Read(key, valueName)
 		if err != nil {
-			return false, "", "", false
+			return false, "", "", keyFound, err
 		}
-		return readRegistryValue(hive, subkey, valueName)
+		if !manifest.IsRegistrySetValueType(value.Type) {
+			// A type registry-set cannot write never matches a desired value,
+			// and its backup records the prior type as unknown.
+			value.Type = ""
+		}
+		return found, value.Type, value.Data, keyFound, nil
 	}
 	registrySetWriteNative = func(key, valueName, valueType, data string) error {
 		hive, subkey, err := splitHKCUKey(key)
@@ -82,8 +89,24 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 	}
 
 	// Probe the current state of the named value (existence + type + data).
-	existed, curType, curData, keyExisted := registrySetReadNative(nativeKey, entry.ValueName)
+	// A value that cannot be read is never treated as absent: its backup would
+	// record "absent", and revert would then delete a value whose data was
+	// never saved. So nothing is backed up or written, in a preview as well.
+	existed, curType, curData, keyExisted, readErr := registrySetReadNative(nativeKey, entry.ValueName)
+	if readErr != nil {
+		result.Status = "failed"
+		result.Error = registrySetUnreadablePriorMessage
+		return result, nil
+	}
 	result.TargetExistedBefore = existed
+	// The read reports an existing value of a type that registry-set cannot
+	// write with an empty type. Its backup could not restore it exactly, so it
+	// is left alone as well.
+	if existed && curType == "" {
+		result.Status = "failed"
+		result.Error = registrySetUnsupportedPriorMessage
+		return result, nil
+	}
 
 	desiredType := strings.ToUpper(strings.TrimSpace(entry.ValueType))
 
@@ -147,49 +170,6 @@ func splitHKCUKey(key string) (registry.Key, string, error) {
 		return 0, "", fmt.Errorf("invalid registry key (no subkey): %s", key)
 	}
 	return registry.CURRENT_USER, norm[idx+1:], nil
-}
-
-// readRegistryValue opens hive\subkey and reads the named value. It returns
-// whether the value exists, its REG_* type string, its string-form data, and
-// whether the key itself exists. Missing key or value yields existed=false.
-func readRegistryValue(hive registry.Key, subkey, valueName string) (existed bool, regType string, data string, keyExisted bool) {
-	k, err := registry.OpenKey(hive, subkey, registry.QUERY_VALUE)
-	if err != nil {
-		return false, "", "", false
-	}
-	defer k.Close()
-	keyExisted = true
-
-	_, valType, err := k.GetValue(valueName, nil)
-	if err != nil {
-		return false, "", "", true
-	}
-
-	switch valType {
-	case registry.DWORD:
-		v, _, gerr := k.GetIntegerValue(valueName)
-		if gerr != nil {
-			return false, "", "", true
-		}
-		return true, "REG_DWORD", strconv.FormatUint(v, 10), true
-	case registry.SZ:
-		v, _, gerr := k.GetStringValue(valueName)
-		if gerr != nil {
-			return false, "", "", true
-		}
-		return true, "REG_SZ", v, true
-	case registry.EXPAND_SZ:
-		v, _, gerr := k.GetStringValue(valueName)
-		if gerr != nil {
-			return false, "", "", true
-		}
-		return true, "REG_EXPAND_SZ", v, true
-	default:
-		// An unsupported existing type is reported as existing with an empty
-		// normalized type so the idempotent-skip check never matches and the
-		// prior value is still captured verbatim where possible.
-		return true, "", "", true
-	}
 }
 
 // writeRegistryValue creates hive\subkey if needed and writes valueName of the

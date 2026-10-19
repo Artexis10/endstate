@@ -31,6 +31,14 @@ type registrySetBackup struct {
 	PriorData string `json:"priorData,omitempty"`
 }
 
+// registrySetUnreadablePriorMessage is the failure message for a registry-set
+// whose current value cannot be read, so that no backup of it can be made.
+const registrySetUnreadablePriorMessage = "The current value of this setting cannot be read, so restore leaves it unchanged."
+
+// registrySetUnsupportedPriorMessage is the failure message for a registry-set
+// whose current value has a type that a backup cannot restore exactly.
+const registrySetUnsupportedPriorMessage = "The current value of this setting has a type that restore cannot back up, so restore leaves it unchanged."
+
 // registrySetTarget renders a human-readable target string (Key\ValueName) for
 // a registry-set action, used in results and events. It is cross-platform so
 // the non-Windows failure path can report it too.
@@ -58,7 +66,8 @@ func validateRegistrySet(entry RestoreAction) error {
 
 // writeRegistrySetBackup persists the prior-value record as a JSON sidecar and
 // returns its path. The filename is derived from the sanitized key + value name
-// so concurrent entries within a run do not collide.
+// so entries within a run do not collide. It never overwrites an existing
+// record, because two runs in the same second share one backup directory.
 func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (string, error) {
 	backupDir := opts.BackupDir
 	if backupDir == "" {
@@ -73,7 +82,26 @@ func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (stri
 	}
 	safe := strings.NewReplacer(`\`, "_", ` `, "_", "/", "_", ":", "_").Replace(
 		backup.Key + "_" + backup.ValueName)
-	backupPath := filepath.Join(backupDir, "regset_"+safe+".json")
+	name := "regset_" + safe + ".json"
+	backupPath := filepath.Join(backupDir, name)
+	// Run IDs have one-second resolution, so a second run in the same second
+	// shares backupDir. Overwriting the first run's record would lose its prior
+	// value; a repeated record goes to a fresh action directory, as CreateBackup
+	// does for files. The live-restore mutation lock serializes the writers.
+	if _, err := boundary.lstat("registry-set-backup-destination-lstat", backupPath); err == nil {
+		for ordinal := 1; ; ordinal++ {
+			actionDir := filepath.Join(backupDir, fmt.Sprintf("action-%06d", ordinal))
+			if err := boundary.mkdir("registry-set-backup-action-mkdir", actionDir, 0o755); os.IsExist(err) {
+				continue
+			} else if err != nil {
+				return "", fmt.Errorf("allocate unique registry-set backup directory: %w", err)
+			}
+			backupPath = filepath.Join(actionDir, name)
+			break
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect registry-set backup destination: %w", err)
+	}
 
 	data, err := json.MarshalIndent(backup, "", "  ")
 	if err != nil {
