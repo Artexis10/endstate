@@ -21,8 +21,8 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search", "valueName": "SearchboxTaskbarMode", "reason": "How the taskbar shows search" },
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowTaskViewButton", "reason": "Task View button visibility" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search", "valueName": "SearchboxTaskbarMode", "reason": "Search on the taskbar" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowTaskViewButton", "reason": "Task View button on the taskbar" },
     { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowSecondsInSystemClock", "reason": "Seconds in the system-tray clock" }
   ],
 

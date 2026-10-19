@@ -24,7 +24,7 @@
       "type": "registry-set",
       "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
       "valueName": "TaskbarAl",
-      "reason": "Windows 11 taskbar alignment (0 = left, 1 = center)"
+      "reason": "Taskbar alignment"
     }
   ],
 

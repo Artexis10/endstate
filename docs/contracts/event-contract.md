@@ -291,7 +291,7 @@ Tracks progress of individual restore actions during apply with `--EnableRestore
   | `failed` | the item's error text | the item's error text |
 
   Consumers map an item by `status` and `reason`, and may show `message` as secondary text. The status vocabulary and the reason codes did not change, so this needs no version bump.
-- `label` (string, optional): The authored `reason` text of the restore entry in its module or manifest, for example `"Delay before a held key starts repeating"`. It is not the event's `reason` code. The engine sets it for every restorer type when the entry declares a reason, on the `restoring` event and the terminal event, in a live run and a dry run. It is absent when the entry declares none. A consumer may show `label` as the item's name instead of `target`. This optional field needs no version bump.
+- `label` (string, optional): The authored `reason` text of the restore entry in its module or manifest, for example `"Keyboard repeat delay"`. It is not the event's `reason` code. The engine sets it for every restorer type when the entry declares a reason, on the `restoring` event and the terminal event, in a live run and a dry run. It is absent when the entry declares none. A consumer may show `label` as the item's name instead of `target`. This optional field needs no version bump.
 - `captureId` (string, optional): Owning generation-aware config capture
 - `configSetId` (string, optional): Owning config set
 - `targetInstanceId` (string, optional): Selected target instance

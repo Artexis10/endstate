@@ -19,7 +19,7 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "LaunchTo", "reason": "The folder File Explorer opens to" }
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "LaunchTo", "reason": "File Explorer start folder" }
   ],
 
   "verify": [

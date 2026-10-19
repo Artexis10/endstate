@@ -20,9 +20,9 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "valueName": "Enabled", "reason": "Per-user advertising ID" },
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SystemPaneSuggestionsEnabled", "reason": "Start-menu app and content suggestions" },
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SilentInstalledAppsEnabled", "reason": "Silently installed promoted apps" }
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "valueName": "Enabled", "reason": "Advertising ID for personalized ads" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SystemPaneSuggestionsEnabled", "reason": "Suggestions in Start" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SilentInstalledAppsEnabled", "reason": "Automatic installs of promoted apps" }
   ],
 
   "verify": [

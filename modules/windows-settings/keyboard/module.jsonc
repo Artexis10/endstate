@@ -20,8 +20,8 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "reason": "Delay before a held key starts repeating" },
-    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "reason": "Rate at which a held key repeats" }
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "reason": "Keyboard repeat delay" },
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "reason": "Keyboard repeat rate" }
   ],
 
   "verify": [

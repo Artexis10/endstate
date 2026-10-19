@@ -25,13 +25,13 @@
       "type": "registry-set",
       "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
       "valueName": "HideFileExt",
-      "reason": "File extension visibility in Explorer"
+      "reason": "File name extensions in File Explorer"
     },
     {
       "type": "registry-set",
       "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
       "valueName": "Hidden",
-      "reason": "Hidden file and folder visibility in Explorer"
+      "reason": "Hidden items in File Explorer"
     }
   ],
 

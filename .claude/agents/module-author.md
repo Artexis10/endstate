@@ -54,7 +54,8 @@ Every module.jsonc MUST include:
   "source": "./payload/apps/<id>/file.json",   // Relative to manifest directory
   "target": "%APPDATA%\\App\\file.json",       // System path with env var expansion
   "backup": true,                              // Always true for safety
-  "optional": true                             // true = no error if source missing
+  "optional": true,                            // true = no error if source missing
+  "reason": "Editor settings"                  // Optional. Shown to users as the item label: name the setting, never a value (rule in docs/catalog-layout.md)
 }
 ```
 

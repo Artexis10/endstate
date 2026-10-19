@@ -743,7 +743,7 @@ Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with u
 
 Concrete `restoreItems[]` retain all existing fields. Items produced from a generation-aware config set add optional `captureId`, `configSetId`, `targetInstanceId`, `sourceGeneration`, and `targetGeneration` fields so actions remain traceable to the resolution plan.
 
-Each `restoreItems[]` entry may carry an optional `label` string. It holds the authored `reason` text of the restore entry, for example "Delay before a held key starts repeating". The engine sets it for every restore type when the entry declares a reason, in a live run and a dry run. It omits `label` when the entry declares none. The streamed `restore-item` events carry the same `label`. A consumer may show `label` as the item's name instead of `target`. This optional field is additive in schema `1.0`.
+Each `restoreItems[]` entry may carry an optional `label` string. It holds the authored `reason` text of the restore entry, for example "Keyboard repeat delay". The engine sets it for every restore type when the entry declares a reason, in a live run and a dry run. It omits `label` when the entry declares none. The streamed `restore-item` events carry the same `label`. A consumer may show `label` as the item's name instead of `target`. This optional field is additive in schema `1.0`.
 
 #### Restore item status meanings
 

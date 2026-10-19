@@ -28,13 +28,13 @@
       "type": "registry-set",
       "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
       "valueName": "AppsUseLightTheme",
-      "reason": "Light or dark theme for apps"
+      "reason": "Default app mode (light or dark)"
     },
     {
       "type": "registry-set",
       "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
       "valueName": "SystemUsesLightTheme",
-      "reason": "Light or dark theme for the system UI (taskbar, Start)"
+      "reason": "Default Windows mode (light or dark)"
     }
   ],
 
