@@ -66,7 +66,7 @@ type VerifyFlags struct {
 	Events string
 	// restoredRegistryValues holds the registry-set values that the same run
 	// restored. Only rebuild sets it; a standalone verify restored nothing.
-	restoredRegistryValues map[registryValueIdentity]struct{}
+	restoredRegistryValues []registryValueIdentity
 }
 
 // VerifyResult is the data payload for the verify command JSON envelope.

@@ -10,7 +10,6 @@ package modules
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 )
@@ -269,7 +268,7 @@ func (capture *CaptureDef) CapturesRegistryValue(key, valueName string) bool {
 		return false
 	}
 	for _, declared := range capture.RegistryValues {
-		if registryfile.MatchKey(declared.Key) == registryfile.MatchKey(key) && strings.EqualFold(declared.ValueName, valueName) {
+		if registryfile.SameKey(declared.Key, key) && registryfile.SameValueName(declared.ValueName, valueName) {
 			return true
 		}
 	}

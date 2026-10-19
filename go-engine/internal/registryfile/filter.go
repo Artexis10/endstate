@@ -29,11 +29,20 @@ func (report FilterReport) Removed() int {
 	return report.KeysRemoved + report.ValuesRemoved
 }
 
-// MatchKey folds a registry key into the form used to compare keys: the hive
-// is spelled HKCU or HKLM, a PowerShell drive colon is dropped, and the text
-// is lower-cased because the registry compares key and value names
-// case-insensitively. It does not validate the key.
+// MatchKey folds a registry key into the form that secret rules match: the
+// hive is spelled HKCU or HKLM, a PowerShell drive colon is dropped, and the
+// text is lower-cased. Lower-casing merges every pair of names that the
+// registry merges and a few that it keeps apart, such as İ and i, so a secret
+// rule can match too much but never too little. SameKey compares keys exactly
+// as the registry does. It does not validate the key.
 func MatchKey(key string) string {
+	return strings.ToLower(CanonicalHive(key))
+}
+
+// CanonicalHive spells the hive of key as HKCU or HKLM and drops a PowerShell
+// drive colon. The rest of the key stays exactly as written, so the result
+// still opens the same key. It does not validate the key.
+func CanonicalHive(key string) string {
 	upper := strings.ToUpper(key)
 	for _, hive := range []struct{ long, short string }{
 		{"HKEY_CURRENT_USER", "HKCU"}, {"HKEY_LOCAL_MACHINE", "HKLM"},
@@ -47,7 +56,7 @@ func MatchKey(key string) string {
 	if strings.HasPrefix(upper, `HKCU:\`) || strings.HasPrefix(upper, `HKLM:\`) {
 		key = key[:4] + key[5:]
 	}
-	return strings.ToLower(key)
+	return key
 }
 
 // FilterSecrets removes every key and value that rules exclude from a reg.exe

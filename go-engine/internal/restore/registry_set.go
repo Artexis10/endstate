@@ -65,9 +65,8 @@ func validateRegistrySet(entry RestoreAction) error {
 }
 
 // writeRegistrySetBackup persists the prior-value record as a JSON sidecar and
-// returns its path. The filename is derived from the sanitized key + value name
-// so entries within a run do not collide. It never overwrites an existing
-// record, because two runs in the same second share one backup directory.
+// returns its path. The file name comes from the sanitized key and value name,
+// and the function never overwrites an existing record.
 func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (string, error) {
 	backupDir := opts.BackupDir
 	if backupDir == "" {
@@ -84,10 +83,12 @@ func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (stri
 		backup.Key + "_" + backup.ValueName)
 	name := "regset_" + safe + ".json"
 	backupPath := filepath.Join(backupDir, name)
-	// Run IDs have one-second resolution, so a second run in the same second
-	// shares backupDir. Overwriting the first run's record would lose its prior
-	// value; a repeated record goes to a fresh action directory, as CreateBackup
-	// does for files. The live-restore mutation lock serializes the writers.
+	// The name can already exist: a caller can pass the same BackupDir to more
+	// than one run, and the replacer gives different values, such as key A\B
+	// and key A_B, one name. Overwriting the earlier record would lose its prior
+	// value, so a repeated name goes to a fresh action directory, as
+	// CreateBackup does for files. The live-restore mutation lock serializes
+	// the writers.
 	if _, err := boundary.lstat("registry-set-backup-destination-lstat", backupPath); err == nil {
 		for ordinal := 1; ; ordinal++ {
 			actionDir := filepath.Join(backupDir, fmt.Sprintf("action-%06d", ordinal))

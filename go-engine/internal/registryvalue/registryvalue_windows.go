@@ -36,10 +36,12 @@ var typeNames = map[uint32]string{
 
 // splitKey returns the hive token (hkcu or hklm) and the subkey of a key such
 // as HKCU\Software\Vendor or HKEY_CURRENT_USER\Software\Vendor. ok is false for
-// any other hive or for a key without a subkey.
+// any other hive or for a key without a subkey. The subkey stays exactly as
+// written: Go's lower-casing would merge sibling keys that the registry keeps
+// apart, such as İ and i, and open the wrong one.
 func splitKey(key string) (hive, subkey string, ok bool) {
-	normalized := registryfile.MatchKey(strings.ReplaceAll(key, "/", `\`))
-	hive, subkey, found := strings.Cut(normalized, `\`)
+	hive, subkey, found := strings.Cut(registryfile.CanonicalHive(strings.ReplaceAll(key, "/", `\`)), `\`)
+	hive = strings.ToLower(hive)
 	if !found || subkey == "" || (hive != "hkcu" && hive != "hklm") {
 		return "", "", false
 	}

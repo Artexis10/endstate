@@ -72,13 +72,13 @@ func TestRunVerifyChecksCapturedSettingsOnlyWhenThisRunRestoredThem(t *testing.T
 
 	for _, test := range []struct {
 		name         string
-		restored     map[registryValueIdentity]struct{}
+		restored     []registryValueIdentity
 		wantFail     int
 		wantSkipped  int
 		wantCaptured bool
 	}{
 		{name: "restore not selected", restored: nil, wantFail: 1, wantSkipped: 1, wantCaptured: false},
-		{name: "restored in this run", restored: map[registryValueIdentity]struct{}{newRegistryValueIdentity(advanced, "HideFileExt"): {}}, wantFail: 2, wantSkipped: 0, wantCaptured: true},
+		{name: "restored in this run", restored: []registryValueIdentity{{key: advanced, valueName: "HideFileExt"}}, wantFail: 2, wantSkipped: 0, wantCaptured: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			evaluated = nil

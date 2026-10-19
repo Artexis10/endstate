@@ -1186,7 +1186,7 @@ func captureModuleName(mod *modules.Module) string {
 
 func findCapturedRegistryValue(values []CapturedRegistryValue, key, valueName string) (CapturedRegistryValue, bool) {
 	for _, value := range values {
-		if registryfile.MatchKey(value.Key) == registryfile.MatchKey(key) && strings.EqualFold(value.ValueName, valueName) {
+		if registryfile.SameKey(value.Key, key) && registryfile.SameValueName(value.ValueName, valueName) {
 			return value, true
 		}
 	}
