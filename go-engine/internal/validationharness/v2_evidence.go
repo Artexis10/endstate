@@ -510,13 +510,17 @@ func v2RestoreEventMatches(event map[string]any, item restore.RestoreResult, mod
 	} else if status == "skipped_up_to_date" {
 		reason = "already_up_to_date"
 	}
+	var label any
+	if item.Label != "" {
+		label = item.Label
+	}
 	// The harness drives a real restore, never a preview.
 	message := events.RestoreItemMessage(events.RestoreItemStatus(status), false)
 	return event["id"] == item.ID && event["module"] == moduleID && event["restorer"] == restorer &&
 		event["source"] == item.Source && event["target"] == item.Target && event["status"] == status &&
 		eventValueMatches(event["reason"], reason) && eventValueMatches(event["backupPath"], backup) &&
 		event["targetExisted"] == item.TargetExistedBefore && event["message"] == message &&
-		event["captureId"] == item.CaptureID && event["configSetId"] == item.ConfigSetID &&
+		eventValueMatches(event["label"], label) && event["captureId"] == item.CaptureID && event["configSetId"] == item.ConfigSetID &&
 		event["targetInstanceId"] == item.TargetInstanceID && event["sourceGeneration"] == item.SourceGeneration &&
 		event["targetGeneration"] == item.TargetGeneration
 }

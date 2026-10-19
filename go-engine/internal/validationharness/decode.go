@@ -531,7 +531,7 @@ func exactEventFields(eventType string, event map[string]any) bool {
 		"artifact":          {"phase", "kind", "path"},
 		"config-resolution": {"captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation"},
 		"config-migration":  {"captureId", "configSetId", "stage", "fromGeneration", "toGeneration", "status", "reason", "message", "remediation"},
-		"restore-item":      {"id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"},
+		"restore-item":      {"id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "label", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"},
 		"consent":           {"backends", "message", "details"},
 		"backup-chunk":      {"chunkIndex", "totalChunks", "encryptedSize", "status", "message", "attempt", "maxAttempts", "current", "total"},
 	}

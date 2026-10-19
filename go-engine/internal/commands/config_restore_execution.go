@@ -774,7 +774,7 @@ func configRestoreResultsForSet(
 		item := restore.RestoreResult{
 			ID:     fmt.Sprintf("config:%s:%06d", set.Source.CaptureID, index),
 			Source: action.Source, Target: action.Target, Status: status, RestoreType: action.Strategy,
-			CaptureID: set.Source.CaptureID, ConfigSetID: set.Source.ConfigSetID,
+			Label: action.Label, CaptureID: set.Source.CaptureID, ConfigSetID: set.Source.ConfigSetID,
 			TargetInstanceID: set.Resolution.TargetInstanceID,
 			SourceGeneration: set.Source.Generation, TargetGeneration: set.Resolution.TargetGeneration,
 		}
@@ -1092,7 +1092,7 @@ func executeLegacyAndOrdinaryConfigRestores(
 				result := restore.RestoreResult{
 					ID: descriptor.ID, Source: descriptor.Source, Target: descriptor.Target,
 					Status: "failed", Error: reason.String(), RestoreType: descriptor.RestoreType,
-					TargetExistedBefore: descriptor.TargetExisted,
+					TargetExistedBefore: descriptor.TargetExisted, Label: descriptor.Label,
 				}
 				ordinary = append(ordinary, result)
 				eventResults = append(eventResults, result)
@@ -1149,7 +1149,7 @@ func emitRestoreActionStarts(
 			ID: descriptor.ID, Module: moduleID, Restorer: descriptor.RestoreType,
 			Source: descriptor.Source, Target: descriptor.Target, Status: events.RestoreItemRestoring,
 			TargetExisted: descriptor.TargetExisted, Message: events.RestoreItemMessage(events.RestoreItemRestoring, options.DryRun),
-			CaptureID: lineage.CaptureID, ConfigSetID: lineage.ConfigSetID,
+			Label: descriptor.Label, CaptureID: lineage.CaptureID, ConfigSetID: lineage.ConfigSetID,
 			TargetInstanceID: lineage.TargetInstanceID, SourceGeneration: lineage.SourceGeneration,
 			TargetGeneration: lineage.TargetGeneration,
 		})
@@ -1180,7 +1180,7 @@ func emitGenerationConfigRestoreStarts(
 			Module: set.Source.ModuleID, Restorer: action.Strategy,
 			Source: action.Source, Target: action.Target, Status: events.RestoreItemRestoring,
 			TargetExisted: targetExisted, Message: events.RestoreItemMessage(events.RestoreItemRestoring, preview),
-			CaptureID: set.Source.CaptureID, ConfigSetID: set.Source.ConfigSetID,
+			Label: action.Label, CaptureID: set.Source.CaptureID, ConfigSetID: set.Source.ConfigSetID,
 			TargetInstanceID: set.Resolution.TargetInstanceID,
 			SourceGeneration: set.Source.Generation, TargetGeneration: set.Resolution.TargetGeneration,
 		})
@@ -1227,7 +1227,7 @@ func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreRe
 			ID: result.ID, Module: moduleID, Restorer: restorer,
 			Source: result.Source, Target: result.Target, Status: status, Reason: reason,
 			BackupPath: backupPath, TargetExisted: result.TargetExistedBefore, Message: message,
-			CaptureID: result.CaptureID, ConfigSetID: result.ConfigSetID,
+			Label: result.Label, CaptureID: result.CaptureID, ConfigSetID: result.ConfigSetID,
 			TargetInstanceID: result.TargetInstanceID, SourceGeneration: result.SourceGeneration,
 			TargetGeneration: result.TargetGeneration,
 		})
@@ -1240,7 +1240,7 @@ func configRestoreEventResultForAction(
 ) restore.RestoreResult {
 	eventResult := restore.RestoreResult{
 		ID: descriptor.ID, Source: descriptor.Source, Target: descriptor.Target,
-		RestoreType: descriptor.RestoreType, TargetExistedBefore: descriptor.TargetExisted,
+		RestoreType: descriptor.RestoreType, TargetExistedBefore: descriptor.TargetExisted, Label: descriptor.Label,
 		Status: "failed", Error: "restore action produced no result",
 	}
 	for index, result := range results {

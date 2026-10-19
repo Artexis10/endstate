@@ -185,6 +185,9 @@ type RestoreItemEvent struct {
 	TargetExisted bool              `json:"targetExisted"`
 	Message       string            `json:"message"`
 
+	// Label is the restore entry's authored reason, a plain description of
+	// what the item restores. It is absent when the entry declares none.
+	Label            string `json:"label,omitempty"`
 	CaptureID        string `json:"captureId,omitempty"`
 	ConfigSetID      string `json:"configSetId,omitempty"`
 	TargetInstanceID string `json:"targetInstanceId,omitempty"`

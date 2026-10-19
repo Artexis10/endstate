@@ -12,6 +12,8 @@ The engine SHALL author each `restore-item` message in plain language from the i
 | `skipped_missing_source` | `Not included in the saved setup` | `Not included in the saved setup` |
 | `failed` | the item's error text | the item's error text |
 
+Each `restore-item` event SHALL carry an optional `label` that holds the restore entry's authored `reason` when the entry declares one, for every restorer type, in a live run and a dry run; the envelope's `restoreItems[]` entry SHALL carry the same `label`.
+
 #### Scenario: A preview never claims a restore
 
 - **WHEN** `apply --enable-restore --dry-run --events jsonl` previews a copy restore whose target would change

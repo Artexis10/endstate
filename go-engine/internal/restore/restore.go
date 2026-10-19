@@ -63,6 +63,9 @@ type RestoreResult struct {
 	TargetInstanceID    string   `json:"targetInstanceId,omitempty"`
 	SourceGeneration    string   `json:"sourceGeneration,omitempty"`
 	TargetGeneration    string   `json:"targetGeneration,omitempty"`
+	// Label is the entry's authored reason, a plain description of what the
+	// item restores. It is empty when the entry declares none.
+	Label string `json:"label,omitempty"`
 }
 
 // RestoreOptions holds configuration for a restore run.
@@ -83,6 +86,7 @@ type ActionDescriptor struct {
 	Target        string
 	RestoreType   string
 	TargetExisted bool
+	Label         string
 }
 
 // DescribeAction performs the same path resolution used by RunRestore so a
@@ -92,7 +96,7 @@ func DescribeAction(action RestoreAction, opts RestoreOptions) ActionDescriptor 
 	if restoreType == "" {
 		restoreType = "copy"
 	}
-	descriptor := ActionDescriptor{ID: generateID(action), RestoreType: restoreType}
+	descriptor := ActionDescriptor{ID: generateID(action), RestoreType: restoreType, Label: action.Reason}
 	if opts.ValidationContext != nil {
 		descriptor.Source = action.Source
 		if restoreType == "registry-set" {
@@ -259,20 +263,25 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		}
 		id := generateID(entry)
 		boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
+		// record labels each result of this entry with the entry's reason,
+		// emits it and collects it.
+		record := func(result RestoreResult) {
+			result.Label = entry.Reason
+			emitRestoreItemEvent(emitter, entry, result)
+			results = append(results, result)
+		}
 
 		// delete-glob: no source path, may produce multiple results.
 		if entry.Type == "delete-glob" {
 			target, resolveErr := legacyValidationBoundary{context: opts.ValidationContext}.resolveHost(entry.Target)
 			if resolveErr != nil {
 				r := projectValidationRestoreResult(&RestoreResult{ID: id, Target: entry.Target, Status: "failed", Error: resolveErr.Error(), RestoreType: "delete-glob"}, entry, opts)
-				emitRestoreItemEvent(emitter, entry, *r)
-				results = append(results, *r)
+				record(*r)
 				continue
 			}
 			if err := boundary.validateConcrete(target); err != nil {
 				r := projectValidationRestoreResult(&RestoreResult{ID: id, Target: target, Status: "failed", Error: err.Error(), RestoreType: "delete-glob"}, entry, opts)
-				emitRestoreItemEvent(emitter, entry, *r)
-				results = append(results, *r)
+				record(*r)
 				continue
 			}
 
@@ -289,8 +298,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 						RestoreType: "delete-glob",
 					}
 					projected := projectValidationRestoreResult(&r, entry, opts)
-					emitRestoreItemEvent(emitter, entry, *projected)
-					results = append(results, *projected)
+					record(*projected)
 					continue
 				}
 				r := RestoreResult{
@@ -301,8 +309,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					RestoreType: "delete-glob",
 				}
 				projected := projectValidationRestoreResult(&r, entry, opts)
-				emitRestoreItemEvent(emitter, entry, *projected)
-				results = append(results, *projected)
+				record(*projected)
 				continue
 			}
 
@@ -315,8 +322,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					Error:  err.Error(),
 				}
 				projected := projectValidationRestoreResult(&r, entry, opts)
-				emitRestoreItemEvent(emitter, entry, *projected)
-				results = append(results, *projected)
+				record(*projected)
 				continue
 			}
 
@@ -324,9 +330,8 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				deleteResults[i].ID = id
 				deleteResults[i].RestoreType = "delete-glob"
 				projectValidationRestoreResult(&deleteResults[i], entry, opts)
-				emitRestoreItemEvent(emitter, entry, deleteResults[i])
+				record(deleteResults[i])
 			}
-			results = append(results, deleteResults...)
 			continue
 		}
 
@@ -336,8 +341,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 			source, resolveErr := resolveRestoreSource(entry.Source, opts)
 			if resolveErr != nil {
 				r := projectValidationRestoreResult(&RestoreResult{ID: id, Source: entry.Source, Target: entry.Target, Status: "failed", Error: resolveErr.Error(), RestoreType: "registry-import"}, entry, opts)
-				emitRestoreItemEvent(emitter, entry, *r)
-				results = append(results, *r)
+				record(*r)
 				continue
 			}
 			result, err := RestoreRegistryImport(entry, source, opts)
@@ -351,8 +355,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					RestoreType: "registry-import",
 				}
 				projected := projectValidationRestoreResult(&r, entry, opts)
-				emitRestoreItemEvent(emitter, entry, *projected)
-				results = append(results, *projected)
+				record(*projected)
 				continue
 			}
 			result.ID = id
@@ -363,8 +366,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				result.Target = entry.Target
 			}
 			result = projectValidationRestoreResult(result, entry, opts)
-			emitRestoreItemEvent(emitter, entry, *result)
-			results = append(results, *result)
+			record(*result)
 			continue
 		}
 
@@ -382,14 +384,12 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					RestoreType: "registry-set",
 				}
 				projected := projectValidationRestoreResult(&r, entry, opts)
-				emitRestoreItemEvent(emitter, entry, *projected)
-				results = append(results, *projected)
+				record(*projected)
 				continue
 			}
 			result.ID = id
 			result = projectValidationRestoreResult(result, entry, opts)
-			emitRestoreItemEvent(emitter, entry, *result)
-			results = append(results, *result)
+			record(*result)
 			continue
 		}
 
@@ -402,15 +402,13 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				cause = targetErr
 			}
 			r := projectValidationRestoreResult(&RestoreResult{ID: id, Source: source, Target: target, Status: "failed", Error: cause.Error(), RestoreType: entry.Type}, entry, opts)
-			emitRestoreItemEvent(emitter, entry, *r)
-			results = append(results, *r)
+			record(*r)
 			continue
 		}
 		if err := boundary.validateConcrete(target); err != nil {
 			r := RestoreResult{ID: id, Source: source, Target: target, Status: "failed", Error: err.Error(), RestoreType: entry.Type}
 			projected := projectValidationRestoreResult(&r, entry, opts)
-			emitRestoreItemEvent(emitter, entry, *projected)
-			results = append(results, *projected)
+			record(*projected)
 			continue
 		}
 
@@ -432,8 +430,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				r.RestoreType = strategyType
 			}
 			projected := projectValidationRestoreResult(&r, entry, opts)
-			emitRestoreItemEvent(emitter, entry, *projected)
-			results = append(results, *projected)
+			record(*projected)
 			continue
 		}
 
@@ -498,8 +495,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		result.Warnings = append(warnings, result.Warnings...)
 
 		result = projectValidationRestoreResult(result, entry, opts)
-		emitRestoreItemEvent(emitter, entry, *result)
-		results = append(results, *result)
+		record(*result)
 	}
 
 	return results, nil

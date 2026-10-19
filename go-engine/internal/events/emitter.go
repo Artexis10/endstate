@@ -284,6 +284,7 @@ type RestoreItemProgress struct {
 	BackupPath       *string
 	TargetExisted    bool
 	Message          string
+	Label            string
 	CaptureID        string
 	ConfigSetID      string
 	TargetInstanceID string
@@ -308,6 +309,7 @@ func (e *Emitter) EmitRestoreItem(progress RestoreItemProgress) {
 		BackupPath:       progress.BackupPath,
 		TargetExisted:    progress.TargetExisted,
 		Message:          progress.Message,
+		Label:            progress.Label,
 		CaptureID:        progress.CaptureID,
 		ConfigSetID:      progress.ConfigSetID,
 		TargetInstanceID: progress.TargetInstanceID,
