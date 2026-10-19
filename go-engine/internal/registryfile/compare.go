@@ -3,11 +3,10 @@
 
 package registryfile
 
-// SameKey reports whether two registry keys name the same key: the hive may be
-// spelled either way that CanonicalHive accepts, and the rest compares as the
-// registry compares names.
+// SameKey reports whether two registry keys name the same key: their
+// CanonicalKey spellings compare as the registry compares names.
 func SameKey(a, b string) bool {
-	return sameName(CanonicalHive(a), CanonicalHive(b))
+	return sameName(CanonicalKey(a), CanonicalKey(b))
 }
 
 // SameValueName reports whether two value names name the same value of one

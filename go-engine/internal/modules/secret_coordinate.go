@@ -24,7 +24,7 @@ const (
 )
 
 // ClassifySecretCoordinate returns the coordinate kind and, for valid registry
-// coordinates, its canonical hive and component spelling.
+// coordinates, its registryfile.CanonicalKey spelling.
 func ClassifySecretCoordinate(authored string) (SecretCoordinateKind, string) {
 	trimmed := strings.TrimSpace(authored)
 	upper := strings.ToUpper(trimmed)
@@ -34,18 +34,11 @@ func ClassifySecretCoordinate(authored string) (SecretCoordinateKind, string) {
 	if trimmed != authored || strings.ContainsRune(authored, '\x00') {
 		return SecretCoordinateRegistryInvalid, ""
 	}
-	for _, hive := range []struct {
-		name, canonical string
-	}{
-		{"HKEY_CURRENT_USER", "HKCU"},
-		{"HKEY_LOCAL_MACHINE", "HKLM"},
-		{"HKCU", "HKCU"},
-		{"HKLM", "HKLM"},
-	} {
-		if !strings.HasPrefix(upper, hive.name) {
+	for _, hive := range []string{"HKEY_CURRENT_USER", "HKEY_LOCAL_MACHINE", "HKCU", "HKLM"} {
+		if !strings.HasPrefix(upper, hive) {
 			continue
 		}
-		remainder := authored[len(hive.name):]
+		remainder := authored[len(hive):]
 		if strings.HasPrefix(remainder, ":") {
 			remainder = remainder[1:]
 		}
@@ -63,14 +56,18 @@ func ClassifySecretCoordinate(authored string) (SecretCoordinateKind, string) {
 				return SecretCoordinateRegistryInvalid, ""
 			}
 		}
-		return SecretCoordinateRegistry, hive.canonical + `\` + strings.Join(components, `\`)
+		// The checks above accept only hive names and separators that
+		// CanonicalKey rewrites, so the canonical form here is the one that
+		// every comparison and every registry read uses.
+		return SecretCoordinateRegistry, registryfile.CanonicalKey(authored)
 	}
 	return SecretCoordinateRegistryInvalid, ""
 }
 
 // RegistrySecretScope is the resolved registry secret boundary of one module.
-// Keys are compared case-insensitively after the hive spelling is
-// canonicalized, so the scope also matches key text read from reg.exe exports.
+// Keys are compared case-insensitively in their registryfile.CanonicalKey
+// spelling, so a "/" alias or a long hive name in a capture key or in reg.exe
+// export text meets the same rule as the declared secret.
 type RegistrySecretScope struct {
 	subtrees []string
 	values   []registrySecretValueRule

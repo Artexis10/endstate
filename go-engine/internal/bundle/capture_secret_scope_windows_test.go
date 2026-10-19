@@ -10,12 +10,16 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
+
+	"golang.org/x/sys/windows/registry"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
@@ -284,6 +288,73 @@ func TestCreateCaptureBundleSkipsContradictoryEntryKeepsOthers(t *testing.T) {
 	}
 	if !warned {
 		t.Fatalf("capture warnings %q do not name the module", result.CaptureWarnings)
+	}
+}
+
+// TestCreateCaptureBundleKeepsSecretsBehindASlashAlias catches a capture key
+// that reaches a declared secret through "/", which the registry reader and
+// the export treat as "\". A secret check on the authored text would miss the
+// secret, and the capture would copy it into the bundle without a warning.
+func TestCreateCaptureBundleKeepsSecretsBehindASlashAlias(t *testing.T) {
+	const sentinel = "SENTINEL-SLASH-ALIAS-SECRET"
+	root := fmt.Sprintf(`Software\Endstate\SecretAliasTest-%d`, time.Now().UnixNano())
+	t.Cleanup(func() {
+		for _, subkey := range []string{root + `\Private`, root} {
+			if err := registry.DeleteKey(registry.CURRENT_USER, subkey); err != nil && !errors.Is(err, registry.ErrNotExist) {
+				t.Errorf("delete scratch key %s: %v", subkey, err)
+			}
+		}
+	})
+	private, _, err := registry.CreateKey(registry.CURRENT_USER, root+`\Private`, registry.SET_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = private.SetStringValue("SessionToken", sentinel)
+	private.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretKey, aliasKey := `HKCU\`+root+`\Private`, `HKCU\`+root+`/Private`
+
+	for _, test := range []struct {
+		name    string
+		secrets modules.SecretsDef
+		capture modules.CaptureDef
+	}{
+		{
+			name:    "a value inside a secret key",
+			secrets: modules.SecretsDef{RegistryKeys: []string{secretKey}},
+			capture: modules.CaptureDef{RegistryValues: []modules.CaptureRegistryValue{{Key: aliasKey, ValueName: "SessionToken"}}},
+		},
+		{
+			name:    "a secret value",
+			secrets: modules.SecretsDef{RegistryValues: []modules.RegistrySecretValue{{Key: secretKey, ValueName: "SessionToken"}}},
+			capture: modules.CaptureDef{RegistryValues: []modules.CaptureRegistryValue{{Key: aliasKey, ValueName: "SessionToken"}}},
+		},
+		{
+			name:    "a whole secret key",
+			secrets: modules.SecretsDef{RegistryKeys: []string{secretKey}},
+			capture: modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{Key: aliasKey, Dest: "apps/example/private.reg"}}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			secrets, capture := test.secrets, test.capture
+			mod := &modules.Module{ID: "apps.example", DisplayName: "Example", Secrets: &secrets, Capture: &capture}
+			dir := t.TempDir()
+			result, err := CreateCaptureBundle(testCaptureBundleRequest(t, dir, []*modules.Module{mod}, nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, data := range readZipEntries(t, filepath.Join(dir, "capture.zip")) {
+				if bytes.Contains(data, []byte(sentinel)) || bytes.Contains(data, utf16Bytes(sentinel)) {
+					t.Errorf("bundle entry %s carries the secret", name)
+				}
+			}
+			if len(result.LegacyModules) != 1 || len(result.LegacyModules[0].Conflicts) != 1 ||
+				!containsString(result.LegacyModules[0].Warnings, RegistrySecretConflictWarning(mod)) {
+				t.Errorf("modules = %+v, want one secret conflict and its warning", result.LegacyModules)
+			}
+		})
 	}
 }
 

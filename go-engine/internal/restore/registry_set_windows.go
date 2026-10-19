@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 	"github.com/Artexis10/endstate/go-engine/internal/registryvalue"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 	"golang.org/x/sys/windows/registry"
@@ -163,13 +164,14 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 
 // splitHKCUKey splits an HKCU key path into the registry.CURRENT_USER hive and
 // the subkey path beneath it. The caller has already validated the HKCU prefix.
+// registryfile.SplitKey gives the same subkey that the registry value reader
+// opens, so restore reads and writes one key.
 func splitHKCUKey(key string) (registry.Key, string, error) {
-	norm := strings.ReplaceAll(key, "/", "\\")
-	idx := strings.Index(norm, "\\")
-	if idx < 0 {
+	_, subkey, found := registryfile.SplitKey(key)
+	if !found {
 		return 0, "", fmt.Errorf("invalid registry key (no subkey): %s", key)
 	}
-	return registry.CURRENT_USER, norm[idx+1:], nil
+	return registry.CURRENT_USER, subkey, nil
 }
 
 // writeRegistryValue creates hive\subkey if needed and writes valueName of the

@@ -29,34 +29,45 @@ func (report FilterReport) Removed() int {
 	return report.KeysRemoved + report.ValuesRemoved
 }
 
-// MatchKey folds a registry key into the form that secret rules match: the
-// hive is spelled HKCU or HKLM, a PowerShell drive colon is dropped, and the
-// text is lower-cased. Lower-casing merges every pair of names that the
+// MatchKey folds a registry key into the form that secret rules match: its
+// CanonicalKey, lower-cased. Lower-casing merges every pair of names that the
 // registry merges and a few that it keeps apart, such as İ and i, so a secret
 // rule can match too much but never too little. SameKey compares keys exactly
 // as the registry does. It does not validate the key.
 func MatchKey(key string) string {
-	return strings.ToLower(CanonicalHive(key))
+	return strings.ToLower(CanonicalKey(key))
 }
 
-// CanonicalHive spells the hive of key as HKCU or HKLM and drops a PowerShell
-// drive colon. The rest of the key stays exactly as written, so the result
-// still opens the same key. It does not validate the key.
-func CanonicalHive(key string) string {
-	upper := strings.ToUpper(key)
-	for _, hive := range []struct{ long, short string }{
-		{"HKEY_CURRENT_USER", "HKCU"}, {"HKEY_LOCAL_MACHINE", "HKLM"},
+// CanonicalKey returns the one spelling of key that Endstate opens and
+// compares. "/" becomes "\", because module coordinates accept "/" as a
+// separator, and the hive is spelled HKCU or HKLM without a PowerShell drive
+// colon. The subkey keeps its case. It does not validate the key.
+//
+// A secret check and a registry read must both use this spelling: a check on
+// the authored text would miss a secret that the read then opens. The "/"
+// rule means that a key whose name contains "/", such as a MIME type key,
+// cannot be addressed.
+func CanonicalKey(key string) string {
+	key = strings.ReplaceAll(key, "/", `\`)
+	// The hive names are fixed by Windows.
+	for _, hive := range []struct{ name, short string }{
+		{"HKEY_CURRENT_USER", "HKCU"}, {"HKEY_LOCAL_MACHINE", "HKLM"}, {"HKCU", "HKCU"}, {"HKLM", "HKLM"},
 	} {
-		if upper == hive.long || strings.HasPrefix(upper, hive.long+`\`) || strings.HasPrefix(upper, hive.long+`:\`) {
-			key = hive.short + key[len(hive.long):]
-			upper = strings.ToUpper(key)
-			break
+		if len(key) < len(hive.name) || !strings.EqualFold(key[:len(hive.name)], hive.name) {
+			continue
+		}
+		if rest := strings.TrimPrefix(key[len(hive.name):], ":"); rest == "" || rest[0] == '\\' {
+			return hive.short + rest
 		}
 	}
-	if strings.HasPrefix(upper, `HKCU:\`) || strings.HasPrefix(upper, `HKLM:\`) {
-		key = key[:4] + key[5:]
-	}
 	return key
+}
+
+// SplitKey splits the CanonicalKey of key at its first separator into the hive
+// and the subkey. The registry value reader and restore open keys through it,
+// so they open the key that the secret check compared.
+func SplitKey(key string) (hive, subkey string, found bool) {
+	return strings.Cut(CanonicalKey(key), `\`)
 }
 
 // FilterSecrets removes every key and value that rules exclude from a reg.exe

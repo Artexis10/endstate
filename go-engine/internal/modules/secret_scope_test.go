@@ -43,6 +43,15 @@ func TestResolveRegistrySecretScope(t *testing.T) {
 			conflicts: []string{"capture.registryKeys[0].key"},
 		},
 		{
+			name:    "a capture that reaches a secret key through a slash alias is a contradiction",
+			secrets: SecretsDef{RegistryKeys: []string{`HKCU\Software\App\Vault`}},
+			capture: CaptureDef{
+				RegistryKeys:   []CaptureRegistryKey{{Key: `HKCU\Software\App/Vault/Cache`}},
+				RegistryValues: []CaptureRegistryValue{{Key: `HKEY_CURRENT_USER/Software/App/Vault`, ValueName: "Token"}},
+			},
+			conflicts: []string{"capture.registryKeys[0].key", "capture.registryValues[0]"},
+		},
+		{
 			name:       "a capture inside a secret key is a contradiction",
 			secrets:    SecretsDef{RegistryKeys: []string{`HKCU\Software\App`}},
 			capture:    CaptureDef{RegistryKeys: []CaptureRegistryKey{{Key: `HKCU\Software\App\Settings`}}},

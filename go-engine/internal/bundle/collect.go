@@ -254,7 +254,9 @@ func collectRegistryKeyCapture(module *modules.Module, stagingDir string, contex
 		if _, conflict := skipped[coordinate]; conflict {
 			continue
 		}
-		exportKey := keyEntry.Key
+		// reg.exe reads "/" as part of a key name, but the secret check reads it
+		// as a separator, so the export opens the key that the check compared.
+		exportKey := registryfile.CanonicalKey(keyEntry.Key)
 		semanticKey := keyEntry.Key
 		if context != nil {
 			var err error
