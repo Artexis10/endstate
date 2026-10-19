@@ -2244,9 +2244,9 @@ func TestExpandPath_BackslashTildeExpandsHome(t *testing.T) {
 	if err != nil {
 		t.Skip("cannot determine home directory")
 	}
-	result := expandPath(`~\AppData\app.ini`)
-	if !strings.HasPrefix(result, homeDir) {
-		t.Errorf("expandPath(%q) = %q, want it under home %q", `~\AppData\app.ini`, result, homeDir)
+	want := homeDir + `\AppData\app.ini`
+	if result := expandPath(`~\AppData\app.ini`); result != want {
+		t.Errorf("expandPath(%q) = %q, want %q", `~\AppData\app.ini`, result, want)
 	}
 }
 
