@@ -330,8 +330,21 @@ jobs:
             if ($parents.Count -ne 3) {
               throw 'pull request checkout must be a two-parent merge commit'
             }
-            if ($parents[1].ToLowerInvariant() -ne $event.pull_request.base.sha.ToLowerInvariant() -or $parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()) {
-              throw 'pull request merge parents do not match event authority'
+            if ($parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()) {
+              throw 'pull request merge head does not match event authority'
+            }
+            # pull_request.base.sha keeps the base the PR was opened on, while the
+            # merge commit's first parent is the base branch tip when GitHub built
+            # it. Require that parent to be on the base branch, so the ledger
+            # authority still comes from a base commit and never from the PR.
+            $baseRef = 'refs/remotes/origin/validation-authority-base'
+            git fetch --no-tags --depth=200 origin "+refs/heads/$($event.pull_request.base.ref):$baseRef"
+            if ($LASTEXITCODE -ne 0) {
+              throw "git fetch of the base branch failed with exit code $LASTEXITCODE"
+            }
+            git merge-base --is-ancestor $parents[1] $baseRef
+            if ($LASTEXITCODE -ne 0) {
+              throw 'pull request merge base parent is not among the last 200 commits of the base branch'
             }
             Extract-BaseAuthority $parents[1]
           } elseif ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main') {
