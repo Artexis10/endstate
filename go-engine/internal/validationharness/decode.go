@@ -604,8 +604,10 @@ func validateEventShape(eventType string, event map[string]any, allowVerifyFailu
 			return bad("config-migration.status", "config-migration event is malformed or failed")
 		}
 	case "restore-item":
+		// A registry-set writes captured data and has no source payload.
+		valueOnly := event["restorer"] == "registry-set"
 		for _, key := range []string{"id", "module", "restorer", "source", "target", "status", "message"} {
-			if !eventString(event, key, key != "message") {
+			if !eventString(event, key, key != "message" && !(key == "source" && valueOnly)) {
 				return bad("restore-item", "restore-item event lacks required string fields")
 			}
 		}

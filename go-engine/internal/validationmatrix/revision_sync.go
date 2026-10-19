@@ -95,24 +95,43 @@ func applyRevisionSyncPlans(repoRoot string, plans []revisionSyncPlan, now time.
 }
 
 func preflightRevisionSync(repoRoot string, now time.Time) ([]revisionSyncPlan, error) {
-	appsRoot, err := safepath.Resolve(repoRoot, "modules/apps")
+	tiers, err := modules.CatalogTierDirs(repoRoot)
 	if err != nil {
-		return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", filepath.Join(repoRoot, "modules", "apps"), "resolve production module catalog", err)
+		return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", filepath.Join(repoRoot, "modules"), "scan production module catalog", err)
 	}
-	info, err := os.Lstat(appsRoot)
+	if len(tiers) == 0 {
+		return nil, validationError(CodeInvalidModuleCatalog, "", filepath.Join(repoRoot, "modules"), "read production module catalog: no catalog tiers")
+	}
+	plans := make([]revisionSyncPlan, 0)
+	seen := make(map[string]string)
+	for _, tier := range tiers {
+		tierPlans, err := preflightTierRevisionSync(repoRoot, tier.Name, seen, now)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, tierPlans...)
+	}
+	return plans, nil
+}
+
+func preflightTierRevisionSync(repoRoot, tier string, seen map[string]string, now time.Time) ([]revisionSyncPlan, error) {
+	tierRoot, err := safepath.Resolve(repoRoot, "modules/"+tier)
+	if err != nil {
+		return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", filepath.Join(repoRoot, "modules", tier), "resolve production module catalog", err)
+	}
+	info, err := os.Lstat(tierRoot)
 	if err != nil || safepath.IsLinkOrReparse(info) || !info.IsDir() {
-		return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", appsRoot, "read production module catalog", err)
+		return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", tierRoot, "read production module catalog", err)
 	}
-	entries, err := os.ReadDir(appsRoot)
+	entries, err := os.ReadDir(tierRoot)
 	if err != nil {
-		return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", appsRoot, "scan production module catalog", err)
+		return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", tierRoot, "scan production module catalog", err)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 
 	plans := make([]revisionSyncPlan, 0)
-	seen := make(map[string]string)
 	for _, entry := range entries {
-		moduleDir := filepath.Join(appsRoot, entry.Name())
+		moduleDir := filepath.Join(tierRoot, entry.Name())
 		entryInfo, err := os.Lstat(moduleDir)
 		if err != nil || safepath.IsLinkOrReparse(entryInfo) {
 			return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", moduleDir, "read production module directory", err)
@@ -120,7 +139,7 @@ func preflightRevisionSync(repoRoot string, now time.Time) ([]revisionSyncPlan, 
 		if !entryInfo.IsDir() {
 			continue
 		}
-		modulePath, err := safepath.Resolve(repoRoot, filepath.ToSlash(filepath.Join("modules", "apps", entry.Name(), "module.jsonc")))
+		modulePath, err := safepath.Resolve(repoRoot, filepath.ToSlash(filepath.Join("modules", tier, entry.Name(), "module.jsonc")))
 		if err != nil {
 			return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", moduleDir, "resolve production module", err)
 		}
@@ -139,7 +158,7 @@ func preflightRevisionSync(repoRoot string, now time.Time) ([]revisionSyncPlan, 
 		mod.Revision = revision
 		mod.FilePath = modulePath
 
-		sidecarPath, err := safepath.Resolve(repoRoot, filepath.ToSlash(filepath.Join("modules", "apps", entry.Name(), "validation.jsonc")))
+		sidecarPath, err := safepath.Resolve(repoRoot, filepath.ToSlash(filepath.Join("modules", tier, entry.Name(), "validation.jsonc")))
 		if err != nil {
 			return nil, validationErrorWithCause(CodeInvalidSidecar, mod.ID, filepath.Join(moduleDir, "validation.jsonc"), "resolve validation sidecar", err)
 		}

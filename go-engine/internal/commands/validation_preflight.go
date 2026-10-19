@@ -117,8 +117,8 @@ func validationModuleAuthorityIsPinned(mod *modules.Module) bool {
 		return false
 	}
 	liveDeclarations, pinnedDeclarations := *mod, *pinned
-	liveDeclarations.FilePath, liveDeclarations.ModuleDir = "", ""
-	pinnedDeclarations.FilePath, pinnedDeclarations.ModuleDir = "", ""
+	liveDeclarations.FilePath, liveDeclarations.ModuleDir, liveDeclarations.Tier = "", "", ""
+	pinnedDeclarations.FilePath, pinnedDeclarations.ModuleDir, pinnedDeclarations.Tier = "", "", ""
 	return reflect.DeepEqual(liveDeclarations, pinnedDeclarations)
 }
 
@@ -281,16 +281,16 @@ func validateValidationManifestContracts(session *ValidationModeSession, mod *mo
 		expectedRestores = projectModuleRestores(mod, legacyLayout, legacyCaptureID)
 	} else if seenModule {
 		projected := projectModuleRestores(mod, validationModuleLayoutID(mod.ID), "")
-		if firstUnexpectedMultisetCoordinate(projected, manifestRestoreKeys(mf.Restore), "restore") == "" {
+		if firstUnexpectedMultisetCoordinate(projected, manifestRestoreKeys(mod, mf.Restore), "restore") == "" {
 			expectedRestores = projected
 		}
 	}
-	if coordinate := firstUnexpectedMultisetCoordinate(expectedRestores, manifestRestoreKeys(mf.Restore), "restore"); coordinate != "" {
+	if coordinate := firstUnexpectedMultisetCoordinate(expectedRestores, manifestRestoreKeys(mod, mf.Restore), "restore"); coordinate != "" {
 		return validationPreflightFailure(session, coordinate, "restore-contract", isolationReasonUnsafePath)
 	}
 
 	expectedVerifies := projectModuleVerifies(mod)
-	if coordinate := firstUnexpectedMultisetCoordinate(expectedVerifies, manifestVerifyKeys(mf.Verify), "verify"); coordinate != "" {
+	if coordinate := firstUnexpectedMultisetCoordinate(expectedVerifies, manifestVerifyKeys(mod, mf.Verify), "verify"); coordinate != "" {
 		return validationPreflightFailure(session, coordinate, "verify-contract", isolationReasonUnsafePath)
 	}
 	return validateValidationConfigCaptures(session, mod, mf, plans, portableRoot)
@@ -303,22 +303,54 @@ func validationModuleDeclaresCaptureOnlyProvenance(mod *modules.Module) bool {
 	return len(mod.Capture.Files)+len(mod.Capture.RegistryKeys)+len(mod.Capture.RegistryValues) > 0
 }
 
-func projectModuleRestores(mod *modules.Module, layoutID, legacyCaptureID string) []string {
-	result := make([]string, 0, len(mod.Restore))
+// validationContractKey is one manifest entry that a module projects. An
+// optional entry is a capture-bound registry value: capture leaves it out when
+// the value was not set on the captured PC.
+type validationContractKey struct {
+	key      string
+	optional bool
+}
+
+func projectModuleRestores(mod *modules.Module, layoutID, legacyCaptureID string) []validationContractKey {
+	result := make([]validationContractKey, 0, len(mod.Restore))
 	for _, value := range mod.Restore {
 		source := value.Source
 		if layoutID != "" {
 			source = projectValidationLegacySource(source, layoutID)
 		}
-		result = append(result, semanticKey(manifest.RestoreEntry{
+		key, bound := restoreContractKey(mod, manifest.RestoreEntry{
 			Type: value.Type, Source: source, Target: value.Target,
 			Pattern: value.Pattern, Reason: value.Reason, Backup: value.Backup,
 			Optional: value.Optional, Exclude: value.Exclude, FromModule: mod.ID,
 			Key: value.Key, ValueName: value.ValueName, ValueType: value.ValueType, Data: value.Data,
 			LegacyCaptureID: legacyCaptureID,
-		}))
+		})
+		result = append(result, validationContractKey{key: key, optional: bound})
 	}
 	return result
+}
+
+// restoreContractKey renders a restore entry for the contract check. A
+// registry-set that names a captured value takes its type and data from
+// capture, so the check compares only where it writes.
+func restoreContractKey(mod *modules.Module, entry manifest.RestoreEntry) (string, bool) {
+	bound := entry.Type == "registry-set" && mod.Capture.CapturesRegistryValue(entry.Key, entry.ValueName)
+	if bound {
+		entry.ValueType, entry.Data = "", ""
+	}
+	return semanticKey(entry), bound
+}
+
+// verifyContractKey renders a verify entry for the contract check. A
+// registry-value-equals that names a captured value takes its type and data
+// from capture and carries its module as provenance.
+func verifyContractKey(mod *modules.Module, entry manifest.VerifyEntry) (string, bool) {
+	bound := entry.Type == "registry-value-equals" && mod.Capture.CapturesRegistryValue(entry.Path, entry.ValueName) &&
+		(entry.FromModule == "" || entry.FromModule == mod.ID)
+	if bound {
+		entry.ValueType, entry.Data, entry.FromModule = "", "", ""
+	}
+	return semanticKey(entry), bound
 }
 
 func validateValidationLegacyLanes(session *ValidationModeSession, mod *modules.Module, mf *manifest.Manifest) (string, string, error) {
@@ -547,29 +579,32 @@ func projectValidationLegacySource(source, layoutID string) string {
 	return "./configs/" + layoutID + "/" + leaf
 }
 
-func manifestRestoreKeys(values []manifest.RestoreEntry) []string {
+func manifestRestoreKeys(mod *modules.Module, values []manifest.RestoreEntry) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
-		result = append(result, semanticKey(value))
+		key, _ := restoreContractKey(mod, value)
+		result = append(result, key)
 	}
 	return result
 }
 
-func projectModuleVerifies(mod *modules.Module) []string {
-	result := make([]string, 0, len(mod.Verify))
+func projectModuleVerifies(mod *modules.Module) []validationContractKey {
+	result := make([]validationContractKey, 0, len(mod.Verify))
 	for _, value := range mod.Verify {
-		result = append(result, semanticKey(manifest.VerifyEntry{
+		key, bound := verifyContractKey(mod, manifest.VerifyEntry{
 			Type: value.Type, Command: value.Command, Path: value.Path,
 			ValueName: value.ValueName, ValueType: value.ValueType, Data: value.Data,
-		}))
+		})
+		result = append(result, validationContractKey{key: key, optional: bound})
 	}
 	return result
 }
 
-func manifestVerifyKeys(values []manifest.VerifyEntry) []string {
+func manifestVerifyKeys(mod *modules.Module, values []manifest.VerifyEntry) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
-		result = append(result, semanticKey(value))
+		key, _ := verifyContractKey(mod, value)
+		result = append(result, key)
 	}
 	return result
 }
@@ -579,18 +614,27 @@ func semanticKey(value any) string {
 	return string(data)
 }
 
-func firstUnexpectedMultisetCoordinate(expected, actual []string, prefix string) string {
-	counts := make(map[string]int, len(expected))
+func firstUnexpectedMultisetCoordinate(expected []validationContractKey, actual []string, prefix string) string {
+	required := make(map[string]int, len(expected))
+	optional := make(map[string]int)
 	for _, value := range expected {
-		counts[value]++
+		if value.optional {
+			optional[value.key]++
+		} else {
+			required[value.key]++
+		}
 	}
 	for index, value := range actual {
-		if counts[value] == 0 {
+		switch {
+		case required[value] > 0:
+			required[value]--
+		case optional[value] > 0:
+			optional[value]--
+		default:
 			return fmt.Sprintf("%s[%d]", prefix, index)
 		}
-		counts[value]--
 	}
-	for _, count := range counts {
+	for _, count := range required {
 		if count != 0 {
 			return prefix
 		}

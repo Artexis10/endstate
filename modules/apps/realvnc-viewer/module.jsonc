@@ -39,14 +39,19 @@
 
   "secrets": {
     "files": [
-      // Saved per-connection passwords are stored encrypted in the registry alongside connection
-      // entries — they must not be auto-restored because the encryption key is machine-bound
-      "HKCU\\Software\\RealVNC\\vncviewer\\*\\Password",
-      "HKCU\\Software\\RealVNC\\vncviewer\\*\\EncryptedPassword"
+      // Saved per-connection passwords are stored encrypted in the registry alongside
+      // connection entries. These string coordinates keep older engines failing
+      // closed on the capture; registryValues below covers every connection key.
+      "HKCU\\Software\\RealVNC\\vncviewer\\Password",
+      "HKCU\\Software\\RealVNC\\vncviewer\\EncryptedPassword"
     ],
-    "warning": "RealVNC Viewer stores per-connection saved passwords as encrypted registry values (Password / EncryptedPassword). The encryption is machine-bound; restoring these values on a different machine renders them unusable or, in some VNC implementations, silently insecure. Do not auto-restore saved credentials — reconnect and re-save passwords after a rebuild.",
+    "registryValues": [
+      { "key": "HKCU\\Software\\RealVNC\\vncviewer", "valueName": "Password", "subkeys": true },
+      { "key": "HKCU\\Software\\RealVNC\\vncviewer", "valueName": "EncryptedPassword", "subkeys": true }
+    ],
+    "warning": "RealVNC Viewer stores per-connection saved passwords as encrypted registry values (Password / EncryptedPassword). The encryption is machine-bound, so Endstate leaves these values out of the capture. Reconnect and re-save passwords after a rebuild.",
     "restorer": "warn-only"
   },
 
-  "notes": "Captures RealVNC Viewer preferences from HKCU\\Software\\RealVNC\\vncviewer (connection book entries, UI/display options, protocol tweaks). Saved per-connection passwords are documented in secrets and excluded from restore. HKCU-only capture; sensitivity medium because the connection book may reference internal hostnames. Confidence: medium — registry path confirmed from public RealVNC documentation and community reports."
+  "notes": "Captures RealVNC Viewer preferences from HKCU\\Software\\RealVNC\\vncviewer (connection book entries, UI/display options, protocol tweaks). Saved per-connection passwords are declared in secrets and filtered out of the capture at every connection key. HKCU-only capture; sensitivity medium because the connection book may reference internal hostnames. Confidence: medium — registry path confirmed from public RealVNC documentation and community reports."
 }

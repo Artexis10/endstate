@@ -22,6 +22,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -102,6 +103,12 @@ type LegacyModuleCaptureResult struct {
 	FilesCaptured   int
 	SecretsExcluded int
 	Status          string
+	// Conflicts are registry capture entries skipped because the module's own
+	// secret declaration contradicts them.
+	Conflicts []modules.RegistryCaptureConflict
+	// Warnings are plain-language notes about settings this capture could not
+	// carry, such as a value that was not set on this PC.
+	Warnings []string
 }
 
 // LegacyCaptureID returns a deterministic, opaque module-scoped identity in a
@@ -246,12 +253,17 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	if strings.TrimSpace(request.ManifestPath) == "" || strings.TrimSpace(request.OutputPath) == "" {
 		return nil, fmt.Errorf("capture bundle: manifestPath and outputPath are required")
 	}
-	selected := append([]*modules.Module(nil), request.Modules...)
-	for _, plan := range request.GenerationPlans {
-		selected = append(selected, plan.Module)
-	}
-	if err := preflightRegistryCaptureBoundaries(selected, request.ValidationContext); err != nil {
-		return nil, err
+	// Validation mode rejects a registry secret contradiction before any I/O.
+	// Production instead filters secrets and skips contradictory entries while
+	// collecting, so one module never fails the whole capture.
+	if request.ValidationContext != nil {
+		selected := append([]*modules.Module(nil), request.Modules...)
+		for _, plan := range request.GenerationPlans {
+			selected = append(selected, plan.Module)
+		}
+		if err := preflightRegistryCaptureBoundaries(selected, request.ValidationContext); err != nil {
+			return nil, err
+		}
 	}
 	if err := validateCaptureModuleIdentities(request.Modules, request.GenerationPlans); err != nil {
 		return nil, err
@@ -348,7 +360,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 
 	verifiedModules := append([]*modules.Module(nil), legacy.capturedModules...)
 	verifiedModules = append(verifiedModules, successfulGenerationModules...)
-	baseManifest.Verify, err = capturedModuleVerifies(verifiedModules)
+	baseManifest.Verify, err = capturedModuleVerifies(verifiedModules, legacy.capturedValues)
 	if err != nil {
 		return nil, err
 	}
@@ -485,10 +497,6 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string, con
 		if errors.As(err, &isolation) {
 			return nil, 0, nil, err
 		}
-		var boundary *registrySecretBoundaryError
-		if errors.As(err, &boundary) {
-			return nil, 0, nil, err
-		}
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()
@@ -618,14 +626,17 @@ type legacyCaptureCollection struct {
 	restores        []manifest.RestoreEntry
 	moduleIDs       []string
 	capturedModules []*modules.Module
-	included        []string
-	skipped         []string
-	warnings        []string
-	modules         []LegacyModuleCaptureResult
+	// capturedValues holds, per captured module ID, the named registry values
+	// read on this PC. Restore and verify entries bind to them.
+	capturedValues map[string][]CapturedRegistryValue
+	included       []string
+	skipped        []string
+	warnings       []string
+	modules        []LegacyModuleCaptureResult
 }
 
 func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string, mixedV2 bool, context *validationmode.Context) (*legacyCaptureCollection, error) {
-	legacy := &legacyCaptureCollection{}
+	legacy := &legacyCaptureCollection{capturedValues: map[string][]CapturedRegistryValue{}}
 	mods := append([]*modules.Module(nil), candidates...)
 	sort.SliceStable(mods, func(left, right int) bool {
 		if mods[left] == nil {
@@ -664,9 +675,6 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			if errors.As(fileErr, &isolation) {
 				return nil, fileErr
 			}
-			if isRegistryCaptureBoundaryFailure(fileErr) {
-				return nil, fileErr
-			}
 			legacy.skipped = append(legacy.skipped, shortID)
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s: %v", mod.ID, fileErr))
 			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
@@ -674,7 +682,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			})
 			continue
 		}
-		registryCollected, registryErr := CollectRegistryKeysWithValidation(mod, workRoot, context)
+		registryKeys, registryErr := collectRegistryKeyCapture(mod, workRoot, context)
 		hadCollectionError := false
 		if registryErr != nil {
 			var isolation *CaptureIsolationError
@@ -682,29 +690,29 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 				_ = os.RemoveAll(workRoot)
 				return nil, registryErr
 			}
-			if isRegistryCaptureBoundaryFailure(registryErr) {
-				_ = os.RemoveAll(workRoot)
-				return nil, registryErr
-			}
 			hadCollectionError = true
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s registry: %v", mod.ID, registryErr))
 		}
-		registryValuesCollected, registryValuesErr := CollectRegistryValuesWithValidation(mod, workRoot, context)
+		registryValues, registryValuesErr := collectRegistryValueCapture(mod, workRoot, context)
 		if registryValuesErr != nil {
 			var isolation *CaptureIsolationError
 			if errors.As(registryValuesErr, &isolation) {
 				_ = os.RemoveAll(workRoot)
 				return nil, registryValuesErr
 			}
-			if isRegistryCaptureBoundaryFailure(registryValuesErr) {
-				_ = os.RemoveAll(workRoot)
-				return nil, registryValuesErr
-			}
 			hadCollectionError = true
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s registry values: %v", mod.ID, registryValuesErr))
 		}
-		collected := append(fileCollected, registryCollected...)
-		collected = append(collected, registryValuesCollected...)
+		secretsExcluded += registryKeys.SecretsExcluded
+		conflicts := append(append([]modules.RegistryCaptureConflict(nil), registryKeys.Conflicts...), registryValues.Conflicts...)
+		var moduleWarnings []string
+		if len(conflicts) > 0 {
+			warning := RegistrySecretConflictWarning(mod)
+			legacy.warnings = append(legacy.warnings, warning)
+			moduleWarnings = append(moduleWarnings, warning)
+		}
+		collected := append(fileCollected, registryKeys.Paths...)
+		collected = append(collected, registryValues.Paths...)
 		if len(collected) == 0 {
 			_ = os.RemoveAll(workRoot)
 			legacy.skipped = append(legacy.skipped, shortID)
@@ -714,6 +722,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			}
 			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
 				ModuleID: mod.ID, Paths: []string{}, SecretsExcluded: secretsExcluded, Status: status,
+				Conflicts: conflicts, Warnings: moduleWarnings,
 			})
 			continue
 		}
@@ -757,22 +766,30 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		}
 		_ = os.RemoveAll(workRoot)
 
+		unbound, unboundWarnings := unboundRegistryRestores(mod, registryValues.Values)
+		moduleWarnings = append(moduleWarnings, unboundWarnings...)
 		legacy.included = append(legacy.included, shortID)
 		legacy.moduleIDs = append(legacy.moduleIDs, mod.ID)
 		legacy.capturedModules = append(legacy.capturedModules, mod)
+		legacy.capturedValues[mod.ID] = registryValues.Values
 		legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
 			ModuleID:        mod.ID,
 			Paths:           rewriteLegacyCollectionPaths(collected, shortID, layoutID),
 			FilesCaptured:   len(collected),
 			SecretsExcluded: secretsExcluded,
 			Status:          LegacyCaptureStatusCaptured,
+			Conflicts:       conflicts,
+			Warnings:        moduleWarnings,
 		})
 		if mixedV2 {
 			legacy.lanes = append(legacy.lanes, manifest.LegacyConfigLane{
 				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: path.Join("configs", layoutID),
 			})
 		}
-		staged = append(staged, stagedLegacyRestores{mod: mod, shortID: shortID, layoutID: layoutID, legacyCaptureID: legacyCaptureID})
+		staged = append(staged, stagedLegacyRestores{
+			mod: mod, shortID: shortID, layoutID: layoutID, legacyCaptureID: legacyCaptureID,
+			values: registryValues.Values, unbound: unbound,
+		})
 	}
 
 	// Capture-time target-collision guard (defense-in-depth behind the
@@ -794,7 +811,13 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			if _, drop := dropSet[restoreIndex]; drop {
 				continue
 			}
+			if _, unbound := stage.unbound[restoreIndex]; unbound {
+				continue
+			}
 			entry := rewriteLegacyRestore(restore, stage.layoutID)
+			if valueType, data, bound := boundRegistryValue(restore, stage.values); bound {
+				entry.ValueType, entry.Data = valueType, data
+			}
 			// Module provenance travels with every bundle, not just mixed-v2 ones.
 			// Restore input building routes an entry with an empty FromModule into
 			// ordinaryRestores, which is converted with an empty filter and is never
@@ -866,6 +889,11 @@ type stagedLegacyRestores struct {
 	shortID         string
 	layoutID        string
 	legacyCaptureID string
+	// values are the named registry values captured for this module.
+	values []CapturedRegistryValue
+	// unbound lists registry-set restore indices that name a captured value
+	// which was absent or of an unsupported type; they are never emitted.
+	unbound map[int]struct{}
 }
 
 // dropLegacyLane removes every trace of a staged module that lost all of its
@@ -928,6 +956,11 @@ func resolveLegacyTargetCollisions(staged []stagedLegacyRestores) (map[string]ma
 	claims := make([]indexedClaim, 0)
 	for stageIndex, stage := range staged {
 		for restoreIndex, restore := range stage.mod.Restore {
+			if _, unbound := stage.unbound[restoreIndex]; unbound {
+				// An entry that will not be emitted claims no target, so it
+				// can never displace another module's captured value.
+				continue
+			}
 			claim, ok := legacyRestoreClaim(restore)
 			if !ok {
 				continue
@@ -1080,7 +1113,10 @@ func projectModuleVerifies(mod *modules.Module) []manifest.VerifyEntry {
 // capturedModuleVerifies accepts only the exact module objects whose payloads
 // made it into the artifact. It never looks a successful ID back up in the
 // broader candidate set, where a foreign duplicate could donate authority.
-func capturedModuleVerifies(capturedModules []*modules.Module) ([]manifest.VerifyEntry, error) {
+// A registry-value-equals entry that names a captured value is bound to the
+// captured type and data, marked with its module, and dropped when the value
+// was absent or has an unsupported type.
+func capturedModuleVerifies(capturedModules []*modules.Module, capturedValues map[string][]CapturedRegistryValue) ([]manifest.VerifyEntry, error) {
 	ordered := append([]*modules.Module(nil), capturedModules...)
 	sort.SliceStable(ordered, func(left, right int) bool {
 		if ordered[left] == nil {
@@ -1108,9 +1144,89 @@ func capturedModuleVerifies(capturedModules []*modules.Module) ([]manifest.Verif
 			continue
 		}
 		seen[mod.ID] = identity
-		projected = append(projected, projectModuleVerifies(mod)...)
+		for index, verify := range projectModuleVerifies(mod) {
+			if verify.Type != "registry-value-equals" {
+				projected = append(projected, verify)
+				continue
+			}
+			definition := mod.Verify[index]
+			if !mod.Capture.CapturesRegistryValue(definition.Path, definition.ValueName) {
+				projected = append(projected, verify)
+				continue
+			}
+			value, captured := findCapturedRegistryValue(capturedValues[mod.ID], definition.Path, definition.ValueName)
+			if !captured || !value.Existed || !manifest.IsRegistrySetValueType(value.ValueType) {
+				continue
+			}
+			verify.ValueType, verify.Data, verify.FromModule = value.ValueType, value.Data, mod.ID
+			projected = append(projected, verify)
+		}
 	}
 	return projected, nil
+}
+
+// RegistrySecretConflictWarning renders the one plain-language warning a
+// module gets when some of its registry entries were skipped.
+func RegistrySecretConflictWarning(mod *modules.Module) string {
+	return fmt.Sprintf("Some %s settings were not captured because the module marks the same registry location as private. The rest of its settings were captured.", captureModuleName(mod))
+}
+
+func captureModuleName(mod *modules.Module) string {
+	if mod == nil {
+		return "app"
+	}
+	if name := strings.TrimSpace(mod.DisplayName); name != "" {
+		return name
+	}
+	return legacyModuleDirName(mod.ID)
+}
+
+func findCapturedRegistryValue(values []CapturedRegistryValue, key, valueName string) (CapturedRegistryValue, bool) {
+	for _, value := range values {
+		if registryfile.MatchKey(value.Key) == registryfile.MatchKey(key) && strings.EqualFold(value.ValueName, valueName) {
+			return value, true
+		}
+	}
+	return CapturedRegistryValue{}, false
+}
+
+// boundRegistryValue returns the captured type and data for a registry-set
+// restore that names a value its module captures.
+func boundRegistryValue(restore modules.RestoreDef, values []CapturedRegistryValue) (string, string, bool) {
+	if restore.Type != "registry-set" {
+		return "", "", false
+	}
+	value, found := findCapturedRegistryValue(values, restore.Key, restore.ValueName)
+	if !found || !value.Existed || !manifest.IsRegistrySetValueType(value.ValueType) {
+		return "", "", false
+	}
+	return value.ValueType, value.Data, true
+}
+
+// unboundRegistryRestores lists the registry-set restores whose captured value
+// cannot be restored, with one plain-language warning for each. A restore
+// that names no captured value keeps its authored type and data.
+func unboundRegistryRestores(mod *modules.Module, values []CapturedRegistryValue) (map[int]struct{}, []string) {
+	unbound := map[int]struct{}{}
+	var warnings []string
+	for index, restore := range mod.Restore {
+		if restore.Type != "registry-set" {
+			continue
+		}
+		if !mod.Capture.CapturesRegistryValue(restore.Key, restore.ValueName) {
+			continue
+		}
+		value, found := findCapturedRegistryValue(values, restore.Key, restore.ValueName)
+		switch {
+		case !found || !value.Existed:
+			unbound[index] = struct{}{}
+			warnings = append(warnings, fmt.Sprintf("%s (%s) is not set on this PC, so restore leaves it unchanged.", restore.ValueName, captureModuleName(mod)))
+		case !manifest.IsRegistrySetValueType(value.ValueType):
+			unbound[index] = struct{}{}
+			warnings = append(warnings, fmt.Sprintf("%s (%s) has type %s, which restore cannot write, so restore leaves it unchanged.", restore.ValueName, captureModuleName(mod), value.ValueType))
+		}
+	}
+	return unbound, warnings
 }
 
 func prepareCaptureManifest(base *manifest.Manifest, version int, captures []manifest.ConfigCapture, legacy *legacyCaptureCollection) {

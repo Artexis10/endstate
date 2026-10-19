@@ -118,22 +118,27 @@ func LoadCatalog(repoRoot string, now time.Time) (*Catalog, error) {
 		records[moduleID] = record
 	}
 
-	appsRoot := filepath.Join(repoRoot, "modules", "apps")
-	entries, readErr := os.ReadDir(appsRoot)
-	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-		return nil, validationErrorWithCause(CodeInvalidSidecar, "", appsRoot, "scan validation sidecars", readErr)
+	tiers, tierErr := modules.CatalogTierDirs(repoRoot)
+	if tierErr != nil {
+		return nil, validationErrorWithCause(CodeInvalidSidecar, "", filepath.Join(repoRoot, "modules"), "scan validation sidecars", tierErr)
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	for _, tier := range tiers {
+		entries, readErr := os.ReadDir(tier.Dir)
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return nil, validationErrorWithCause(CodeInvalidSidecar, "", tier.Dir, "scan validation sidecars", readErr)
 		}
-		dir := filepath.Join(appsRoot, entry.Name())
-		if _, known := moduleDirectories[filepath.Clean(dir)]; known {
-			continue
-		}
-		path := filepath.Join(dir, "validation.jsonc")
-		if _, statErr := os.Stat(path); statErr == nil {
-			return nil, validationError(CodeMismatchedSidecar, "", path, "validation sidecar has no discovered production module")
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			dir := filepath.Join(tier.Dir, entry.Name())
+			if _, known := moduleDirectories[filepath.Clean(dir)]; known {
+				continue
+			}
+			path := filepath.Join(dir, "validation.jsonc")
+			if _, statErr := os.Stat(path); statErr == nil {
+				return nil, validationError(CodeMismatchedSidecar, "", path, "validation sidecar has no discovered production module")
+			}
 		}
 	}
 

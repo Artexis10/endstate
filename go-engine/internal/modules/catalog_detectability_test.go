@@ -105,13 +105,12 @@ func TestValidateModule_CaptureModuleNeedsAConsultedMatcher(t *testing.T) {
 // undetectable — the failure mode reported in Artexis10/endstate#208.
 //
 // Schema-v2 modules are exempt: they are discovered through
-// config.instanceDetectors rather than the matches block.
+// config.instanceDetectors rather than the matches block. Every catalog tier is
+// checked, because a tier the matcher never reaches strands the same way.
 func TestCatalogIntegrity_EveryCaptureModuleIsDetectable(t *testing.T) {
-	root := productionModulesRoot()
-
-	catalog, err := LoadCatalog(root)
+	catalog, err := GetCatalog(productionRepoRoot())
 	if err != nil {
-		t.Fatalf("LoadCatalog: %v", err)
+		t.Fatalf("GetCatalog: %v", err)
 	}
 	if len(catalog) < 70 {
 		t.Fatalf("loaded only %d modules — wrong path or catastrophic catalog loss?", len(catalog))
@@ -120,7 +119,7 @@ func TestCatalogIntegrity_EveryCaptureModuleIsDetectable(t *testing.T) {
 	var undetectable []string
 	for id, mod := range catalog {
 		// Only modules that actually capture something can strand a user.
-		if mod.Capture == nil || (len(mod.Capture.Files) == 0 && len(mod.Capture.RegistryKeys) == 0) {
+		if !mod.Capture.HasCaptureWork() {
 			continue
 		}
 		// The three matchers matchModulesForApps actually consults.

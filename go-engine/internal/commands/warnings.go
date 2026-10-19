@@ -9,13 +9,15 @@ import (
 )
 
 // CommandWarning is a non-fatal, machine-readable command outcome. Driver and
-// Ref are omitted when a warning does not belong to a specific package lane.
+// Ref are omitted when a warning does not belong to a specific package lane;
+// ModuleID is omitted when it does not belong to a specific config module.
 type CommandWarning struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Driver  string `json:"driver,omitempty"`
-	Source  string `json:"source,omitempty"`
-	Ref     string `json:"ref,omitempty"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Driver   string `json:"driver,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Ref      string `json:"ref,omitempty"`
+	ModuleID string `json:"moduleId,omitempty"`
 }
 
 func possibleDuplicatePackageWarnings(routes []*routedDriverApp) []CommandWarning {

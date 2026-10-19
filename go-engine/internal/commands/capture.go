@@ -95,10 +95,13 @@ func (s captureSelection) active() bool {
 
 // parseCaptureOnly splits a --only value into app and module selections.
 //
-// Bare tokens are app IDs; "apps."-prefixed tokens are config module IDs. The
-// prefix is the canonical module ID form throughout the catalog and in a
-// manifest's configModules, and app IDs (produced by wingetIDToManifestID) never
-// contain it, so the two namespaces cannot collide.
+// Tokens without a dot are app IDs; dotted tokens are config module IDs. Every
+// catalog module ID is "<tier>.<dir>" (apps.vscode, windows-settings.explorer),
+// and generated app IDs never contain a dot because wingetIDToManifestID
+// replaces them. An app ID can still carry a dot when it comes from an
+// existing manifest under --update or from another package manager, so
+// validateCaptureOnly moves a dotted token that names a captured app back to
+// the app selection.
 //
 // Note the deliberate asymmetry with --restore-filter, which also accepts a bare
 // short module ID: here bare always means app. Accepting bare module IDs would
@@ -106,13 +109,31 @@ func (s captureSelection) active() bool {
 func parseCaptureOnly(only string) captureSelection {
 	var sel captureSelection
 	for _, token := range parseOnlyIDs(only) {
-		if strings.HasPrefix(token, "apps.") {
+		if strings.Contains(token, ".") {
 			sel.moduleIDs = append(sel.moduleIDs, token)
 			continue
 		}
 		sel.appIDs = append(sel.appIDs, token)
 	}
 	return sel
+}
+
+// claimCapturedAppIDs moves dotted tokens that name a captured app from the
+// module selection to the app selection.
+func (s captureSelection) claimCapturedAppIDs(captured []capturedApp) captureSelection {
+	appIDs := make(map[string]bool, len(captured))
+	for _, app := range captured {
+		appIDs[app.ID] = true
+	}
+	claimed := captureSelection{appIDs: append([]string(nil), s.appIDs...)}
+	for _, id := range s.moduleIDs {
+		if appIDs[id] {
+			claimed.appIDs = append(claimed.appIDs, id)
+			continue
+		}
+		claimed.moduleIDs = append(claimed.moduleIDs, id)
+	}
+	return claimed
 }
 
 // validateCaptureOnly parses and validates --only against the captured app set,
@@ -123,7 +144,7 @@ func validateCaptureOnly(only string, captured []capturedApp) (captureSelection,
 		return captureSelection{}, captured, nil
 	}
 
-	sel := parseCaptureOnly(only)
+	sel := parseCaptureOnly(only).claimCapturedAppIDs(captured)
 
 	if !sel.active() {
 		return sel, nil, envelope.NewError(
@@ -1122,6 +1143,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	if finalization.CatalogUnavailable {
 		warnings = append(warnings, captureCatalogUnavailableWarning())
 	}
+	warnings = append(warnings, finalization.Warnings...)
 
 	// --- 11. Emit artifact and summary events ---
 	emitter.EmitArtifact("capture", "manifest", finalization.OutputPath)

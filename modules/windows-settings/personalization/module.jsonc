@@ -1,12 +1,12 @@
 {
-  // Config Module: Windows Personalization — Dark Mode
+  // Config Module: Windows theme — light or dark mode
   // Value-level Windows OS-settings tier (not a per-app module).
-  // Enables dark mode for apps and the system UI by setting two HKCU DWORDs.
-  // Fully reversible: capture records the prior value; restore backs it up
-  // before overwriting; verify asserts the exact value data.
+  // Captures whether apps and the system UI use the light or dark theme on the
+  // old PC and restores those captured values. Fully reversible: restore backs
+  // up the prior value before overwriting; verify asserts the restored data.
 
   "id": "windows-settings.personalization",
-  "displayName": "Windows Personalization (Dark Mode)",
+  "displayName": "Windows theme: light or dark mode",
   "sensitivity": "low",
 
   "matches": {
@@ -28,24 +28,20 @@
       "type": "registry-set",
       "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
       "valueName": "AppsUseLightTheme",
-      "valueType": "REG_DWORD",
-      "data": "0",
-      "reason": "Enable dark mode for apps"
+      "reason": "Light or dark theme for apps"
     },
     {
       "type": "registry-set",
       "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
       "valueName": "SystemUsesLightTheme",
-      "valueType": "REG_DWORD",
-      "data": "0",
-      "reason": "Enable dark mode for the system UI (taskbar, Start)"
+      "reason": "Light or dark theme for the system UI (taskbar, Start)"
     }
   ],
 
   "verify": [
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "AppsUseLightTheme", "valueType": "REG_DWORD", "data": "0" },
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "SystemUsesLightTheme", "valueType": "REG_DWORD", "data": "0" }
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "AppsUseLightTheme" },
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "SystemUsesLightTheme" }
   ],
 
-  "notes": "Dark mode is controlled by HKCU\\...\\Themes\\Personalize: AppsUseLightTheme=0 (dark apps) and SystemUsesLightTheme=0 (dark system UI). Both are REG_DWORD. Value-level (registry-set), so co-resident values under the same key (e.g. ColorPrevalence, EnableTransparency) are never touched. HKCU-only; fully reversible."
+  "notes": "The theme is controlled by HKCU\\...\\Themes\\Personalize: AppsUseLightTheme (apps) and SystemUsesLightTheme (system UI), REG_DWORD where 1 is light and 0 is dark. Capture records the old PC's values; restore writes them, and a value that was not set on the old PC is not restored. Value-level (registry-set), so co-resident values under the same key (e.g. ColorPrevalence, EnableTransparency) are never touched. HKCU-only; fully reversible."
 }

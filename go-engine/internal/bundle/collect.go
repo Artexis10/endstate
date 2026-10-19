@@ -52,9 +52,14 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, in
 
 // CollectConfigFilesWithValidation preserves the legacy collector contract and
 // virtualizes only host reads and portable staging writes when context is set.
+// Only validation mode rejects a module for its registry secret boundary; in
+// production the registry collectors handle that boundary entry by entry, so
+// it never blocks file capture.
 func CollectConfigFilesWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, int, error) {
-	if err := validateRegistryCaptureBoundary(module); err != nil {
-		return nil, 0, registryCaptureBoundaryFailure(module, context, err)
+	if context != nil {
+		if err := validateRegistryCaptureBoundary(module); err != nil {
+			return nil, 0, registryCaptureBoundaryFailure(module, context, err)
+		}
 	}
 	if module.Capture == nil || len(module.Capture.Files) == 0 {
 		return nil, 0, nil
@@ -181,18 +186,53 @@ func CollectRegistryKeys(module *modules.Module, stagingDir string) ([]string, e
 	return CollectRegistryKeysWithValidation(module, stagingDir, nil)
 }
 
+// RegistryCollection is the outcome of one module's registry capture pass.
+type RegistryCollection struct {
+	// Paths are the portable payload paths written under configs/.
+	Paths []string
+	// Conflicts are entries skipped because the module's own secret
+	// declaration contradicts them. A skipped entry is never exported or read.
+	Conflicts []modules.RegistryCaptureConflict
+	// SecretsExcluded counts secret keys and values filtered out of exports.
+	SecretsExcluded int
+	// Values are the named values read for capture.registryValues, present or
+	// absent, in declaration order.
+	Values []CapturedRegistryValue
+}
+
 // CollectRegistryKeysWithValidation maps only the native reg export argument,
 // then rewrites the disposable physical namespace back to semantic HKCU bytes
 // before publication. A nil context is the established production path.
 func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, error) {
-	if err := validateRegistryCaptureBoundary(module); err != nil {
-		return nil, registryCaptureBoundaryFailure(module, context, err)
+	collection, err := collectRegistryKeyCapture(module, stagingDir, context)
+	return collection.Paths, err
+}
+
+// collectRegistryKeyCapture exports each capture.registryKeys entry. An export
+// whose subtree may hold a declared secret goes to a temporary file outside
+// configs/, is filtered, and only then is written to its payload path. In
+// production a contradictory entry, or an export that cannot be filtered, is
+// skipped and reported; validation mode keeps failing closed.
+func collectRegistryKeyCapture(module *modules.Module, stagingDir string, context *validationmode.Context) (RegistryCollection, error) {
+	var collection RegistryCollection
+	if context != nil {
+		if err := validateRegistryCaptureBoundary(module); err != nil {
+			return collection, registryCaptureBoundaryFailure(module, context, err)
+		}
 	}
 	if runtime.GOOS != "windows" {
-		return nil, nil
+		return collection, nil
 	}
 	if module.Capture == nil || len(module.Capture.RegistryKeys) == 0 {
-		return nil, nil
+		return collection, nil
+	}
+	scope, conflicts := modules.ResolveRegistrySecretScope(module)
+	skipped := make(map[string]struct{}, len(conflicts))
+	for _, conflict := range conflicts {
+		if strings.HasPrefix(conflict.Coordinate, "capture.registryKeys[") {
+			skipped[conflict.Coordinate] = struct{}{}
+			collection.Conflicts = append(collection.Conflicts, conflict)
+		}
 	}
 
 	// Determine the module directory name (strip "apps." prefix if present).
@@ -201,20 +241,22 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 		moduleDirName = moduleDirName[5:]
 	}
 
-	var collected []string
-
 	for index, keyEntry := range module.Capture.RegistryKeys {
+		coordinate := fmt.Sprintf("capture.registryKeys[%d].key", index)
+		if _, conflict := skipped[coordinate]; conflict {
+			continue
+		}
 		exportKey := keyEntry.Key
 		semanticKey := keyEntry.Key
 		if context != nil {
 			var err error
 			semanticKey, err = validationmode.NormalizeHKCU(keyEntry.Key)
 			if err != nil {
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, err)
+				return collection, captureIsolation(module.ID, coordinate, "registry", keyEntry.Key, err)
 			}
 			exportKey, err = context.MapHKCU(semanticKey)
 			if err != nil {
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, err)
+				return collection, captureIsolation(module.ID, coordinate, "registry", keyEntry.Key, err)
 			}
 		}
 		// Dest is relative to the configs/<module>/ staging area.
@@ -225,7 +267,7 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 			var err error
 			destPath, err = resolveCapturePortable(context, module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), stagingDir, relativePath)
 			if err != nil {
-				return collected, err
+				return collection, err
 			}
 		}
 
@@ -233,22 +275,36 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 		destDir := filepath.Dir(destPath)
 		if err := os.MkdirAll(destDir, 0755); err != nil {
 			if context != nil {
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+				return collection, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
 			}
-			return collected, fmt.Errorf("failed to create directory %s: %w", destDir, err)
+			return collection, fmt.Errorf("failed to create directory %s: %w", destDir, err)
 		}
 
+		filter := scope.Intersects(semanticKey)
 		exportDestination := destPath
 		cleanup := func() {}
-		if context != nil {
-			temporary, err := os.CreateTemp(destDir, ".registry-export-*")
+		if context != nil || filter {
+			// Production filtering stages the raw export in the work root, outside
+			// configs/, so an export that cannot be filtered never reaches the
+			// payload tree.
+			temporaryParent := destDir
+			if context == nil {
+				temporaryParent = stagingDir
+			}
+			temporary, err := os.CreateTemp(temporaryParent, ".registry-export-*")
 			if err != nil {
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+				if context != nil {
+					return collection, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+				}
+				return collection, fmt.Errorf("failed to stage registry export for %s: %w", keyEntry.Key, err)
 			}
 			exportDestination = temporary.Name()
 			if err := temporary.Close(); err != nil {
 				_ = os.Remove(exportDestination)
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+				if context != nil {
+					return collection, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+				}
+				return collection, fmt.Errorf("failed to stage registry export for %s: %w", keyEntry.Key, err)
 			}
 			cleanup = func() { _ = os.Remove(exportDestination) }
 		}
@@ -260,30 +316,56 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 				continue
 			}
 			if context != nil {
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+				return collection, captureIsolation(module.ID, coordinate, "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
 			}
-			return collected, fmt.Errorf("reg export failed for key %s: %w", keyEntry.Key, err)
+			return collection, fmt.Errorf("reg export failed for key %s: %w", keyEntry.Key, err)
 		}
 		if context != nil {
 			raw, _, err := safepath.ReadRegularFile(exportDestination)
 			if err != nil {
 				cleanup()
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+				return collection, captureIsolation(module.ID, coordinate, "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
 			}
 			rewritten, err := registryfile.RewriteSubtree(raw, exportKey, semanticKey)
 			cleanup()
 			if err != nil {
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].key", index), "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+				return collection, captureIsolation(module.ID, coordinate, "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+			}
+			if filter {
+				var report registryfile.FilterReport
+				rewritten, report, err = registryfile.FilterSecrets(rewritten, semanticKey, scope)
+				if err != nil {
+					return collection, captureIsolation(module.ID, coordinate, "registry", keyEntry.Key, validationmode.ErrUnsafeRegistry)
+				}
+				collection.SecretsExcluded += report.Removed()
 			}
 			if err := os.WriteFile(destPath, rewritten, 0o644); err != nil {
-				return collected, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
+				return collection, captureIsolation(module.ID, fmt.Sprintf("capture.registryKeys[%d].dest", index), "portable", keyEntry.Dest, validationmode.ErrUnsafePath)
 			}
+		} else if filter {
+			raw, err := os.ReadFile(exportDestination)
+			cleanup()
+			if err != nil {
+				return collection, fmt.Errorf("read registry export for %s: %w", keyEntry.Key, err)
+			}
+			filtered, report, err := registryfile.FilterSecrets(raw, keyEntry.Key, scope)
+			if err != nil {
+				collection.Conflicts = append(collection.Conflicts, modules.RegistryCaptureConflict{
+					ModuleID: module.ID, Coordinate: coordinate, Authored: keyEntry.Key,
+					Reason: "the registry export could not be checked for secrets",
+				})
+				continue
+			}
+			if err := os.WriteFile(destPath, filtered, 0o644); err != nil {
+				return collection, fmt.Errorf("failed to write %s: %w", destPath, err)
+			}
+			collection.SecretsExcluded += report.Removed()
 		}
 
-		collected = append(collected, relativePath)
+		collection.Paths = append(collection.Paths, relativePath)
 	}
 
-	return collected, nil
+	return collection, nil
 }
 
 type registrySecretBoundaryError struct {
@@ -331,6 +413,12 @@ func validateRegistryCaptureBoundary(module *modules.Module) error {
 				return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryValues[%d].key", index), authored: capture.Key}
 			}
 		}
+	}
+	// The checks above are the established validation-mode boundary. A
+	// contradiction that only the value-level secret scope can see rejects the
+	// capture too, so validation never publishes what production would filter.
+	if _, conflicts := modules.ResolveRegistrySecretScope(module); len(conflicts) > 0 {
+		return &registrySecretBoundaryError{coordinate: conflicts[0].Coordinate, authored: conflicts[0].Authored}
 	}
 	return nil
 }
@@ -439,14 +527,34 @@ func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string,
 // CollectRegistryValuesWithValidation reads the mapped physical key but keeps
 // the module-authored semantic key in registry-values.json.
 func CollectRegistryValuesWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, error) {
-	if err := validateRegistryCaptureBoundary(module); err != nil {
-		return nil, registryCaptureBoundaryFailure(module, context, err)
+	collection, err := collectRegistryValueCapture(module, stagingDir, context)
+	return collection.Paths, err
+}
+
+// collectRegistryValueCapture reads each capture.registryValues entry and
+// writes registry-values.json only when at least one value exists, so a
+// module with no value set on this PC captures nothing. In production a value
+// that the module's own secrets contradict is skipped without being read.
+func collectRegistryValueCapture(module *modules.Module, stagingDir string, context *validationmode.Context) (RegistryCollection, error) {
+	var collection RegistryCollection
+	if context != nil {
+		if err := validateRegistryCaptureBoundary(module); err != nil {
+			return collection, registryCaptureBoundaryFailure(module, context, err)
+		}
 	}
 	if runtime.GOOS != "windows" {
-		return nil, nil
+		return collection, nil
 	}
 	if module.Capture == nil || len(module.Capture.RegistryValues) == 0 {
-		return nil, nil
+		return collection, nil
+	}
+	_, conflicts := modules.ResolveRegistrySecretScope(module)
+	skipped := make(map[string]struct{}, len(conflicts))
+	for _, conflict := range conflicts {
+		if strings.HasPrefix(conflict.Coordinate, "capture.registryValues[") {
+			skipped[conflict.Coordinate] = struct{}{}
+			collection.Conflicts = append(collection.Conflicts, conflict)
+		}
 	}
 
 	moduleDirName := module.ID
@@ -454,32 +562,36 @@ func CollectRegistryValuesWithValidation(module *modules.Module, stagingDir stri
 		moduleDirName = moduleDirName[5:]
 	}
 
-	var captured []CapturedRegistryValue
+	present := false
 	for index, ve := range module.Capture.RegistryValues {
+		if _, conflict := skipped[fmt.Sprintf("capture.registryValues[%d]", index)]; conflict {
+			continue
+		}
 		readKey := ve.Key
 		if context != nil {
 			semantic, err := validationmode.NormalizeHKCU(ve.Key)
 			if err != nil {
-				return nil, captureIsolation(module.ID, fmt.Sprintf("capture.registryValues[%d].key", index), "registry", ve.Key, err)
+				return RegistryCollection{}, captureIsolation(module.ID, fmt.Sprintf("capture.registryValues[%d].key", index), "registry", ve.Key, err)
 			}
 			readKey, err = context.MapHKCU(semantic)
 			if err != nil {
-				return nil, captureIsolation(module.ID, fmt.Sprintf("capture.registryValues[%d].key", index), "registry", ve.Key, err)
+				return RegistryCollection{}, captureIsolation(module.ID, fmt.Sprintf("capture.registryValues[%d].key", index), "registry", ve.Key, err)
 			}
 		}
 		valType, data, ok := readRegistryNamedValue(readKey, ve.ValueName)
 		if !ok {
 			if ve.Optional {
-				captured = append(captured, CapturedRegistryValue{
+				collection.Values = append(collection.Values, CapturedRegistryValue{
 					Key:       ve.Key,
 					ValueName: ve.ValueName,
 					Existed:   false,
 				})
 				continue
 			}
-			return nil, fmt.Errorf("registry value not found: %s\\%s (module: %s)", ve.Key, ve.ValueName, module.ID)
+			return RegistryCollection{}, fmt.Errorf("registry value not found: %s\\%s (module: %s)", ve.Key, ve.ValueName, module.ID)
 		}
-		captured = append(captured, CapturedRegistryValue{
+		present = true
+		collection.Values = append(collection.Values, CapturedRegistryValue{
 			Key:       ve.Key,
 			ValueName: ve.ValueName,
 			ValueType: valType,
@@ -488,8 +600,8 @@ func CollectRegistryValuesWithValidation(module *modules.Module, stagingDir stri
 		})
 	}
 
-	if len(captured) == 0 {
-		return nil, nil
+	if !present {
+		return collection, nil
 	}
 
 	destPath := filepath.Join(stagingDir, "configs", moduleDirName, "registry-values.json")
@@ -498,27 +610,28 @@ func CollectRegistryValuesWithValidation(module *modules.Module, stagingDir stri
 		var err error
 		destPath, err = resolveCapturePortable(context, module.ID, "capture.registryValues", stagingDir, relativePath)
 		if err != nil {
-			return nil, err
+			return RegistryCollection{}, err
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		if context != nil {
-			return nil, captureIsolation(module.ID, "capture.registryValues", "portable", relativePath, validationmode.ErrUnsafePath)
+			return RegistryCollection{}, captureIsolation(module.ID, "capture.registryValues", "portable", relativePath, validationmode.ErrUnsafePath)
 		}
-		return nil, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(destPath), err)
+		return RegistryCollection{}, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(destPath), err)
 	}
-	data, err := json.MarshalIndent(captured, "", "  ")
+	data, err := json.MarshalIndent(collection.Values, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal captured registry values: %w", err)
+		return RegistryCollection{}, fmt.Errorf("failed to marshal captured registry values: %w", err)
 	}
 	if err := os.WriteFile(destPath, data, 0644); err != nil {
 		if context != nil {
-			return nil, captureIsolation(module.ID, "capture.registryValues", "portable", relativePath, validationmode.ErrUnsafePath)
+			return RegistryCollection{}, captureIsolation(module.ID, "capture.registryValues", "portable", relativePath, validationmode.ErrUnsafePath)
 		}
-		return nil, fmt.Errorf("failed to write %s: %w", destPath, err)
+		return RegistryCollection{}, fmt.Errorf("failed to write %s: %w", destPath, err)
 	}
 
-	return []string{relativePath}, nil
+	collection.Paths = []string{relativePath}
+	return collection, nil
 }
 
 // readRegistryNamedValue reads a single named value via `reg query <key> /v

@@ -64,6 +64,10 @@ type VerifyFlags struct {
 	Manifest string
 	// Events controls streaming event output. "jsonl" enables it; "" disables.
 	Events string
+	// restoredRegistryValues holds the registry-set targets that the same
+	// run restored (registryfile.MatchKey form). Only rebuild sets it; a
+	// standalone verify restored nothing.
+	restoredRegistryValues map[string]struct{}
 }
 
 // VerifyResult is the data payload for the verify command JSON envelope.
@@ -320,8 +324,9 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	}
 
 	// --- 4. Run manifest verify entries through verifier dispatcher ---
-	if len(mf.Verify) > 0 {
-		verifyResults, verifyErr := runVerifierFn(mf.Verify, currentValidationMode)
+	verifyEntries, notRestored := scopeRestoredVerifies(mf.Verify, flags.restoredRegistryValues)
+	if len(verifyEntries) > 0 {
+		verifyResults, verifyErr := runVerifierFn(verifyEntries, currentValidationMode)
 		if verifyErr != nil {
 			return nil, validationRuntimeIsolationFailure("verify.execution", "verifier", verifyErr)
 		}
@@ -340,6 +345,8 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			results = append(results, item)
 		}
 	}
+	skipCount += len(notRestored)
+	results = append(results, notRestored...)
 
 	total := passCount + failCount + skipCount
 

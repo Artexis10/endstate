@@ -256,14 +256,34 @@ func TestRunCapture_OnlyRejectsUnknownModuleID(t *testing.T) {
 // Token grammar
 // ---------------------------------------------------------------------------
 
+// TestParseCaptureOnly_SplitsAppAndModuleNamespaces catches a module id from a
+// tier other than apps (windows-settings.explorer) being read as an app id,
+// which rejects the selection as an undetected app.
 func TestParseCaptureOnly_SplitsAppAndModuleNamespaces(t *testing.T) {
-	sel := parseCaptureOnly("git-git, apps.vscode ,microsoft-visualstudiocode,apps.git")
+	sel := parseCaptureOnly("git-git, apps.vscode ,microsoft-visualstudiocode,windows-settings.explorer")
 
 	if len(sel.appIDs) != 2 || sel.appIDs[0] != "git-git" || sel.appIDs[1] != "microsoft-visualstudiocode" {
 		t.Errorf("appIDs = %v", sel.appIDs)
 	}
-	if len(sel.moduleIDs) != 2 || sel.moduleIDs[0] != "apps.vscode" || sel.moduleIDs[1] != "apps.git" {
+	if len(sel.moduleIDs) != 2 || sel.moduleIDs[0] != "apps.vscode" || sel.moduleIDs[1] != "windows-settings.explorer" {
 		t.Errorf("moduleIDs = %v", sel.moduleIDs)
+	}
+}
+
+// TestValidateCaptureOnly_DottedCapturedAppStaysAnApp catches the dotted-token
+// rule taking away an app whose id has a dot (a package manager name such as
+// python3.12), which would make that app impossible to select.
+func TestValidateCaptureOnly_DottedCapturedAppStaysAnApp(t *testing.T) {
+	captured := []capturedApp{{ID: "python3.12"}, {ID: "git-git"}}
+	sel, filtered, eerr := validateCaptureOnly("python3.12,windows-settings.explorer", captured)
+	if eerr != nil {
+		t.Fatalf("validateCaptureOnly: %v", eerr)
+	}
+	if len(filtered) != 1 || filtered[0].ID != "python3.12" {
+		t.Errorf("filtered = %+v, want the dotted app", filtered)
+	}
+	if len(sel.moduleIDs) != 1 || sel.moduleIDs[0] != "windows-settings.explorer" {
+		t.Errorf("moduleIDs = %v, want only the module", sel.moduleIDs)
 	}
 }
 

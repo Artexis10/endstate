@@ -10,6 +10,9 @@ package modules
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 )
 
 // Module represents a parsed config module definition from module.jsonc.
@@ -31,6 +34,9 @@ type Module struct {
 	FilePath string `json:"-"`
 	// ModuleDir is the directory containing the module.jsonc file (set at load time).
 	ModuleDir string `json:"-"`
+	// Tier is the catalog tier directory under modules/ that the module was
+	// loaded from, such as "apps" (set at load time).
+	Tier string `json:"-"`
 	// Revision is the SHA-256 hash of the canonical parsed module JSON.
 	Revision string `json:"-"`
 	// Unversioned distinguishes schema-v1 modules from generation-aware modules.
@@ -249,6 +255,27 @@ type CaptureDef struct {
 	ExcludeGlobs   []string               `json:"excludeGlobs,omitempty"`
 }
 
+// HasCaptureWork reports whether the capture declaration names anything to
+// collect: files, whole registry keys, or named registry values.
+func (capture *CaptureDef) HasCaptureWork() bool {
+	return capture != nil && (len(capture.Files) > 0 || len(capture.RegistryKeys) > 0 || len(capture.RegistryValues) > 0)
+}
+
+// CapturesRegistryValue reports whether registryValues names key and
+// valueName. A registry-set restore or registry-value-equals verify that names
+// such a value takes its type and data from capture, not from the module.
+func (capture *CaptureDef) CapturesRegistryValue(key, valueName string) bool {
+	if capture == nil {
+		return false
+	}
+	for _, declared := range capture.RegistryValues {
+		if registryfile.MatchKey(declared.Key) == registryfile.MatchKey(key) && strings.EqualFold(declared.ValueName, valueName) {
+			return true
+		}
+	}
+	return false
+}
+
 // CaptureFile describes a single file mapping for capture operations.
 type CaptureFile struct {
 	Source   string `json:"source"`
@@ -275,9 +302,26 @@ type CaptureRegistryValue struct {
 
 // SecretsDef describes filesystem and registry data that must never be bundled
 // or auto-restored.
+//
+// A registry-shaped string in Files or RegistryKeys excludes both the subtree
+// at that key and the value named by its last component under its parent key.
+// RegistryValues states value-level secrets precisely; older engines ignore it,
+// so a module keeps a string coordinate that an older engine still enforces.
 type SecretsDef struct {
-	Files        []string `json:"files,omitempty"`
-	RegistryKeys []string `json:"registryKeys,omitempty"`
-	Warning      string   `json:"warning,omitempty"`
-	Restorer     string   `json:"restorer,omitempty"`
+	Files          []string              `json:"files,omitempty"`
+	RegistryKeys   []string              `json:"registryKeys,omitempty"`
+	RegistryValues []RegistrySecretValue `json:"registryValues,omitempty"`
+	Warning        string                `json:"warning,omitempty"`
+	Restorer       string                `json:"restorer,omitempty"`
+}
+
+// RegistrySecretValue declares secret registry values. An omitted ValueName
+// means every value directly on Key. Subkeys applies the same value rule at
+// Key and at every key below it. A value name is matched literally and
+// case-insensitively; it has no wildcard syntax because a registry value name
+// may itself contain '*'.
+type RegistrySecretValue struct {
+	Key       string `json:"key"`
+	ValueName string `json:"valueName,omitempty"`
+	Subkeys   bool   `json:"subkeys,omitempty"`
 }

@@ -64,7 +64,7 @@ func hasProductionAppReference(mod *modules.Module) bool {
 }
 
 func moduleHasCapture(mod *modules.Module) bool {
-	return mod.Capture != nil && (len(mod.Capture.Files) > 0 || len(mod.Capture.RegistryKeys) > 0 || len(mod.Capture.RegistryValues) > 0)
+	return mod.Capture.HasCaptureWork()
 }
 
 func everyCaptureHasRestore(mod *modules.Module) bool {

@@ -1,10 +1,10 @@
 {
-  // Config Module: Windows Keyboard — Fast Key Repeat
-  // Value-level Windows OS-settings tier. REG_SZ values under HKCU\Control Panel\Keyboard.
+  // Config Module: Windows keyboard — repeat delay and rate
+  // Value-level Windows OS-settings tier. Values under HKCU\Control Panel\Keyboard.
   // Fully reversible.
 
   "id": "windows-settings.keyboard",
-  "displayName": "Windows Keyboard (Fast Key Repeat)",
+  "displayName": "Windows keyboard: repeat delay and rate",
   "sensitivity": "low",
 
   "matches": {
@@ -20,14 +20,14 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "valueType": "REG_SZ", "data": "0", "reason": "Shortest repeat delay (0 = ~250ms)" },
-    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "valueType": "REG_SZ", "data": "31", "reason": "Fastest repeat rate (31 = ~30 chars/sec)" }
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "reason": "Delay before a held key starts repeating" },
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "reason": "Rate at which a held key repeats" }
   ],
 
   "verify": [
-    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "valueType": "REG_SZ", "data": "0" },
-    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "valueType": "REG_SZ", "data": "31" }
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay" },
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed" }
   ],
 
-  "notes": "Sets the keyboard repeat to the fastest profile: KeyboardDelay=0 (shortest delay before repeat) and KeyboardSpeed=31 (fastest repeat rate) under HKCU\\Control Panel\\Keyboard. Both REG_SZ. A power-user typing preference. HKCU-only; fully reversible (prior values backed up). Applies on next sign-in or SystemParametersInfo refresh."
+  "notes": "Keyboard repeat settings under HKCU\\Control Panel\\Keyboard: KeyboardDelay (0-3, delay before repeat) and KeyboardSpeed (0-31, repeat rate), both REG_SZ on a standard install. Capture records the old PC's values; restore writes them, and a value that was not set on the old PC is not restored. HKCU-only; fully reversible (prior values backed up). Applies on next sign-in or SystemParametersInfo refresh."
 }

@@ -4,6 +4,7 @@
 package bundle
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -35,7 +36,11 @@ func TestRegistryCaptureBoundaryRejectsNamedValueAtOrBelowSecret(t *testing.T) {
 	}
 }
 
-func TestCollectConfigFilesRejectsRegistryBoundaryBeforeStaging(t *testing.T) {
+// TestCollectConfigFilesIgnoresRegistrySecretBoundaryInProduction catches a
+// registry secret declaration, even a malformed one, blocking the file
+// capture of the same module. Production handles the registry boundary in
+// the registry collectors, entry by entry.
+func TestCollectConfigFilesIgnoresRegistrySecretBoundaryInProduction(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "settings.json")
 	if err := os.WriteFile(source, []byte("settings"), 0o600); err != nil {
@@ -45,12 +50,13 @@ func TestCollectConfigFilesRejectsRegistryBoundaryBeforeStaging(t *testing.T) {
 	mod := &modules.Module{ID: "apps.registry-secret", Capture: &modules.CaptureDef{
 		Files:        []modules.CaptureFile{{Source: source, Dest: "apps/registry-secret/settings.json"}},
 		RegistryKeys: []modules.CaptureRegistryKey{{Key: `HKCU\Software\App`, Dest: "settings.reg", Optional: true}},
-	}, Secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\App\Secret`}}}
-	if _, _, err := CollectConfigFiles(mod, staging); !errors.Is(err, validationmode.ErrUnsafeRegistry) {
-		t.Fatalf("CollectConfigFiles() error = %v, want ErrUnsafeRegistry", err)
+	}, Secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\App\Secret`, `HKCU\Software\App\*\Token`}}}
+	collected, _, err := CollectConfigFiles(mod, staging)
+	if err != nil {
+		t.Fatalf("CollectConfigFiles() error = %v, want the file captured", err)
 	}
-	if _, err := os.Stat(filepath.Join(staging, "configs", "registry-secret", "settings.json")); !os.IsNotExist(err) {
-		t.Fatalf("filesystem capture wrote before registry boundary failed: %v", err)
+	if len(collected) != 1 || collected[0] != "configs/registry-secret/settings.json" {
+		t.Fatalf("collected = %v, want the settings file", collected)
 	}
 }
 
@@ -120,11 +126,12 @@ func TestCreateCaptureBundlePreflightsEveryModuleBeforeManifestRead(t *testing.T
 		{name: "unsafe then safe", mods: []*modules.Module{unsafeRegistryBoundaryModule("apps.unsafe"), safeRegistryBoundaryModule("apps.safe")}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			dir := t.TempDir()
-			output := filepath.Join(dir, "capture.zip")
+			context := activeBundleValidationContext(t, "apps.unsafe")
+			output := filepath.Join(context.Root(), "capture.zip")
 			_, err := CreateCaptureBundle(CaptureBundleRequest{
-				ManifestPath: filepath.Join(dir, "missing-manifest.jsonc"), OutputPath: output, Modules: test.mods,
-				OnStage: func(Stage) { t.Fatal("capture stage ran before registry boundary preflight") },
+				ManifestPath: filepath.Join(context.Root(), "missing-manifest.jsonc"), OutputPath: output, Modules: test.mods,
+				OnStage:           func(Stage) { t.Fatal("capture stage ran before registry boundary preflight") },
+				ValidationContext: context,
 			})
 			if !errors.Is(err, validationmode.ErrUnsafeRegistry) {
 				t.Fatalf("CreateCaptureBundle() error = %v, want boundary failure", err)
@@ -146,25 +153,36 @@ func TestCreateCaptureBundlePreflightsSchemaV2RegistrySecretsWithoutLegacyCaptur
 		{name: "malformed registry-shaped legacy file", secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\Example\*`}}, coordinate: "secrets.files[0]"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			// Production: a malformed registry secret on a module that captures
+			// no registry data must not block its file capture.
+			dir := t.TempDir()
+			root := filepath.Join(dir, "instance")
+			writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("settings"))
+			ordinaryPlan := testGenerationCapturePlan(t, "apps.registry-generation", "instance-a", root, false, false)
+			var value map[string]any
+			if err := json.Unmarshal(ordinaryPlan.Module.CanonicalSnapshot(), &value); err != nil {
+				t.Fatal(err)
+			}
+			value["secrets"] = test.secrets
+			data, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ordinaryPlan.Module, err = modules.ParseModuleJSON(data); err != nil {
+				t.Fatal(err)
+			}
+			ordinaryPlan.Set = &ordinaryPlan.Module.Config.Sets[0]
+			ordinaryPlan.Generation = &ordinaryPlan.Set.Generations[0]
+			result, err := CreateCaptureBundle(testCaptureBundleRequest(t, dir, []*modules.Module{ordinaryPlan.Module}, []ConfigSetCapturePlan{ordinaryPlan}))
+			if err != nil || result == nil || len(result.ConfigCaptures) != 1 {
+				t.Fatalf("ordinary CreateCaptureBundle() = %+v, %v; want the file capture", result, err)
+			}
+
 			plan := testGenerationCapturePlan(t, "apps.registry-generation", "instance-a", t.TempDir(), false, false)
 			if plan.Module.Capture != nil {
 				t.Fatal("schema-v2 fixture unexpectedly has a legacy capture declaration")
 			}
 			plan.Module.Secrets = test.secrets
-
-			dir := t.TempDir()
-			output := filepath.Join(dir, "capture.zip")
-			_, err := CreateCaptureBundle(CaptureBundleRequest{
-				ManifestPath: filepath.Join(dir, "missing-manifest.jsonc"), OutputPath: output,
-				GenerationPlans: []ConfigSetCapturePlan{plan},
-				OnStage:         func(Stage) { t.Fatal("capture stage ran before schema-v2 registry preflight") },
-			})
-			if !errors.Is(err, validationmode.ErrUnsafeRegistry) {
-				t.Fatalf("ordinary CreateCaptureBundle() error = %v, want registry boundary failure", err)
-			}
-			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
-				t.Fatalf("ordinary capture output exists after boundary failure: %v", statErr)
-			}
 
 			context := activeBundleValidationContext(t, plan.Module.ID)
 			validationOutput := filepath.Join(context.Root(), "capture.zip")
@@ -184,33 +202,6 @@ func TestCreateCaptureBundlePreflightsSchemaV2RegistrySecretsWithoutLegacyCaptur
 	}
 }
 
-func TestCreateCaptureBundlePropagatesGenerationRegistryBoundaryAfterStageMutation(t *testing.T) {
-	dir := t.TempDir()
-	root := filepath.Join(dir, "instance")
-	writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("settings"))
-	plan := testGenerationCapturePlan(t, "apps.registry-generation", "instance-a", root, false, false)
-	request := testCaptureBundleRequest(t, dir, []*modules.Module{plan.Module}, []ConfigSetCapturePlan{plan})
-	request.OnStage = func(stage Stage) {
-		if stage == StageSettings {
-			plan.Module.Secrets = &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Example\Secret`}}
-			plan.Module.Capture = &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{
-				Key: `HKCU\Software\Example`, Dest: "settings.reg", Optional: true,
-			}}}
-		}
-	}
-
-	result, err := CreateCaptureBundle(request)
-	if !errors.Is(err, validationmode.ErrUnsafeRegistry) {
-		t.Fatalf("CreateCaptureBundle() error = %v, want registry boundary failure", err)
-	}
-	if result != nil {
-		t.Fatalf("CreateCaptureBundle() result = %#v, want no partial result", result)
-	}
-	if _, statErr := os.Stat(request.OutputPath); !os.IsNotExist(statErr) {
-		t.Fatalf("capture output exists after generation boundary failure: %v", statErr)
-	}
-}
-
 func TestCreateCaptureBundleGenerationCaptureWithoutStageCallbackStillSucceeds(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "instance")
@@ -224,25 +215,6 @@ func TestCreateCaptureBundleGenerationCaptureWithoutStageCallbackStillSucceeds(t
 	}
 	if result == nil || len(result.ConfigCaptures) != 1 {
 		t.Fatalf("CreateCaptureBundle() result = %#v, want one generation capture", result)
-	}
-}
-
-func TestRegistryCaptureBoundaryPreflightsSelectedCatalogSecretModules(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "modules", "apps")
-	selected := make([]*modules.Module, 0, 4)
-	for _, name := range []string{"ccleaner", "displayfusion", "revo-uninstaller", "tableplus"} {
-		data, err := os.ReadFile(filepath.Join(root, name, "module.jsonc"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		mod, err := modules.ParseModuleJSON(data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		selected = append(selected, mod)
-	}
-	if err := preflightRegistryCaptureBoundaries(selected, nil); !errors.Is(err, validationmode.ErrUnsafeRegistry) {
-		t.Fatalf("selected registry secret boundary error = %v", err)
 	}
 }
 

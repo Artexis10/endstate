@@ -9,17 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-// registrySetValueTypes is the set of REG_* value types the registry-set
-// restore strategy supports. These cover the Windows OS-settings preference
-// values the seed modules need (DWORDs and string forms); deliberately narrow
-// so the surface stays reversible single-value writes only.
-var registrySetValueTypes = map[string]bool{
-	"REG_DWORD":     true,
-	"REG_SZ":        true,
-	"REG_EXPAND_SZ": true,
-}
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+)
 
 // registrySetBackup is the prior-value record persisted to the backup/journal
 // directory BEFORE a registry-set write, so revert can restore the exact prior
@@ -58,9 +50,8 @@ func validateRegistrySet(entry RestoreAction) error {
 	if strings.TrimSpace(entry.ValueName) == "" {
 		return fmt.Errorf("registry-set requires a non-empty valueName")
 	}
-	vt := strings.ToUpper(strings.TrimSpace(entry.ValueType))
-	if !registrySetValueTypes[vt] {
-		return fmt.Errorf("registry-set unsupported valueType %q (supported: REG_DWORD, REG_SZ, REG_EXPAND_SZ)", entry.ValueType)
+	if !manifest.IsRegistrySetValueType(entry.ValueType) {
+		return fmt.Errorf("registry-set unsupported valueType %q (supported: %s)", entry.ValueType, strings.Join(manifest.RegistrySetValueTypes(), ", "))
 	}
 	return nil
 }
