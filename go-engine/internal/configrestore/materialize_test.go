@@ -47,7 +47,7 @@ func TestMaterializeBuildsDeterministicSnapshotRequiredActionsWithoutMutation(t 
 			{Type: "merge-ini", Source: "merge.ini", Target: instancePath("settings.ini")},
 			{Type: "append", Source: "append.txt", Target: instancePath("lines.txt")},
 			{Type: "delete-glob", Target: instancePath("cache"), Pattern: "*.tmp", Backup: false},
-			{Type: "registry-set", Key: `HKEY_CURRENT_USER/Software/Endstate/Test`, ValueName: "Theme", ValueType: "reg_sz", Data: "dark"},
+			{Type: "registry-set", Key: `HKEY_CURRENT_USER/Software/Endstate/Test`, ValueName: "Theme", ValueType: "reg_sz", Data: "dark", Reason: "Colour theme"},
 		},
 		Validate: []modules.ValidationDef{
 			{Type: "file-exists", Path: "copy.txt"},
@@ -95,7 +95,7 @@ func TestMaterializeBuildsDeterministicSnapshotRequiredActionsWithoutMutation(t 
 	}
 	registry := got.Actions[6].RegistryValue
 	if registry == nil || registry.Key != `HKCU\Software\Endstate\Test` || registry.ValueType != "REG_SZ" ||
-		got.Actions[6].Target != `HKCU\Software\Endstate\Test\Theme` {
+		got.Actions[6].Target != `HKCU\Software\Endstate\Test\Theme` || got.Actions[6].Label != "Colour theme" {
 		t.Errorf("registry action = %#v", got.Actions[6])
 	}
 

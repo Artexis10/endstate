@@ -39,13 +39,16 @@
 
   "secrets": {
     "files": [
-      // TigerVNC can store saved per-server passwords as obfuscated registry values;
-      // the obfuscation is not machine-bound but passwords should not be auto-restored
+      // TigerVNC can store saved per-server passwords as obfuscated registry values.
+      // This string coordinate keeps older engines failing closed on the capture.
       "HKCU\\Software\\TigerVNC\\vncviewer\\Password"
     ],
-    "warning": "TigerVNC Viewer may store a saved VNC password as an obfuscated value under HKCU\\Software\\TigerVNC\\vncviewer\\Password. While TigerVNC uses a fixed XOR obfuscation key (not machine-bound), auto-restoring saved passwords is inadvisable — re-enter the password after a rebuild.",
+    "registryValues": [
+      { "key": "HKCU\\Software\\TigerVNC\\vncviewer", "valueName": "Password" }
+    ],
+    "warning": "TigerVNC Viewer may store a saved VNC password as an obfuscated value under HKCU\\Software\\TigerVNC\\vncviewer\\Password. Endstate leaves that value out of the capture, so re-enter the password after a rebuild.",
     "restorer": "warn-only"
   },
 
-  "notes": "Captures TigerVNC Viewer preferences from HKCU\\Software\\TigerVNC\\vncviewer (connection defaults, display/encoding options, UI behaviour). Saved VNC password is documented in secrets and excluded from auto-restore. HKCU-only capture. Confidence: medium — registry path inferred from TigerVNC source and community reports; no official backup documentation exists."
+  "notes": "Captures TigerVNC Viewer preferences from HKCU\\Software\\TigerVNC\\vncviewer (connection defaults, display/encoding options, UI behaviour). The saved VNC password is declared in secrets and filtered out of the capture. HKCU-only capture. Confidence: medium — registry path inferred from TigerVNC source and community reports; no official backup documentation exists."
 }

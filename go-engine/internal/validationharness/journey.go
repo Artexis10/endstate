@@ -112,6 +112,25 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 				}
 			}
 		}
+		// A captured named value belongs in the bundle, so only the mutated
+		// and unrelated values are forbidden in output.
+		for _, fixtureKey := range runtime.Plan.RegistryValueKeys {
+			add(fixtureKey.Coordinate)
+			for _, key := range fixtureKey.Mutated.Keys() {
+				for _, value := range key.Values {
+					if value.Type == validationmode.RegistryTypeString {
+						add(registryFixtureString(value.Data))
+					}
+				}
+			}
+			for _, key := range fixtureKey.Captured.Keys() {
+				for _, value := range key.Values {
+					if value.Type == validationmode.RegistryTypeString && value.Name == registryUnrelatedValueName {
+						add(registryFixtureString(value.Data))
+					}
+				}
+			}
+		}
 	}
 	if runtime.V2Plan != nil {
 		for _, target := range append(append([]V2FixtureTarget(nil), runtime.V2Plan.CaptureTargets...), runtime.V2Plan.Targets...) {

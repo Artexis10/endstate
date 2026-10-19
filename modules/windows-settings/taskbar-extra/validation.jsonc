@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "windows-settings.taskbar-extra",
+  "moduleRevision": "b15a56b317de8b750ab002080ad2f38348069a3594f211b4602305ecc9f40ed7",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

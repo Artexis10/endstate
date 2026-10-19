@@ -52,9 +52,31 @@ type registryDefinition struct {
 	Target      string
 }
 
+// registryValueDefinition is one capture.registryValues entry and the
+// registry-set restore that writes its captured type and data back.
+type registryValueDefinition struct {
+	Coordinate string
+	Key        string
+	Authored   string
+	ValueName  string
+	Target     string
+	// Absent leaves the value unset at capture, so the fixture proves that
+	// capture records the absence and restore never creates the value.
+	Absent bool
+}
+
 type registryDefinitions struct {
 	Entries []registryDefinition
+	Values  []registryValueDefinition
 }
+
+// registryValuesPayloadName is the payload where capture records a module's
+// named registry values.
+const registryValuesPayloadName = "registry-values.json"
+
+// registryUnrelatedValueName names the value that the fixture seeds beside the
+// captured values. Capture must leave it out and restore must leave it alone.
+const registryUnrelatedValueName = "EndstateValidationUnrelated"
 
 func rejectFlattenedPayloadCollisions(mod *modules.Module, files fixtureDefinitions, registries registryDefinitions) *Failure {
 	if mod == nil {
@@ -75,6 +97,12 @@ func rejectFlattenedPayloadCollisions(mod *modules.Module, files fixtureDefiniti
 		}
 		seenPayloads[payload] = struct{}{}
 	}
+	if len(registries.Values) != 0 {
+		payload := strings.ToLower(v1ArtifactPayloadPath(mod.ID, registryValuesPayloadName))
+		if _, duplicate := seenPayloads[payload]; duplicate {
+			return fail(CodeUnsupportedFixture, "fixture", registries.Values[0].Coordinate, "capture destinations collide after the production flattened payload rewrite")
+		}
+	}
 	return nil
 }
 
@@ -85,11 +113,21 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 	if scenario.Fixture.Type != validationmatrix.FixtureAuto && scenario.Fixture.Type != validationmatrix.FixtureDeclarative {
 		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "fixture.type", "fixture type is unsupported")
 	}
+	scope, conflicts := modules.ResolveRegistrySecretScope(mod)
+	conflicting := make(map[string]struct{}, len(conflicts))
+	for _, conflict := range conflicts {
+		conflicting[conflict.Coordinate] = struct{}{}
+	}
 	registryImports := make(map[int]struct{})
 	for index, restore := range mod.Restore {
 		switch restore.Type {
 		case "registry-set":
-			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry-set restores are unsupported")
+			if restore.Source != "" || restore.Target != "" || restore.Pattern != "" || len(restore.Exclude) != 0 || restore.ValueType != "" || restore.Data != "" {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry-set restore must take its type and data from capture")
+			}
+			if !mod.Capture.CapturesRegistryValue(restore.Key, restore.ValueName) {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry-set restore names no captured registry value")
+			}
 		case "registry-import":
 			if restore.Pattern != "" || restore.Reason != "" || len(restore.Exclude) != 0 || restore.Key != "" || restore.ValueName != "" || restore.ValueType != "" || restore.Data != "" {
 				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import includes fields from another restore strategy")
@@ -112,16 +150,13 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 			registryImports[index] = struct{}{}
 		}
 	}
-	if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
+	if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 && len(mod.Capture.RegistryValues) == 0 {
 		for index := range mod.Restore {
 			if _, registryImport := registryImports[index]; registryImport {
 				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import has no whole-key registry capture")
 			}
 		}
-		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registry", "roundtrip fixture has no whole-key registry capture")
-	}
-	if len(mod.Capture.RegistryValues) != 0 {
-		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registryValues[0]", "named registry values are unsupported")
+		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registry", "roundtrip fixture has no registry capture")
 	}
 
 	canonicalKeys := make([]string, len(mod.Capture.RegistryKeys))
@@ -148,35 +183,11 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture roots overlap")
 			}
 		}
-		if mod.Secrets != nil {
-			for _, declaration := range []struct {
-				coordinate string
-				values     []string
-			}{
-				{coordinate: "secrets.files", values: mod.Secrets.Files},
-				{coordinate: "secrets.registryKeys", values: mod.Secrets.RegistryKeys},
-			} {
-				for secretIndex, secret := range declaration.values {
-					secretCoordinate := fmt.Sprintf("%s[%d]", declaration.coordinate, secretIndex)
-					kind, normalized := modules.ClassifySecretCoordinate(secret)
-					if kind == modules.SecretCoordinateFilesystem {
-						continue
-					}
-					if kind == modules.SecretCoordinateRegistryInvalid {
-						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", secretCoordinate, "registry secret is malformed")
-					}
-					secretKey := normalized
-					if registryKeyContains(key, secretKey) {
-						if strings.EqualFold(key, secretKey) {
-							return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture equals a declared secret")
-						}
-						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture contains a declared secret descendant")
-					}
-					if registryKeyContains(secretKey, key) {
-						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture is contained by a declared secret ancestor")
-					}
-				}
-			}
+		// Production capture filters secrets out of an overlapping export,
+		// so the exported key no longer equals the seeded fixture state.
+		// The exact-state roundtrip cannot prove that key.
+		if _, conflict := conflicting[coordinate+".key"]; conflict || scope.Intersects(capture.Key) {
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture overlaps a declared secret")
 		}
 	}
 
@@ -222,8 +233,82 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", restoreIndex), "registry import is not consumed by a capture")
 		}
 	}
+	values, failure := compileRegistryValueDefinitions(mod, canonicalKeys, conflicting)
+	if failure != nil {
+		return registryDefinitions{}, failure
+	}
+	result.Values = values
 	if failure := rejectFlattenedPayloadCollisions(mod, fixtureDefinitions{}, result); failure != nil {
 		return registryDefinitions{}, failure
+	}
+	return result, nil
+}
+
+// compileRegistryValueDefinitions pairs each captured named value with the one
+// registry-set restore that writes it back. The caller has checked that every
+// registry-set restore names a captured value, so pairing each value with
+// exactly one restore consumes every registry-set restore.
+func compileRegistryValueDefinitions(mod *modules.Module, wholeKeys []string, conflicting map[string]struct{}) ([]registryValueDefinition, *Failure) {
+	var result []registryValueDefinition
+	seen := make(map[string]struct{}, len(mod.Capture.RegistryValues))
+	for index, capture := range mod.Capture.RegistryValues {
+		coordinate := fmt.Sprintf("capture.registryValues[%d]", index)
+		if !capture.Optional {
+			return nil, fail(CodeUnsupportedFixture, "fixture", coordinate, "named registry value capture must be optional")
+		}
+		if strings.ContainsAny(capture.Key, "*?[") {
+			return nil, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "authored registry identity does not support wildcard paths")
+		}
+		key, err := validationmode.NormalizeHKCU(capture.Key)
+		if err != nil {
+			return nil, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "named registry value requires a canonical HKCU key")
+		}
+		if capture.ValueName == "" || strings.EqualFold(capture.ValueName, registryUnrelatedValueName) {
+			return nil, fail(CodeUnsupportedFixture, "fixture", coordinate, "named registry value requires a name the fixture does not reserve")
+		}
+		identity := strings.ToLower(key) + "\x00" + strings.ToLower(capture.ValueName)
+		if _, duplicate := seen[identity]; duplicate {
+			return nil, fail(CodeUnsupportedFixture, "fixture", coordinate, "named registry value is captured more than once")
+		}
+		seen[identity] = struct{}{}
+		for _, root := range wholeKeys {
+			if registryRootsOverlap(key, root) {
+				return nil, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "named registry value overlaps a whole-key registry capture")
+			}
+		}
+		if _, conflict := conflicting[coordinate]; conflict {
+			return nil, fail(CodeUnsupportedFixture, "fixture", coordinate, "named registry value is a declared secret")
+		}
+		var matches []int
+		for restoreIndex, restore := range mod.Restore {
+			if restore.Type != "registry-set" || !strings.EqualFold(restore.ValueName, capture.ValueName) {
+				continue
+			}
+			if target, err := validationmode.NormalizeHKCU(restore.Key); err == nil && strings.EqualFold(target, key) {
+				matches = append(matches, restoreIndex)
+			}
+		}
+		if len(matches) != 1 {
+			return nil, fail(CodeUnsupportedFixture, "fixture", coordinate, "named registry value must map to exactly one registry-set restore")
+		}
+		restore := mod.Restore[matches[0]]
+		result = append(result, registryValueDefinition{
+			Coordinate: coordinate, Key: key, Authored: capture.Key, ValueName: capture.ValueName,
+			Target: restore.Key + `\` + restore.ValueName,
+		})
+	}
+	for index, verifier := range mod.Verify {
+		if verifier.Type != "registry-value-equals" {
+			continue
+		}
+		if verifier.ValueType != "" || verifier.Data != "" || !mod.Capture.CapturesRegistryValue(verifier.Path, verifier.ValueName) {
+			return nil, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("verify[%d]", index), "registry value verifier must assert a captured value")
+		}
+	}
+	// With two or more values, the last one stays unset at capture. One
+	// value must stay present, or the module has nothing to restore.
+	if len(result) >= 2 {
+		result[len(result)-1].Absent = true
 	}
 	return result, nil
 }
@@ -264,7 +349,7 @@ func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validatio
 	}
 	fileRestores := 0
 	for index, restore := range mod.Restore {
-		if allowRegistry && restore.Type == "registry-import" {
+		if allowRegistry && (restore.Type == "registry-import" || restore.Type == "registry-set") {
 			continue
 		}
 		if restore.Type != "copy" && restore.Type != "merge-json" && restore.Type != "merge-ini" ||
@@ -290,7 +375,7 @@ func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validatio
 		}
 		var matches []int
 		for restoreIndex, restore := range mod.Restore {
-			if allowRegistry && restore.Type == "registry-import" {
+			if allowRegistry && (restore.Type == "registry-import" || restore.Type == "registry-set") {
 				continue
 			}
 			if capture.Source == restore.Target && payloadDestination(restore.Source) == catalogPath(capture.Dest) {

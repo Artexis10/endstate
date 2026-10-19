@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "windows-settings.explorer",
+  "moduleRevision": "3a51e8c68804e37892e1ab5d779470226395a2071fe7c8f8459fedae1c4e727f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

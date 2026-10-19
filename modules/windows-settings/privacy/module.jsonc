@@ -1,9 +1,9 @@
 {
-  // Config Module: Windows Privacy — Advertising ID & Start Suggestions Off
+  // Config Module: Windows privacy — advertising ID and Start suggestions
   // Value-level Windows OS-settings tier (not a per-app module). Fully reversible.
 
   "id": "windows-settings.privacy",
-  "displayName": "Windows Privacy (Ad ID & Start Suggestions Off)",
+  "displayName": "Windows privacy: advertising ID and Start suggestions",
   "sensitivity": "low",
 
   "matches": {
@@ -20,16 +20,16 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "valueName": "Enabled", "valueType": "REG_DWORD", "data": "0", "reason": "Disable the per-user advertising ID" },
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SystemPaneSuggestionsEnabled", "valueType": "REG_DWORD", "data": "0", "reason": "Disable Start-menu app/content suggestions" },
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SilentInstalledAppsEnabled", "valueType": "REG_DWORD", "data": "0", "reason": "Disable silently auto-installed promoted apps" }
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "valueName": "Enabled", "reason": "Advertising ID for personalized ads" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SystemPaneSuggestionsEnabled", "reason": "Suggestions in Start" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SilentInstalledAppsEnabled", "reason": "Automatic installs of promoted apps" }
   ],
 
   "verify": [
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "valueName": "Enabled", "valueType": "REG_DWORD", "data": "0" },
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SystemPaneSuggestionsEnabled", "valueType": "REG_DWORD", "data": "0" },
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SilentInstalledAppsEnabled", "valueType": "REG_DWORD", "data": "0" }
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "valueName": "Enabled" },
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SystemPaneSuggestionsEnabled" },
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "valueName": "SilentInstalledAppsEnabled" }
   ],
 
-  "notes": "Privacy toggles under HKCU: AdvertisingInfo\\Enabled=0 turns off the per-user advertising ID; ContentDeliveryManager\\SystemPaneSuggestionsEnabled=0 and SilentInstalledAppsEnabled=0 stop Start-menu suggestions and silently promoted app installs. All REG_DWORD, value-level (registry-set) so co-resident values are never clobbered. HKCU-only; fully reversible (prior values backed up, restore-or-delete on revert)."
+  "notes": "Privacy toggles under HKCU: AdvertisingInfo\\Enabled controls the per-user advertising ID; ContentDeliveryManager\\SystemPaneSuggestionsEnabled and SilentInstalledAppsEnabled control Start-menu suggestions and silently promoted app installs. All REG_DWORD on a standard install. Capture records the old PC's values; restore writes them, and a value that was not set on the old PC is not restored. Value-level (registry-set) so co-resident values are never clobbered. HKCU-only; fully reversible (prior values backed up, restore-or-delete on revert)."
 }

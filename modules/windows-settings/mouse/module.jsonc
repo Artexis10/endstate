@@ -1,10 +1,10 @@
 {
-  // Config Module: Windows Mouse — Disable Pointer Acceleration
-  // Value-level Windows OS-settings tier. REG_SZ values under HKCU\Control Panel\Mouse.
+  // Config Module: Windows mouse — pointer acceleration
+  // Value-level Windows OS-settings tier. Values under HKCU\Control Panel\Mouse.
   // Fully reversible.
 
   "id": "windows-settings.mouse",
-  "displayName": "Windows Mouse (Disable Pointer Acceleration)",
+  "displayName": "Windows mouse: pointer acceleration",
   "sensitivity": "low",
 
   "matches": {
@@ -21,16 +21,16 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseSpeed", "valueType": "REG_SZ", "data": "0", "reason": "Disable pointer acceleration (Enhance pointer precision off)" },
-    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold1", "valueType": "REG_SZ", "data": "0", "reason": "Acceleration threshold 1 off" },
-    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold2", "valueType": "REG_SZ", "data": "0", "reason": "Acceleration threshold 2 off" }
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseSpeed", "reason": "Pointer acceleration (Enhance pointer precision)" },
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold1", "reason": "First pointer acceleration threshold" },
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold2", "reason": "Second pointer acceleration threshold" }
   ],
 
   "verify": [
-    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseSpeed", "valueType": "REG_SZ", "data": "0" },
-    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold1", "valueType": "REG_SZ", "data": "0" },
-    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold2", "valueType": "REG_SZ", "data": "0" }
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseSpeed" },
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold1" },
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold2" }
   ],
 
-  "notes": "Disables Windows mouse pointer acceleration ('Enhance pointer precision') by setting MouseSpeed/MouseThreshold1/MouseThreshold2 to 0 under HKCU\\Control Panel\\Mouse. These are REG_SZ string values. A 1:1 input preference common among gamers and designers. HKCU-only; fully reversible (prior values backed up). Takes effect on next sign-in or SystemParametersInfo refresh."
+  "notes": "Pointer acceleration ('Enhance pointer precision') is controlled by MouseSpeed, MouseThreshold1 and MouseThreshold2 under HKCU\\Control Panel\\Mouse, all REG_SZ on a standard install. Capture records the old PC's values; restore writes them, and a value that was not set on the old PC is not restored. HKCU-only; fully reversible (prior values backed up). Takes effect on next sign-in or SystemParametersInfo refresh."
 }

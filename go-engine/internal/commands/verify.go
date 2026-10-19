@@ -64,6 +64,9 @@ type VerifyFlags struct {
 	Manifest string
 	// Events controls streaming event output. "jsonl" enables it; "" disables.
 	Events string
+	// restoredRegistryValues holds the registry-set values that the same run
+	// restored. Only rebuild sets it; a standalone verify restored nothing.
+	restoredRegistryValues []registryValueIdentity
 }
 
 // VerifyResult is the data payload for the verify command JSON envelope.
@@ -320,8 +323,9 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	}
 
 	// --- 4. Run manifest verify entries through verifier dispatcher ---
-	if len(mf.Verify) > 0 {
-		verifyResults, verifyErr := runVerifierFn(mf.Verify, currentValidationMode)
+	verifyEntries, notRestored := scopeRestoredVerifies(mf.Verify, flags.restoredRegistryValues)
+	if len(verifyEntries) > 0 {
+		verifyResults, verifyErr := runVerifierFn(verifyEntries, currentValidationMode)
 		if verifyErr != nil {
 			return nil, validationRuntimeIsolationFailure("verify.execution", "verifier", verifyErr)
 		}
@@ -340,6 +344,8 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			results = append(results, item)
 		}
 	}
+	skipCount += len(notRestored)
+	results = append(results, notRestored...)
 
 	total := passCount + failCount + skipCount
 
@@ -464,8 +470,9 @@ func resolveAppRef(app manifest.App) string {
 	return manifest.ResolveRef(app, runtime.GOOS)
 }
 
-// buildRunID constructs a simple run identifier for use with the emitter.
-// Format matches envelope.BuildRunID: <command>-YYYYMMDD-HHMMSS.
+// buildRunID constructs the run identifier that a command uses for its
+// events, backups and journals: <command>-<envelope.RunStamp>. It carries no
+// host name, because a capture can be shared with another person.
 func buildRunID(command string) string {
-	return command + "-" + time.Now().UTC().Format("20060102-150405")
+	return command + "-" + envelope.RunStamp(time.Now())
 }

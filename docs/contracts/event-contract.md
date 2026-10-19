@@ -2,7 +2,7 @@
 
 **Status:** Locked
 **Version:** 1
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-10-19
 
 ## Purpose
 
@@ -44,7 +44,7 @@ Every event **MUST** include:
 | Field | Type | Description |
 |-------|------|-------------|
 | `version` | integer | Event schema version (always `1` for this contract) |
-| `runId` | string | Run identifier (e.g., `"apply-20250101-120000-MACHINE"`) |
+| `runId` | string | Run identifier, unique per run (e.g., `"apply-20250101-120000-123-9f3a1c2e"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
 | `event` | string | Event type: `"phase"`, `"progress"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"`, `"config-resolution"`, `"config-migration"` |
 
@@ -261,7 +261,7 @@ Tracks progress of individual restore actions during apply with `--EnableRestore
   "reason": null,
   "backupPath": "C:\\endstate\\state\\backups\\20250101-120000\\...",
   "targetExisted": true,
-  "message": "restored successfully"
+  "message": "Settings restored"
 }
 ```
 
@@ -273,14 +273,25 @@ Tracks progress of individual restore actions during apply with `--EnableRestore
 - `target` (string, required): System target path
 - `status` (string, required): One of:
   - `"restoring"` - In progress
-  - `"restored"` - Successfully restored
-  - `"skipped_up_to_date"` - Target already matches source
-  - `"skipped_missing_source"` - Source file not found
-  - `"failed"` - Restore failed
-- `reason` (string | null, required): Reason for skip/failure, or null
+  - `"restored"` - The action changed the target. In a dry run, the action would change the target and nothing was changed.
+  - `"skipped_up_to_date"` - The target already has the desired state, so nothing needed to change. An optional `delete-glob` action whose target directory is absent reports this status, because there is nothing to delete.
+  - `"skipped_missing_source"` - An optional input is not included in the saved setup.
+  - `"failed"` - The action could not complete. A required input that the saved setup does not include fails with the message "The saved setup does not include this required file."; `source` carries the path.
+- `reason` (string | null, required): Reason for skip/failure, or null. The codes are `already_up_to_date`, `source_missing`, and `restore_failed`.
 - `backupPath` (string | null, required): Path to backup if created, or null
 - `targetExisted` (boolean, required): Whether the target file existed before restore
-- `message` (string, required): Human-readable message
+- `message` (string, required): Plain-language message that the engine authors from the status and the run's dry-run flag. A dry run changes nothing, so its messages say what would happen and never claim a restore:
+
+  | Status | Live run | Dry run |
+  |--------|----------|---------|
+  | `restoring` | `Restoring settings` | `Checking settings` |
+  | `restored` | `Settings restored` | `Would restore settings` |
+  | `skipped_up_to_date` | `Already up to date` | `Already up to date` |
+  | `skipped_missing_source` | `Not included in the saved setup` | `Not included in the saved setup` |
+  | `failed` | the item's error text | the item's error text |
+
+  Consumers map an item by `status` and `reason`, and may show `message` as secondary text. The status vocabulary and the reason codes did not change, so this needs no version bump.
+- `label` (string, optional): The authored `reason` text of the restore entry in its module or manifest, for example `"Keyboard repeat delay"`. It is not the event's `reason` code. The engine sets it for every restorer type when the entry declares a reason, on the `restoring` event and the terminal event, in a live run and a dry run. It is absent when the entry declares none. A consumer may show `label` as the item's name instead of `target`. This optional field needs no version bump.
 - `captureId` (string, optional): Owning generation-aware config capture
 - `configSetId` (string, optional): Owning config set
 - `targetInstanceId` (string, optional): Selected target instance

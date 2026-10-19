@@ -444,4 +444,8 @@ type VerifyEntry struct {
 	ValueName string `json:"valueName,omitempty"`
 	ValueType string `json:"valueType,omitempty"`
 	Data      string `json:"data,omitempty"`
+	// FromModule marks an assertion whose expected data came from capture. It
+	// holds only after that module's restore wrote the value, so verify
+	// evaluates it only when the same run restored the value.
+	FromModule string `json:"fromModule,omitempty"`
 }

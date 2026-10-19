@@ -165,6 +165,43 @@ func TestRestoreRegistrySet_SetsValueAndBacksUp(t *testing.T) {
 	}
 }
 
+// Run IDs have one-second resolution, so two runs in one second share a backup
+// directory. If the second run reuses the first run's backup path, it
+// overwrites the first run's prior-value record: reverting the first run then
+// restores the wrong value, and the config-restore store rejects the shared
+// backup.
+func TestRestoreRegistrySet_SharedBackupDirKeepsEachRunsPriorValue(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("registry operations require Windows")
+	}
+	cleanupScratchKey(t)
+	defer cleanupScratchKey(t)
+
+	backupDir := t.TempDir()
+	entry := RestoreAction{Type: "registry-set", Key: scratchKey, ValueName: "RepeatDelay", ValueType: "REG_DWORD", Data: "1"}
+	first, err := RestoreRegistrySet(entry, RestoreOptions{BackupDir: backupDir})
+	if err != nil || first.Status != "restored" || !first.BackupCreated {
+		t.Fatalf("first restore = %+v, err=%v", first, err)
+	}
+	entry.Data = "2"
+	second, err := RestoreRegistrySet(entry, RestoreOptions{BackupDir: backupDir})
+	if err != nil || second.Status != "restored" || !second.BackupCreated {
+		t.Fatalf("second restore = %+v, err=%v", second, err)
+	}
+
+	if first.BackupPath == second.BackupPath {
+		t.Fatalf("both runs share backup path %q", first.BackupPath)
+	}
+	firstBackup, err := readRegistrySetBackup(first.BackupPath)
+	if err != nil || firstBackup.Existed {
+		t.Fatalf("first run's backup = %+v, err=%v; want the value recorded as absent", firstBackup, err)
+	}
+	secondBackup, err := readRegistrySetBackup(second.BackupPath)
+	if err != nil || !secondBackup.Existed || secondBackup.PriorData != "1" {
+		t.Fatalf("second run's backup = %+v, err=%v; want prior data 1", secondBackup, err)
+	}
+}
+
 func TestRestoreRegistrySet_DryRunMakesNoChange(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("registry operations require Windows")

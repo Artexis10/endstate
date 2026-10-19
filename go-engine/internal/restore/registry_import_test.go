@@ -447,36 +447,38 @@ func TestRestoreRegistryImport_NonExistentSourceFails(t *testing.T) {
 	if result.Status != "failed" {
 		t.Errorf("expected status=failed, got %q", result.Status)
 	}
-	if !strings.Contains(result.Error, "source not found") {
-		t.Errorf("expected error to contain 'source not found', got: %q", result.Error)
+	if result.Error != requiredSourceMissingMessage {
+		t.Errorf("error = %q, want the plain required-source message", result.Error)
 	}
 }
 
-func TestRestoreRegistryImport_DryRun(t *testing.T) {
+// TestRestoreRegistryImport_DryRunWritesNoBackup catches a preview that exports
+// the existing key into the backup root before it checks for dry-run.
+func TestRestoreRegistryImport_DryRunWritesNoBackup(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("registry operations require Windows")
 	}
-
-	tmp := t.TempDir()
-	regFile := filepath.Join(tmp, "test.reg")
-
-	// Write a minimal valid .reg file.
-	regContent := "Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\EndstateTest\\DryRun]\r\n"
-	if err := os.WriteFile(regFile, []byte(regContent), 0644); err != nil {
-		t.Fatalf("failed to create temp reg file: %v", err)
+	root := t.TempDir()
+	source := filepath.Join(root, "settings.reg")
+	if err := os.WriteFile(source, []byte("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\Vendor\\Preview]\r\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
+	registryImportQueryNative = func(string) (bool, error) { return true, nil }
+	registryImportExportNative = func(_ string, path string) error { return os.WriteFile(path, []byte("prior"), 0o600) }
+	registryImportApplyNative = func(string) error { t.Fatal("dry-run imported the registry file"); return nil }
+	t.Cleanup(func() {
+		registryImportQueryNative, registryImportExportNative, registryImportApplyNative = originalQuery, originalExport, originalImport
+	})
+	backupDir := filepath.Join(root, "backups")
 
-	entry := RestoreAction{
-		Type:   "registry-import",
-		Source: regFile,
-		Target: `HKCU\Software\EndstateTest\DryRun`,
+	result, err := RestoreRegistryImport(
+		RestoreAction{Type: "registry-import", Source: source, Target: `HKCU\Software\Vendor\Preview`, Backup: true},
+		source, RestoreOptions{DryRun: true, BackupDir: backupDir, RunID: "preview-run"})
+	if err != nil || result.Status != "restored" || result.BackupCreated {
+		t.Fatalf("dry-run result = %+v, %v", result, err)
 	}
-
-	result, err := RestoreRegistryImport(entry, regFile, RestoreOptions{DryRun: true})
-	if err != nil {
-		t.Fatalf("unexpected error return: %v", err)
-	}
-	if result.Status != "restored" {
-		t.Errorf("expected status=restored for dry-run, got %q", result.Status)
+	if _, err := os.Stat(backupDir); !os.IsNotExist(err) {
+		t.Fatalf("dry-run created the backup root: %v", err)
 	}
 }

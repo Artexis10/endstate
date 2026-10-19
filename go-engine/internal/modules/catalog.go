@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -46,7 +47,14 @@ func LoadCatalog(modulesRoot string) (map[string]*Module, error) {
 // LoadCatalogWithDiagnostics loads the same backward-compatible catalog as
 // LoadCatalog and also returns a structured diagnostic for every skipped
 // module. A missing modulesRoot retains the historical empty-catalog behavior.
+// A directory loaded on its own is the apps tier.
 func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []CatalogDiagnostic, error) {
+	return LoadTierCatalogWithDiagnostics(modulesRoot, AppsTier)
+}
+
+// LoadTierCatalogWithDiagnostics loads one catalog tier directory and marks
+// every module it loads with that tier.
+func LoadTierCatalogWithDiagnostics(modulesRoot, tier string) (map[string]*Module, []CatalogDiagnostic, error) {
 	catalog := make(map[string]*Module)
 	var diagnostics []CatalogDiagnostic
 
@@ -76,7 +84,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 
 		mod, err := ParseModuleJSON(data)
 		if err != nil {
-			moduleID, wingetRefs, chocolateyRefs, detectors, associationUnknown := catalogDiagnosticIdentity(data, entry.Name())
+			moduleID, wingetRefs, chocolateyRefs, detectors, associationUnknown := catalogDiagnosticIdentity(data, tier, entry.Name())
 			diagnostics = append(diagnostics, CatalogDiagnostic{
 				Code:               DiagnosticInvalidJSON,
 				Severity:           "error",
@@ -124,6 +132,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 		// Set metadata fields.
 		mod.FilePath = moduleFile
 		mod.ModuleDir = filepath.Dir(moduleFile)
+		mod.Tier = tier
 
 		catalog[mod.ID] = mod
 	}
@@ -131,7 +140,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 	return catalog, diagnostics, nil
 }
 
-func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []string, []string, []InstanceDetectorDef, bool) {
+func catalogDiagnosticIdentity(data []byte, tier, directoryName string) (string, []string, []string, []InstanceDetectorDef, bool) {
 	type diagnosticConfigIdentity struct {
 		InstanceDetectors []InstanceDetectorDef `json:"instanceDetectors"`
 	}
@@ -140,7 +149,7 @@ func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []str
 		Matches MatchCriteria             `json:"matches"`
 		Config  *diagnosticConfigIdentity `json:"config"`
 	}{}
-	moduleID := "apps." + directoryName
+	moduleID := tier + "." + directoryName
 	if err := json.Unmarshal(manifest.StripJsoncComments(data), &identity); err != nil {
 		return moduleID, nil, nil, nil, true
 	}
@@ -180,18 +189,87 @@ func diagnosticInstanceDetectors(mod *Module) []InstanceDetectorDef {
 	return append([]InstanceDetectorDef(nil), mod.Config.InstanceDetectors...)
 }
 
-// GetCatalog resolves the modules directory as repoRoot/modules/apps and
-// calls LoadCatalog.
-func GetCatalog(repoRoot string) (map[string]*Module, error) {
-	modulesDir := filepath.Join(repoRoot, "modules", "apps")
-	return LoadCatalog(modulesDir)
+// AppsTier is the catalog tier whose modules configure installed
+// applications. Other tiers, such as Windows settings, carry configuration
+// that is not an application.
+const AppsTier = "apps"
+
+// CatalogTier is one directory under repoRoot/modules that holds module
+// directories. Its name is the tier of every module loaded from it.
+type CatalogTier struct {
+	Name string
+	Dir  string
 }
 
-// GetCatalogWithDiagnostics resolves the production catalog directory and
-// returns structured skip diagnostics.
+// CatalogTierDirs lists every tier directory under repoRoot/modules in name
+// order. Files directly under modules/ are not tiers. A missing modules
+// directory yields no tiers, which keeps the historical empty-catalog result.
+func CatalogTierDirs(repoRoot string) ([]CatalogTier, error) {
+	modulesRoot := filepath.Join(repoRoot, "modules")
+	entries, err := os.ReadDir(modulesRoot)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	tiers := make([]CatalogTier, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			tiers = append(tiers, CatalogTier{Name: entry.Name(), Dir: filepath.Join(modulesRoot, entry.Name())})
+		}
+	}
+	sort.Slice(tiers, func(left, right int) bool { return tiers[left].Name < tiers[right].Name })
+	return tiers, nil
+}
+
+// GetCatalog loads every catalog tier under repoRoot/modules and prints a
+// warning for each module it skips.
+func GetCatalog(repoRoot string) (map[string]*Module, error) {
+	catalog, diagnostics, err := GetCatalogWithDiagnostics(repoRoot)
+	for _, diagnostic := range diagnostics {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", diagnostic.Message)
+	}
+	return catalog, err
+}
+
+// GetCatalogWithDiagnostics loads every catalog tier under repoRoot/modules
+// into one catalog and returns structured skip diagnostics. A module ID that
+// an earlier tier already loaded is skipped with a duplicate diagnostic.
 func GetCatalogWithDiagnostics(repoRoot string) (map[string]*Module, []CatalogDiagnostic, error) {
-	modulesDir := filepath.Join(repoRoot, "modules", "apps")
-	return LoadCatalogWithDiagnostics(modulesDir)
+	catalog := make(map[string]*Module)
+	var diagnostics []CatalogDiagnostic
+	tiers, err := CatalogTierDirs(repoRoot)
+	if err != nil {
+		return catalog, diagnostics, nil
+	}
+	for _, tier := range tiers {
+		tierCatalog, tierDiagnostics, err := LoadTierCatalogWithDiagnostics(tier.Dir, tier.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		diagnostics = append(diagnostics, tierDiagnostics...)
+		moduleIDs := make([]string, 0, len(tierCatalog))
+		for moduleID := range tierCatalog {
+			moduleIDs = append(moduleIDs, moduleID)
+		}
+		sort.Strings(moduleIDs)
+		for _, moduleID := range moduleIDs {
+			mod := tierCatalog[moduleID]
+			if _, exists := catalog[moduleID]; exists {
+				diagnostics = append(diagnostics, CatalogDiagnostic{
+					Code: DiagnosticDuplicateModuleID, Severity: "error", ModuleID: moduleID, FilePath: mod.FilePath,
+					Message:           fmt.Sprintf("duplicate config module id %q found at %s, skipping", moduleID, mod.FilePath),
+					WingetRefs:        append([]string(nil), mod.Matches.Winget...),
+					ChocolateyRefs:    append([]string(nil), mod.Matches.Chocolatey...),
+					InstanceDetectors: diagnosticInstanceDetectors(mod),
+				})
+				continue
+			}
+			catalog[moduleID] = mod
+		}
+	}
+	return catalog, diagnostics, nil
 }
 
 // validateModule checks that a module has all required fields.
@@ -230,7 +308,7 @@ func validateModule(mod *Module, filePath string) error {
 		return validationError(mod, filePath, DiagnosticInvalidID, "matches must have at least one of: winget, chocolatey, exe, uninstallDisplayName, pathExists")
 	}
 
-	capturesSomething := mod.Capture != nil && (len(mod.Capture.Files) > 0 || len(mod.Capture.RegistryKeys) > 0)
+	capturesSomething := mod.Capture.HasCaptureWork()
 	restoresSomething := len(mod.Restore) > 0
 
 	if (capturesSomething || restoresSomething) && !hasWinget && !hasChocolatey && !hasPathExists && !hasDetectors {

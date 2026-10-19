@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "windows-settings.personalization",
+  "moduleRevision": "9e4eca26d92c2c1a748d25832ccb16bb0efce9d1fae59dea09de74d88f41595e",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

@@ -23,8 +23,10 @@ var (
 	stableIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	appIDPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 	kebabPattern    = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
-	modulePattern   = regexp.MustCompile(`^apps\.[a-z0-9]+(?:-[a-z0-9]+)*$`)
-	tokenPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+/-]*$`)
+	// A module ID is <tier>.<name>: the catalog tier directory under modules/
+	// (apps, windows-settings) and the module name, both kebab-case.
+	modulePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	tokenPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+/-]*$`)
 )
 
 // Descriptor is the data-only authority for one validation scenario.

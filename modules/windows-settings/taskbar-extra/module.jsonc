@@ -1,10 +1,10 @@
 {
-  // Config Module: Windows Taskbar Extras — Search Icon, No Task View, Clock Seconds
-  // Value-level Windows OS-settings tier. REG_DWORDs under the Search and Explorer\Advanced keys.
+  // Config Module: Windows taskbar — search, Task View and clock seconds
+  // Value-level Windows OS-settings tier. Values under the Search and Explorer\Advanced keys.
   // Fully reversible (absent values are created, then deleted on revert).
 
   "id": "windows-settings.taskbar-extra",
-  "displayName": "Windows Taskbar Extras (Search Icon, No Task View, Clock Seconds)",
+  "displayName": "Windows taskbar: search, Task View and clock seconds",
   "sensitivity": "low",
 
   "matches": {
@@ -21,16 +21,16 @@
   },
 
   "restore": [
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search", "valueName": "SearchboxTaskbarMode", "valueType": "REG_DWORD", "data": "1", "reason": "Collapse the taskbar search box to a search icon" },
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowTaskViewButton", "valueType": "REG_DWORD", "data": "0", "reason": "Hide the Task View button" },
-    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowSecondsInSystemClock", "valueType": "REG_DWORD", "data": "1", "reason": "Show seconds in the system-tray clock" }
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search", "valueName": "SearchboxTaskbarMode", "reason": "Search on the taskbar" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowTaskViewButton", "reason": "Task View button on the taskbar" },
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowSecondsInSystemClock", "reason": "Seconds in the system-tray clock" }
   ],
 
   "verify": [
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search", "valueName": "SearchboxTaskbarMode", "valueType": "REG_DWORD", "data": "1" },
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowTaskViewButton", "valueType": "REG_DWORD", "data": "0" },
-    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowSecondsInSystemClock", "valueType": "REG_DWORD", "data": "1" }
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search", "valueName": "SearchboxTaskbarMode" },
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowTaskViewButton" },
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "ShowSecondsInSystemClock" }
   ],
 
-  "notes": "Taskbar/clock tweaks (all REG_DWORD): SearchboxTaskbarMode=1 collapses the search box to an icon (Search key); ShowTaskViewButton=0 hides Task View; ShowSecondsInSystemClock=1 shows clock seconds (both under Explorer\\Advanced). Value-level (registry-set) so co-resident Advanced values are never clobbered. HKCU-only; fully reversible. A running Explorer may need a restart to reflect the change."
+  "notes": "Taskbar and clock preferences, all REG_DWORD on a standard install: SearchboxTaskbarMode (Search key) selects how the taskbar shows search; ShowTaskViewButton and ShowSecondsInSystemClock (Explorer\\Advanced) control the Task View button and clock seconds. Capture records the old PC's values; restore writes them, and a value that was not set on the old PC is not restored. Value-level (registry-set) so co-resident Advanced values are never clobbered. HKCU-only; fully reversible. A running Explorer may need a restart to reflect the change."
 }

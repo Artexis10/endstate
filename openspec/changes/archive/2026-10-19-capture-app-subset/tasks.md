@@ -51,9 +51,13 @@
 
 - [ ] 6.1 `appsIncluded[].id` is the package ref while `--only` matches the manifest app id, so
       capture output does not show the selectable token. Close before surfacing the flag in a UI.
-- [ ] 6.2 Bundle restore entries still carry no `fromModule`, so `--restore-filter` remains a
+- [x] 6.2 Bundle restore entries still carry no `fromModule`, so `--restore-filter` remains a
       silent no-op on bundles. Re-verify against the current `config_restore_execution` session
       layer before designing a fix — the restore path was rearchitected.
+      Resolved (checked 2026-10-19): capture sets `fromModule` on every bundle restore entry
+      (`bundle/capture_bundle.go`), restore input building groups those entries into module
+      lanes that `--restore-filter` and `--only` select (`commands/config_restore_inputs.go`),
+      and `TestBundleRestoreEntries_RouteToScopableLanes` covers the routing.
 - [ ] 6.3 Dead flags `--discover` and `--minimize` are parsed, stored, and never read, yet
       advertised in capabilities and the contract. Reclassify as documented deprecated no-ops
       (the repo already has that pattern for `--include-store-apps`) rather than removing them

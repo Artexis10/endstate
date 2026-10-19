@@ -197,8 +197,11 @@ type captureConfigFinalization struct {
 	ConfigsSkipped       []string
 	ConfigsCaptureErrors []string
 	CaptureWarnings      []string
-	ConfigCapture        CaptureConfigSummary
-	SensitiveExcluded    int
+	// Warnings are structured module warnings the caller appends to
+	// data.warnings.
+	Warnings          []CommandWarning
+	ConfigCapture     CaptureConfigSummary
+	SensitiveExcluded int
 	// CatalogUnavailable reports that no repo root resolved, so no config module
 	// catalog could be reached and this capture carries apps without their
 	// settings. Callers surface it as a warning: losing the settings is the
@@ -553,6 +556,7 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		ConfigsSkipped:       skipped,
 		ConfigsCaptureErrors: captureErrors,
 		CaptureWarnings:      nonNilCommandStrings(bundleResult.CaptureWarnings),
+		Warnings:             captureSecretScopeWarnings(planning, bundleResult),
 		ConfigCapture:        configSummary,
 		SensitiveExcluded:    sensitiveExcluded,
 		CatalogUnavailable:   prepared.CatalogUnavailable,
@@ -786,9 +790,11 @@ func buildCaptureModuleResults(planning captureConfigPlanning, result *bundle.Ca
 	for _, mod := range planning.Modules {
 		paths := []string{}
 		filesCaptured := 0
+		var warnings []string
 		status := CaptureConfigStatusSkipped
 		if legacyResult, exists := legacy[mod.ID]; exists {
 			paths = append(paths, legacyResult.Paths...)
+			warnings = legacyResult.Warnings
 			filesCaptured += legacyResult.FilesCaptured
 			sensitiveExcluded += legacyResult.SecretsExcluded
 			switch legacyResult.Status {
@@ -822,7 +828,7 @@ func buildCaptureModuleResults(planning captureConfigPlanning, result *bundle.Ca
 		}
 		moduleResults = append(moduleResults, CaptureModuleResult{
 			ID: mod.ID, AppID: shortID, DisplayName: mod.DisplayName, WingetRefs: safeStringSlice(mod.Matches.Winget), ChocolateyRefs: safeStringSlice(mod.Matches.Chocolatey),
-			Paths: uniqueSortedStrings(paths), FilesCaptured: filesCaptured, Status: status,
+			Paths: uniqueSortedStrings(paths), FilesCaptured: filesCaptured, Status: status, Warnings: warnings,
 		})
 	}
 	for _, legacyResult := range result.LegacyModules {
@@ -841,6 +847,33 @@ func buildCaptureModuleResults(planning captureConfigPlanning, result *bundle.Ca
 	sort.Strings(skipped)
 	sort.Strings(errors)
 	return moduleResults, included, skipped, errors, sensitiveExcluded
+}
+
+// captureSecretScopeWarnings gives each module that had registry capture
+// entries skipped for overlapping its own declared secrets one structured
+// warning, so a consumer can tell which module lost which settings.
+func captureSecretScopeWarnings(planning captureConfigPlanning, result *bundle.CaptureBundleResult) []CommandWarning {
+	byID := make(map[string]*modules.Module, len(planning.Modules))
+	for _, mod := range planning.Modules {
+		byID[mod.ID] = mod
+	}
+	var warnings []CommandWarning
+	for _, legacyResult := range result.LegacyModules {
+		if len(legacyResult.Conflicts) == 0 {
+			continue
+		}
+		mod := byID[legacyResult.ModuleID]
+		if mod == nil {
+			mod = &modules.Module{ID: legacyResult.ModuleID}
+		}
+		warnings = append(warnings, CommandWarning{
+			Code:     "config_secret_scope_conflict",
+			Message:  bundle.RegistrySecretConflictWarning(mod),
+			ModuleID: legacyResult.ModuleID,
+		})
+	}
+	sort.Slice(warnings, func(left, right int) bool { return warnings[left].ModuleID < warnings[right].ModuleID })
+	return warnings
 }
 
 func portableSourceInstance(instance modules.ConfigInstance) manifest.ConfigSourceInstance {

@@ -203,7 +203,7 @@ func TestCapturedModuleVerifiesIncludesSuccessfulLegacyAndGenerationLanes(t *tes
 	legacy := &modules.Module{ID: "apps.legacy", Verify: []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Legacy\settings.json`}}}
 	generation := &modules.Module{ID: "apps.generation", Verify: []modules.VerifyDef{{Type: "command-exists", Command: "generation-app"}}}
 
-	projected, err := capturedModuleVerifies([]*modules.Module{legacy, generation})
+	projected, err := capturedModuleVerifies([]*modules.Module{legacy, generation}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

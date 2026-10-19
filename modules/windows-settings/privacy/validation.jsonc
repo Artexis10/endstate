@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "windows-settings.privacy",
+  "moduleRevision": "e20182f8f202da7043432332ef03155e7373049c5a58de344a3619485c504aeb",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

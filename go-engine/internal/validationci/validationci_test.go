@@ -221,8 +221,8 @@ func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Rows) != 362 {
-		t.Fatalf("production plan rows = %d, want 362", len(plan.Rows))
+	if len(plan.Rows) != 370 {
+		t.Fatalf("production plan rows = %d, want 370", len(plan.Rows))
 	}
 	shards := make([][]ShardRow, ShardCount)
 	for _, row := range plan.Rows {
@@ -255,8 +255,8 @@ func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
 			t.Fatalf("shard %d serialized to %d bytes, exceeds %d", shard, len(data), maxResultSize)
 		}
 	}
-	if assignedRows != 362 {
-		t.Fatalf("assigned rows = %d, want 362", assignedRows)
+	if assignedRows != len(plan.Rows) {
+		t.Fatalf("assigned rows = %d, want %d", assignedRows, len(plan.Rows))
 	}
 	headroom := maxResultSize - maximum
 	if headroom < 4*1024 {

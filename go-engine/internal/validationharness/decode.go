@@ -531,7 +531,7 @@ func exactEventFields(eventType string, event map[string]any) bool {
 		"artifact":          {"phase", "kind", "path"},
 		"config-resolution": {"captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation"},
 		"config-migration":  {"captureId", "configSetId", "stage", "fromGeneration", "toGeneration", "status", "reason", "message", "remediation"},
-		"restore-item":      {"id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"},
+		"restore-item":      {"id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "label", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"},
 		"consent":           {"backends", "message", "details"},
 		"backup-chunk":      {"chunkIndex", "totalChunks", "encryptedSize", "status", "message", "attempt", "maxAttempts", "current", "total"},
 	}
@@ -604,8 +604,10 @@ func validateEventShape(eventType string, event map[string]any, allowVerifyFailu
 			return bad("config-migration.status", "config-migration event is malformed or failed")
 		}
 	case "restore-item":
+		// A registry-set writes captured data and has no source payload.
+		valueOnly := event["restorer"] == "registry-set"
 		for _, key := range []string{"id", "module", "restorer", "source", "target", "status", "message"} {
-			if !eventString(event, key, key != "message") {
+			if !eventString(event, key, key != "message" && !(key == "source" && valueOnly)) {
 				return bad("restore-item", "restore-item event lacks required string fields")
 			}
 		}

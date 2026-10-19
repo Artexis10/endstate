@@ -200,8 +200,10 @@ func CollectConfigSetWithValidation(plan ConfigSetCapturePlan, stagingRoot strin
 	if plan.Module == nil || plan.Set == nil || plan.Generation == nil || plan.Module.ID == "" || plan.Set.ID == "" || plan.Generation.ID == "" || plan.Instance.ID == "" {
 		return nil, captureError(ConfigCaptureInvalidPlan, "module, set, generation, and instance identities are required")
 	}
-	if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
-		return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
+	if context != nil {
+		if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
+			return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
+		}
 	}
 	if err := validateConfigSetCapturePlan(plan); err != nil {
 		return nil, err
@@ -358,12 +360,15 @@ func moduleMatchesPinnedSnapshot(mod *modules.Module) bool {
 	// those loader fields before comparing the complete declarative snapshot.
 	pinned.FilePath = mod.FilePath
 	pinned.ModuleDir = mod.ModuleDir
+	pinned.Tier = mod.Tier
 	return reflect.DeepEqual(pinned, mod)
 }
 
 func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Context) (*configCopyPreflight, error) {
-	if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
-		return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
+	if context != nil {
+		if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
+			return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
+		}
 	}
 	capture := plan.Generation.Capture
 	excludeGlobs := capture.ExcludeGlobs

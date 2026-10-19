@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "inventory": {
-    "moduleCount": 359,
-    "scenarioCount": 362,
-    "sha256": "89b55c32dcc63084d5e615609ba43f6333d8359d6894141055fc6edd2116811b",
+    "moduleCount": 367,
+    "scenarioCount": 370,
+    "sha256": "df8d91c2aa25d2550d4e6d8b1c53333f5e84696227be3d90d3c1e6a4f8114b78",
     "rows": [
       {
         "moduleId": "apps.3ds-max",
@@ -1814,6 +1814,46 @@
         "moduleId": "apps.zoxide",
         "scenarioId": "default-v1",
         "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.explorer",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.explorer-launch",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.keyboard",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.mouse",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.personalization",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.privacy",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.taskbar",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "windows-settings.taskbar-extra",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
       }
     ]
   },
@@ -2337,35 +2377,6 @@
         "phase": "fixture",
         "coordinate": "operations",
         "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
-      },
-      "detail": "Recorded from protected-main run 30770992696."
-    },
-    {
-      "identity": {
-        "moduleId": "apps.displayfusion",
-        "scenarioId": "default-v1",
-        "kind": "config-roundtrip-v1"
-      },
-      "previousEvidence": {
-        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
-        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
-        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
-        "row": {
-          "moduleId": "apps.displayfusion",
-          "moduleRevision": "bdc0ca066851a07f35b10fa7250084ff1ed262af54649cd049a1407deaea2f6d",
-          "scenarioId": "default-v1",
-          "scenarioKind": "config-roundtrip-v1",
-          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
-          "shard": 3,
-          "rowSha256": "f19708a8c1bc4e51afbd02340026d270cbecbe930c2a615b53e745cb65ebddea"
-        }
-      },
-      "failure": {
-        "schemaVersion": 1,
-        "code": "unsupported_fixture",
-        "phase": "fixture",
-        "coordinate": "capture.registryKeys[0].key",
-        "sha256": "5b2a718f41d32237ea8ab0a60d64493cddf6c7687ed2e7a83646113f03f54457"
       },
       "detail": "Recorded from protected-main run 30770992696."
     },

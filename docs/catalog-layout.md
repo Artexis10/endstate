@@ -43,6 +43,7 @@ Endstate organizes configuration portability through three artifact types:
 - Source paths are relative and portable
 - Target paths are absolute system paths
 - Modules do not execute directly; they are referenced by manifests or bundles
+- A restore entry's optional `reason` is shown to users as the label of its restore item. Name the setting in plain words and keep it short, about 50 characters at most, for example "Keyboard repeat delay". Do not state a value, an encoding or a direction. Restore writes the value captured on the old PC, so a label that states a value can contradict what happened.
 - Each production module has a sibling `validation.jsonc` with its canonical
   `moduleRevision` pin. Use `endstate-validation sync-revisions --repo <path>`
   to check drift; `--write` is required to repair that pin.

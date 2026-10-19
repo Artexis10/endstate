@@ -8,6 +8,7 @@ package envelope
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"time"
 )
@@ -37,7 +38,7 @@ type TestModeIdentity struct {
 
 // BuildRunID returns a run identifier in the format:
 //
-//	<command>-YYYYMMDD-HHMMSS-<HOSTNAME>
+//	<command>-<RunStamp>-<HOSTNAME>
 //
 // If os.Hostname() fails, "unknown" is used for the hostname segment.
 func BuildRunID(command string, t time.Time) string {
@@ -45,7 +46,18 @@ func BuildRunID(command string, t time.Time) string {
 	if err != nil || hostname == "" {
 		hostname = "unknown"
 	}
-	return fmt.Sprintf("%s-%s-%s", command, t.UTC().Format("20060102-150405"), hostname)
+	return fmt.Sprintf("%s-%s-%s", command, RunStamp(t), hostname)
+}
+
+// RunStamp returns the part of a run identifier that makes it unique:
+// YYYYMMDD-HHMMSS-mmm-<8 hex digits>, in UTC. Every run identifier gets it
+// from here. Two commands that start in the same second must not share an
+// identifier, because backups, journals and event logs are keyed by it; the
+// random digits keep them apart. The milliseconds keep the identifiers of one
+// command in start order when they are sorted as text.
+func RunStamp(t time.Time) string {
+	t = t.UTC()
+	return fmt.Sprintf("%s-%03d-%08x", t.Format("20060102-150405"), t.Nanosecond()/int(time.Millisecond), rand.Uint32())
 }
 
 // NewSuccess builds an Envelope representing a successful command result.

@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Version:** 1.0
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-10-19
 
 ## Purpose
 
@@ -79,6 +79,9 @@ Instead, `registry-set`:
 1. Records the prior value — its `REG_*` type and data, or the fact that it was
    absent — to `state/backups/<runID>/` **before** any write. This backup is
    mandatory and unconditional (it is not gated on a `backup: true` flag).
+   When the prior value cannot be read, `registry-set` records no backup and
+   writes nothing; the item is `failed` in a live run and in a preview alike.
+   The same holds when the prior value has a type outside the supported set.
 2. Skips the write only when the named value already equals the desired
    type+data (idempotency); in that case no backup is written because nothing
    changes.
@@ -99,7 +102,7 @@ Each restore entry emits a result with:
 |-------|------|-------------|
 | `source` | string | Source path in bundle |
 | `target` | string | Target path on system |
-| `action` | string | `restored`, `skipped_exists`, `skipped_up_to_date`, `skipped_missing_source`, `failed` |
+| `status` | string | `restored`, `skipped_up_to_date`, `skipped_missing_source`, or `failed`. `cli-json-contract.md` defines each meaning under "Restore item status meanings". |
 | `targetExistedBefore` | boolean | Whether target existed before restore |
 | `backupCreated` | boolean | Whether a backup was created |
 | `backupPath` | string or null | Backup location if created |
