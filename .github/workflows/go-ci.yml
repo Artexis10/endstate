@@ -344,7 +344,7 @@ jobs:
             }
             git merge-base --is-ancestor $parents[1] $baseRef
             if ($LASTEXITCODE -ne 0) {
-              throw 'pull request merge base parent is not on the base branch'
+              throw 'pull request merge base parent is not among the last 200 commits of the base branch'
             }
             Extract-BaseAuthority $parents[1]
           } elseif ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main') {
