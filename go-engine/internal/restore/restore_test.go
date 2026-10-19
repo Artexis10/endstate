@@ -2237,6 +2237,30 @@ func TestExpandPath_TildeExpansion(t *testing.T) {
 	}
 }
 
+func TestExpandPath_BackslashTildeExpandsHome(t *testing.T) {
+	// Windows manifests write "~\..."; leaving it literal makes resolveTarget
+	// place the restore under "<cwd>\~\..." instead of the user's home.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home directory")
+	}
+	result := expandPath(`~\AppData\app.ini`)
+	if !strings.HasPrefix(result, homeDir) {
+		t.Errorf("expandPath(%q) = %q, want it under home %q", `~\AppData\app.ini`, result, homeDir)
+	}
+}
+
+func TestExpandPath_LoneTildeIsHome(t *testing.T) {
+	// A target of just "~" means the home directory itself.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home directory")
+	}
+	if result := expandPath("~"); result != homeDir {
+		t.Errorf("expandPath(%q) = %q, want %q", "~", result, homeDir)
+	}
+}
+
 func TestExpandPath_LeavesOtherUserTilde(t *testing.T) {
 	// "~otheruser/..." must not be rewritten against the current home.
 	in := "~otheruser/.config/app"
