@@ -335,15 +335,6 @@ func rewriteSourcePath(source string, moduleDirName string) string {
 	return source
 }
 
-// createZipFromDir creates a zip file from the contents of a directory.
-func createZipFromDir(srcDir, zipPath string) error {
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		return err
-	}
-	return createZipFromDirFile(srcDir, zipFile)
-}
-
 // createZipFromDirFile writes a zip to an already-created file and owns the
 // file from entry through Sync and Close. Every finalization error participates
 // in the returned error so callers never publish a partially finalized zip.

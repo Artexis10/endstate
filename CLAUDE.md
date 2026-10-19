@@ -29,7 +29,7 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 - `go-engine/cmd/endstate/` — CLI entrypoint
 - `go-engine/internal/` — core engine packages
 - `modules/apps/<id>/module.jsonc` — reusable config module definitions
-- `payload/apps/<id>/` — staged configuration files
+- `./payload/apps/<id>/` — source-path convention in module restore entries; capture rewrites it to `./configs/<module>/` inside the bundle (no such directory in this repo)
 - `bundles/` — named module groupings
 - `manifests/` — desired state declarations (`examples/` shareable, `includes/` reusable fragments, `local/` gitignored machine-specific)
 
@@ -57,7 +57,7 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 
 ## Testing
 
-Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI-safe, with shared fixtures in `tests/fixtures/`. CI runs `cd go-engine && go test ./...` on `windows-latest`. Run minimum targeted verification; do not run the full suite unless requested.
+Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI-safe, with fixtures in each package's `testdata/` directory and in the shared `go-engine/testdata/` (e.g. `config-generations`). CI runs `cd go-engine && go test ./...` on `windows-latest`. Run minimum targeted verification; do not run the full suite unless requested.
 
 ## Protected Areas
 

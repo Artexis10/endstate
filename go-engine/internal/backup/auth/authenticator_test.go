@@ -363,9 +363,9 @@ func TestAuthenticator_CompleteLogin_PersistsAccessTokenWithExpiry(t *testing.T)
 	fb := newFakeBackend(t)
 
 	// Mint a real EdDSA JWT carrying a known exp so we can decode the
-	// persisted entry and compare. The signature is not validated by
-	// parseAccessExpiry (we trust substrate's TLS), so the keypair is
-	// only here to produce a parseable token.
+	// persisted entry and compare. CompleteLogin verifies the signature
+	// against the fake backend's JWKS and takes the expiry from the
+	// verified claims.
 	exp := time.Now().Add(15 * time.Minute).UTC().Truncate(time.Second)
 	jwtTok := fb.accessTokenWithExpiry(t, "user-1", exp)
 

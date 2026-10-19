@@ -41,12 +41,3 @@ func ResolveWinget(ref, explicit string) string {
 	}
 	return Winget
 }
-
-func ValidWinget(source string) bool {
-	switch strings.ToLower(strings.TrimSpace(source)) {
-	case "", Winget, MSStore:
-		return true
-	default:
-		return false
-	}
-}

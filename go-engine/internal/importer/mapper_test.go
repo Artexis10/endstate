@@ -111,8 +111,8 @@ func TestMapBundle_StableAcrossReorder(t *testing.T) {
 // fallback when Source is empty.
 func TestMapBundle_WingetDiscriminator(t *testing.T) {
 	b := &Bundle{Packages: []Package{
-		{ID: "A.One", Name: "One", Source: "WinGet"},                       // case-insensitive source
-		{ID: "B.Two", Name: "Two", Source: "", ManagerName: "winget"},      // fallback via ManagerName
+		{ID: "A.One", Name: "One", Source: "WinGet"},                             // case-insensitive source
+		{ID: "B.Two", Name: "Two", Source: "", ManagerName: "winget"},            // fallback via ManagerName
 		{ID: "C.Three", Name: "Three", Source: "msstore", ManagerName: "WinGet"}, // non-winget source wins over manager
 	}}
 	res := MapBundle(b, MapOptions{})

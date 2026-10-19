@@ -21,11 +21,11 @@ import (
 type fieldKind int
 
 const (
-	kindNone      fieldKind = iota // no second field (bare .enable toggle, e.g. fzf)
-	kindString                     // raw string → StableField = "..."   (e.g. tmux.extraConfig)
-	kindStringMap                  // map[string]string → attrset        (e.g. bat.config)
-	kindAnyMap                     // map[string]any → nested attrset     (e.g. gh.settings)
-	kindStringSlice                // []string → Nix list                 (e.g. eza.extraOptions)
+	kindNone        fieldKind = iota // no second field (bare .enable toggle, e.g. fzf)
+	kindString                       // raw string → StableField = "..."   (e.g. tmux.extraConfig)
+	kindStringMap                    // map[string]string → attrset        (e.g. bat.config)
+	kindAnyMap                       // map[string]any → nested attrset     (e.g. gh.settings)
+	kindStringSlice                  // []string → Nix list                 (e.g. eza.extraOptions)
 )
 
 // curatedProgram is one row of the data-driven catalog: a concept name (== the

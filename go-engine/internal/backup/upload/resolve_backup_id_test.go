@@ -15,11 +15,11 @@ import (
 // fakeResolverStore is a minimal in-memory backupResolverStore for unit-testing
 // resolveBackupID without a live backend.
 type fakeResolverStore struct {
-	backups      []storage.Backup
-	createCalls  int
-	lastCreated  string
-	listCalls    int
-	newID        string
+	backups     []storage.Backup
+	createCalls int
+	lastCreated string
+	listCalls   int
+	newID       string
 }
 
 func (f *fakeResolverStore) ListBackups(ctx context.Context) ([]storage.Backup, *envelope.Error) {

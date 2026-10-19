@@ -21,9 +21,9 @@ type faultyKeychain struct {
 	loadErr error
 }
 
-func (f *faultyKeychain) Store(account string, secret []byte) error  { return f.loadErr }
-func (f *faultyKeychain) Load(account string) ([]byte, error)        { return nil, f.loadErr }
-func (f *faultyKeychain) Delete(account string) error                { return f.loadErr }
+func (f *faultyKeychain) Store(account string, secret []byte) error { return f.loadErr }
+func (f *faultyKeychain) Load(account string) ([]byte, error)       { return nil, f.loadErr }
+func (f *faultyKeychain) Delete(account string) error               { return f.loadErr }
 
 // TestSessionStore_PersistThenHydrateAcrossInstances locks the cross-process
 // invariant: a SessionStore that has been Persisted on one instance is

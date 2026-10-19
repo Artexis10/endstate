@@ -615,9 +615,11 @@ type minimalRealizer struct {
 	currentSet realizer.Set
 }
 
-func (m *minimalRealizer) Name() string                                           { return "minimal" }
-func (m *minimalRealizer) Current() (realizer.Set, error)                         { return m.currentSet, nil }
-func (m *minimalRealizer) Plan([]realizer.Installable) (realizer.Diff, error)     { return realizer.Diff{}, nil }
+func (m *minimalRealizer) Name() string                   { return "minimal" }
+func (m *minimalRealizer) Current() (realizer.Set, error) { return m.currentSet, nil }
+func (m *minimalRealizer) Plan([]realizer.Installable) (realizer.Diff, error) {
+	return realizer.Diff{}, nil
+}
 func (m *minimalRealizer) Realize([]realizer.Installable) (realizer.Result, error) {
 	return realizer.Result{}, nil
 }

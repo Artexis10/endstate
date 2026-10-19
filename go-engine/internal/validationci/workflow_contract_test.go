@@ -74,13 +74,39 @@ func TestGoCIAuthorityStepHandlesBaseLedgerAuthority(t *testing.T) {
 			t.Fatalf("parent-two ledger produced authority file: %v", err)
 		}
 	})
-	t.Run("base and head event parents are enforced", func(t *testing.T) {
+	t.Run("event head must be the merge head", func(t *testing.T) {
 		fixture := newAuthorityFixture(t, nil, nil)
-		for _, parents := range [][2]string{{fixture.head, fixture.head}, {fixture.base, fixture.base}} {
-			result := runAuthorityStep(t, fixture, parents[0], parents[1], "")
-			if result.exitCode == 0 {
-				t.Fatalf("authority step accepted event parents %q, %q", parents[0], parents[1])
-			}
+		result := runAuthorityStep(t, fixture, fixture.base, fixture.base, "")
+		if result.exitCode == 0 {
+			t.Fatalf("authority step accepted event head %q for merge head %q", fixture.base, fixture.head)
+		}
+	})
+	t.Run("stale event base is accepted when parent one is on the base branch", func(t *testing.T) {
+		// GitHub keeps pull_request.base.sha at the base the PR was opened on,
+		// while the merge commit is built on the current base tip.
+		ledger := []byte("{\"schemaVersion\":1}\n")
+		fixture := newAuthorityFixture(t, ledger, nil)
+		result := runAuthorityStep(t, fixture, fixture.head, fixture.head, "")
+		if result.exitCode != 0 {
+			t.Fatalf("authority step exit = %d, output=%s", result.exitCode, result.output)
+		}
+		if got, err := os.ReadFile(result.authorityPath); err != nil || string(got) != string(ledger) {
+			t.Fatalf("authority bytes = %q (%v), want %q", got, err, ledger)
+		}
+	})
+	t.Run("parent one off the base branch cannot authorize", func(t *testing.T) {
+		fixture := newAuthorityFixture(t, []byte("{}\n"), nil)
+		runGit(t, fixture.repo, "switch", "--orphan", "unrelated")
+		writeAuthorityFixtureFile(t, fixture.repo, "unrelated.txt", []byte("unrelated\n"))
+		runGit(t, fixture.repo, "add", "unrelated.txt")
+		runGit(t, fixture.repo, "commit", "-m", "unrelated")
+		runGit(t, fixture.repo, "switch", "--detach", fixture.merge)
+		result := runAuthorityStepWithOptions(t, fixture, fixture.base, fixture.head, authorityStepOptions{baseRef: "unrelated"})
+		if result.exitCode == 0 {
+			t.Fatalf("authority step accepted a first parent that is not on the base branch: %s", result.output)
+		}
+		if _, err := os.Lstat(result.authorityPath); !os.IsNotExist(err) {
+			t.Fatalf("off-branch parent produced authority file: %v", err)
 		}
 	})
 	t.Run("unexpected git probe error fails closed", func(t *testing.T) {
@@ -124,6 +150,7 @@ type authorityStepResult struct {
 type authorityStepOptions struct {
 	gitPath             string
 	blockAuthorityWrite bool
+	baseRef             string
 }
 
 func newAuthorityFixture(t *testing.T, baseLedger, headLedger []byte) authorityFixture {
@@ -149,6 +176,8 @@ func newAuthorityFixture(t *testing.T, baseLedger, headLedger []byte) authorityF
 	head := runGit(t, repo, "rev-parse", "HEAD")
 	runGit(t, repo, "switch", "main")
 	runGit(t, repo, "merge", "--no-ff", "feature", "-m", "merge feature")
+	// The step fetches the base branch from origin; the fixture is its own origin.
+	runGit(t, repo, "remote", "add", "origin", repo)
 	return authorityFixture{repo: repo, base: base, head: head, merge: runGit(t, repo, "rev-parse", "HEAD")}
 }
 
@@ -191,7 +220,11 @@ func runAuthorityStepWithOptions(t *testing.T, fixture authorityFixture, base, h
 		}
 	}
 	eventPath := filepath.Join(t.TempDir(), "event.json")
-	event, err := json.Marshal(map[string]any{"pull_request": map[string]any{"base": map[string]string{"sha": base}, "head": map[string]string{"sha": head}}})
+	baseRef := options.baseRef
+	if baseRef == "" {
+		baseRef = "main"
+	}
+	event, err := json.Marshal(map[string]any{"pull_request": map[string]any{"base": map[string]string{"sha": base, "ref": baseRef}, "head": map[string]string{"sha": head}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +361,6 @@ func workflowContractViolations(t *testing.T, workflow string) []string {
 		"$head -ne $env:GITHUB_SHA.ToLowerInvariant()",
 		"$parents = ((git rev-list --parents -n 1 HEAD).Trim() -split '\\s+')",
 		"$parents.Count -ne 3",
-		"$parents[1].ToLowerInvariant() -ne $event.pull_request.base.sha.ToLowerInvariant()",
 		"$parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()",
 		"function Copy-GitBlob",
 		"$process.StartInfo.ArgumentList.Add(\"git show $reference\")",

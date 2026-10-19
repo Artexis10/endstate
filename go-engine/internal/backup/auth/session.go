@@ -438,12 +438,6 @@ func (s *SessionStore) WithRefreshFn(fn refreshFunc) *SessionStore {
 	return s
 }
 
-func (s *SessionStore) refreshFnSlot() refreshFunc {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.refreshFn
-}
-
 // Issuer is the canonical name of the configured backend, surfaced in
 // status output. Stored next to the session so command handlers don't
 // need to plumb it separately.

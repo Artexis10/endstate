@@ -22,7 +22,7 @@ func TestWriteState_AtomicWrite(t *testing.T) {
 		SchemaVersion: "1.0",
 		LastRunID:     "apply-20241220-143052",
 		LastCommand:   "apply",
-		LastTimestamp:  "2024-12-20T14:30:52Z",
+		LastTimestamp: "2024-12-20T14:30:52Z",
 		RunCount:      5,
 	}
 
@@ -88,7 +88,7 @@ func TestReadState_ValidFile(t *testing.T) {
 		SchemaVersion: "1.0",
 		LastRunID:     "verify-20241221-100000",
 		LastCommand:   "verify",
-		LastTimestamp:  "2024-12-21T10:00:00Z",
+		LastTimestamp: "2024-12-21T10:00:00Z",
 		RunCount:      3,
 	}
 

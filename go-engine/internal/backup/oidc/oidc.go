@@ -16,10 +16,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/backup/redirect"
 )
 
 // DefaultIssuerURL is the Endstate Cloud production issuer.
@@ -148,7 +149,7 @@ type Client struct {
 // Trailing slashes are tolerated.
 func NewClient(issuerURL string, httpDoer HTTPDoer) *Client {
 	if httpDoer == nil {
-		httpDoer = &http.Client{Timeout: 15 * time.Second, CheckRedirect: blockCrossOriginRedirect}
+		httpDoer = &http.Client{Timeout: 15 * time.Second, CheckRedirect: redirect.BlockCrossOrigin(errCrossOriginRedirect)}
 	}
 	return &Client{
 		issuerURL: strings.TrimRight(issuerURL, "/"),
@@ -163,36 +164,6 @@ var errCrossOriginRedirect = errors.New("oidc: cross-origin redirect blocked")
 // request from reaching the configured issuer. HTTP responses and malformed
 // discovery documents are not transport failures.
 var ErrDiscoveryTransport = errors.New("oidc: discovery transport failed")
-
-// blockCrossOriginRedirect prevents a self-hosted issuer from redirecting
-// discovery or JWKS requests to another origin. Same-origin redirects remain
-// supported for ordinary endpoint routing.
-func blockCrossOriginRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) == 0 || sameOrigin(req.URL, via[0].URL) {
-		return nil
-	}
-	return errCrossOriginRedirect
-}
-
-func sameOrigin(a, b *url.URL) bool {
-	return strings.EqualFold(a.Scheme, b.Scheme) &&
-		strings.EqualFold(a.Hostname(), b.Hostname()) &&
-		effectivePort(a) == effectivePort(b)
-}
-
-func effectivePort(u *url.URL) string {
-	if port := u.Port(); port != "" {
-		return port
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "http":
-		return "80"
-	case "https":
-		return "443"
-	default:
-		return ""
-	}
-}
 
 // IssuerURL returns the configured issuer URL with no trailing slash.
 func (c *Client) IssuerURL() string { return c.issuerURL }

@@ -52,7 +52,7 @@ func TestConvertToActions_FilterPassesMatchingModule(t *testing.T) {
 // FromModule (inline manifest entries) always pass the filter.
 func TestConvertToActions_InlineEntriesAlwaysPass(t *testing.T) {
 	entries := []manifest.RestoreEntry{
-		{Type: "copy", Source: "a", Target: "b"},                           // inline, no FromModule
+		{Type: "copy", Source: "a", Target: "b"},                            // inline, no FromModule
 		{Type: "copy", Source: "c", Target: "d", FromModule: "apps.vscode"}, // module entry
 	}
 

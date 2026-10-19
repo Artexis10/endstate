@@ -330,8 +330,21 @@ jobs:
             if ($parents.Count -ne 3) {
               throw 'pull request checkout must be a two-parent merge commit'
             }
-            if ($parents[1].ToLowerInvariant() -ne $event.pull_request.base.sha.ToLowerInvariant() -or $parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()) {
-              throw 'pull request merge parents do not match event authority'
+            if ($parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()) {
+              throw 'pull request merge head does not match event authority'
+            }
+            # pull_request.base.sha keeps the base the PR was opened on, while the
+            # merge commit's first parent is the base branch tip when GitHub built
+            # it. Require that parent to be on the base branch, so the ledger
+            # authority still comes from a base commit and never from the PR.
+            $baseRef = 'refs/remotes/origin/validation-authority-base'
+            git fetch --no-tags --depth=200 origin "+refs/heads/$($event.pull_request.base.ref):$baseRef"
+            if ($LASTEXITCODE -ne 0) {
+              throw "git fetch of the base branch failed with exit code $LASTEXITCODE"
+            }
+            git merge-base --is-ancestor $parents[1] $baseRef
+            if ($LASTEXITCODE -ne 0) {
+              throw 'pull request merge base parent is not among the last 200 commits of the base branch'
             }
             Extract-BaseAuthority $parents[1]
           } elseif ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main') {
@@ -391,7 +404,47 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: go-engine/go.sum
+      - name: Check gofmt
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          unformatted=$(gofmt -l go-engine)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would reformat these files; run gofmt -w on them:"
+            echo "$unformatted"
+            exit 1
+          fi
       - name: Vet
         run: cd go-engine && go vet ./...
       - name: Test
         run: cd go-engine && go test ./...
+
+  # Engineering-practices quality check (https://github.com/Artexis10/engineering-practices):
+  # fails on Go functions a pull request adds that nothing reaches (deadcode on windows, linux, darwin)
+  # and posts the Quality report. It is not a required check.
+  quality:
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
+    # The test jobs named in .github/quality.yml, so their runtime is known.
+    needs: [test, test-unix, integration-windows, synthetic-shards, catalog-matrix, notepad-engine-contract]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: quality-${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go
+        # v6.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go-engine/go.sum
+      - uses: Artexis10/engineering-practices@v1
