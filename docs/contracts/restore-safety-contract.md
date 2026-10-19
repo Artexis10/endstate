@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Version:** 1.0
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-10-19
 
 ## Purpose
 
@@ -99,7 +99,7 @@ Each restore entry emits a result with:
 |-------|------|-------------|
 | `source` | string | Source path in bundle |
 | `target` | string | Target path on system |
-| `action` | string | `restored`, `skipped_exists`, `skipped_up_to_date`, `skipped_missing_source`, `failed` |
+| `status` | string | `restored`, `skipped_up_to_date`, `skipped_missing_source`, or `failed`. `cli-json-contract.md` defines each meaning under "Restore item status meanings". |
 | `targetExistedBefore` | boolean | Whether target existed before restore |
 | `backupCreated` | boolean | Whether a backup was created |
 | `backupPath` | string or null | Backup location if created |

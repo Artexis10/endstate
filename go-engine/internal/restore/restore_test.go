@@ -1098,28 +1098,32 @@ func TestResolveSource_FallbackToManifestDir(t *testing.T) {
 // Pester: Restore.SourceNotFound
 // ---------------------------------------------------------------------------
 
+// TestRestoreCopy_SourceNotFound catches a required input that the saved setup
+// lacks being skipped like an optional one, or failing with a message that
+// carries the host path instead of plain text.
 func TestRestoreCopy_SourceNotFound(t *testing.T) {
 	tmp := t.TempDir()
 
 	srcFile := filepath.Join(tmp, "nonexistent-source.txt")
 	tgtFile := filepath.Join(tmp, "target.txt")
 
-	entry := RestoreAction{
+	results, err := RunRestore([]RestoreAction{{
 		Type:   "copy",
 		Source: srcFile,
 		Target: tgtFile,
-	}
-
-	result, err := RestoreCopy(entry, srcFile, tgtFile, RestoreOptions{})
+	}}, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Status != "failed" {
-		t.Errorf("expected status=failed, got %q", result.Status)
+	if len(results) != 1 || results[0].Status != "failed" {
+		t.Fatalf("expected one failed result, got %+v", results)
 	}
-	if !strings.Contains(strings.ToLower(result.Error), "source not found") {
-		t.Errorf("expected error about source not found, got %q", result.Error)
+	if results[0].Error != requiredSourceMissingMessage {
+		t.Errorf("error = %q, want the plain required-source message", results[0].Error)
+	}
+	if results[0].Source != srcFile {
+		t.Errorf("source = %q, want the missing path %q", results[0].Source, srcFile)
 	}
 }
 
@@ -3214,6 +3218,9 @@ func TestRestoreDeleteGlob_DryRunDoesNotDelete(t *testing.T) {
 	}
 }
 
+// TestRestoreDeleteGlob_MissingTargetOptionalSkips catches an absent cleanup
+// directory being reported as missing from the saved setup: there is nothing
+// to delete, so the target is already up to date.
 func TestRestoreDeleteGlob_MissingTargetOptionalSkips(t *testing.T) {
 	tmp := t.TempDir()
 	missingDir := filepath.Join(tmp, "does-not-exist")
@@ -3236,8 +3243,8 @@ func TestRestoreDeleteGlob_MissingTargetOptionalSkips(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if results[0].Status != "skipped_missing_source" {
-		t.Errorf("expected status=skipped_missing_source, got %q", results[0].Status)
+	if results[0].Status != "skipped_up_to_date" {
+		t.Errorf("expected status=skipped_up_to_date, got %q", results[0].Status)
 	}
 }
 

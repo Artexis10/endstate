@@ -37,17 +37,17 @@ func possibleDuplicatePackageWarnings(routes []*routedDriverApp) []CommandWarnin
 			continue
 		}
 
-		duplicate := false
+		otherDriver := ""
 		for _, earlier := range seen {
 			if earlier.driverName != route.driverName && strings.EqualFold(earlier.displayName, displayName) {
-				duplicate = true
+				otherDriver = earlier.driverName
 				break
 			}
 		}
-		if duplicate {
+		if otherDriver != "" {
 			warnings = append(warnings, CommandWarning{
 				Code:    "possible_duplicate",
-				Message: fmt.Sprintf("%s declares the same display name %q as another package driver; both entries were preserved", route.driverName, displayName),
+				Message: fmt.Sprintf("%s is listed twice in the manifest: once for %s and once for %s. Endstate kept both entries and handles each one with its own package manager. If they are the same app, remove one entry so it is managed only once.", displayName, otherDriver, route.driverName),
 				Driver:  route.driverName,
 				Ref:     route.ref,
 			})

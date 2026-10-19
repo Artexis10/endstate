@@ -260,7 +260,7 @@ func TestRunCapture_OnlyRejectsUnknownModuleID(t *testing.T) {
 // tier other than apps (windows-settings.explorer) being read as an app id,
 // which rejects the selection as an undetected app.
 func TestParseCaptureOnly_SplitsAppAndModuleNamespaces(t *testing.T) {
-	sel := parseCaptureOnly("git-git, apps.vscode ,microsoft-visualstudiocode,windows-settings.explorer")
+	sel := parseCaptureOnly("git-git, apps.vscode ,microsoft-visualstudiocode,windows-settings.explorer", []string{"apps", "windows-settings"})
 
 	if len(sel.appIDs) != 2 || sel.appIDs[0] != "git-git" || sel.appIDs[1] != "microsoft-visualstudiocode" {
 		t.Errorf("appIDs = %v", sel.appIDs)
@@ -270,20 +270,24 @@ func TestParseCaptureOnly_SplitsAppAndModuleNamespaces(t *testing.T) {
 	}
 }
 
-// TestValidateCaptureOnly_DottedCapturedAppStaysAnApp catches the dotted-token
-// rule taking away an app whose id has a dot (a package manager name such as
-// python3.12), which would make that app impossible to select.
-func TestValidateCaptureOnly_DottedCapturedAppStaysAnApp(t *testing.T) {
-	captured := []capturedApp{{ID: "python3.12"}, {ID: "git-git"}}
-	sel, filtered, eerr := validateCaptureOnly("python3.12,windows-settings.explorer", captured)
+// TestValidateCaptureOnly_DottedNonTierTokenIsAnApp catches a dotted app id
+// (Vendor.Tool from an existing manifest) being read as a module id, which
+// rejects it as an unknown module and makes the app impossible to select.
+func TestValidateCaptureOnly_DottedNonTierTokenIsAnApp(t *testing.T) {
+	originalTiers := captureCatalogTiersFn
+	captureCatalogTiersFn = func() ([]string, error) { return []string{"apps", "windows-settings"}, nil }
+	t.Cleanup(func() { captureCatalogTiersFn = originalTiers })
+	captured := []capturedApp{{ID: "Vendor.Tool"}, {ID: "git-git"}}
+
+	sel, filtered, eerr := validateCaptureOnly("Vendor.Tool,windows-settings.explorer,apps.vscode", captured)
 	if eerr != nil {
 		t.Fatalf("validateCaptureOnly: %v", eerr)
 	}
-	if len(filtered) != 1 || filtered[0].ID != "python3.12" {
+	if len(filtered) != 1 || filtered[0].ID != "Vendor.Tool" {
 		t.Errorf("filtered = %+v, want the dotted app", filtered)
 	}
-	if len(sel.moduleIDs) != 1 || sel.moduleIDs[0] != "windows-settings.explorer" {
-		t.Errorf("moduleIDs = %v, want only the module", sel.moduleIDs)
+	if len(sel.moduleIDs) != 2 || sel.moduleIDs[0] != "windows-settings.explorer" || sel.moduleIDs[1] != "apps.vscode" {
+		t.Errorf("moduleIDs = %v, want the two tier-prefixed modules", sel.moduleIDs)
 	}
 }
 
@@ -291,7 +295,7 @@ func TestValidateCaptureOnly_DottedCapturedAppStaysAnApp(t *testing.T) {
 // --restore-filter, which does accept a bare short module id. Here bare always
 // means app, because "vscode" would otherwise be ambiguous between the two.
 func TestParseCaptureOnly_BareTokenIsAlwaysAnApp(t *testing.T) {
-	sel := parseCaptureOnly("vscode")
+	sel := parseCaptureOnly("vscode", []string{"apps"})
 
 	if len(sel.appIDs) != 1 || sel.appIDs[0] != "vscode" {
 		t.Errorf("bare token must parse as an app id, got appIDs=%v moduleIDs=%v", sel.appIDs, sel.moduleIDs)
@@ -302,10 +306,10 @@ func TestParseCaptureOnly_BareTokenIsAlwaysAnApp(t *testing.T) {
 }
 
 func TestParseCaptureOnly_EmptyIsInactive(t *testing.T) {
-	if parseCaptureOnly("").active() {
+	if parseCaptureOnly("", []string{"apps"}).active() {
 		t.Error("an empty --only must be inactive")
 	}
-	if parseCaptureOnly(" , ").active() {
+	if parseCaptureOnly(" , ", []string{"apps"}).active() {
 		t.Error("a blank-only --only must be inactive")
 	}
 }

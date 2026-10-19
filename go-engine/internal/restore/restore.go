@@ -41,6 +41,11 @@ type RestoreAction struct {
 	Data      string `json:"data,omitempty"`
 }
 
+// requiredSourceMissingMessage is the failure message for a required restore
+// input that the saved setup does not include. The result's Source field
+// carries the path, so the message stays plain enough to show to a user.
+const requiredSourceMissingMessage = "The saved setup does not include this required file."
+
 // RestoreResult records the outcome of a single restore action.
 type RestoreResult struct {
 	ID                  string   `json:"id"`
@@ -274,10 +279,14 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 			// Check if target directory exists.
 			if _, err := boundary.stat("delete-glob-target-stat", target); os.IsNotExist(err) {
 				if entry.Optional {
+					// An absent directory holds nothing to delete, so the target
+					// already has the desired state. skipped_missing_source is
+					// reserved for an input that the saved setup does not include.
 					r := RestoreResult{
-						ID:     id,
-						Target: target,
-						Status: "skipped_missing_source",
+						ID:          id,
+						Target:      target,
+						Status:      "skipped_up_to_date",
+						RestoreType: "delete-glob",
 					}
 					projected := projectValidationRestoreResult(&r, entry, opts)
 					emitRestoreItemEvent(emitter, entry, *projected)
@@ -285,10 +294,11 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					continue
 				}
 				r := RestoreResult{
-					ID:     id,
-					Target: target,
-					Status: "failed",
-					Error:  fmt.Sprintf("target directory not found: %s", target),
+					ID:          id,
+					Target:      target,
+					Status:      "failed",
+					Error:       fmt.Sprintf("target directory not found: %s", target),
+					RestoreType: "delete-glob",
 				}
 				projected := projectValidationRestoreResult(&r, entry, opts)
 				emitRestoreItemEvent(emitter, entry, *projected)

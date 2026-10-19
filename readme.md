@@ -6,6 +6,8 @@
 
 Website: <https://substratesystems.io/endstate> · Download: <https://substratesystems.io/download>
 
+**Moving to a new PC?** Install the Endstate app from the [download page](https://substratesystems.io/download). It is one installer, and it includes the engine, so you do not need anything from this repository. This repository is the engine and its command-line interface, for developers and for automation.
+
 **Author:** Hugo Ander Kivi
 **Primary Language:** Go
 **Status:** Stable — [latest release](https://github.com/Artexis10/endstate/releases/latest)

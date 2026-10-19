@@ -174,7 +174,7 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 			return result, nil
 		}
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("source not found: %s", source)
+		result.Error = requiredSourceMissingMessage
 		return result, nil
 	}
 	if err := ValidateRegistryImportScope(source, entry.Target); err != nil {
@@ -198,6 +198,13 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 		return result, nil
 	}
 	result.TargetExistedBefore = keyExists
+
+	// Dry-run: report what would happen before anything writes, so a preview
+	// leaves no backup export behind.
+	if opts.DryRun {
+		result.Status = "restored"
+		return result, nil
+	}
 
 	// Backup the existing registry key when requested.
 	if entry.Backup {
@@ -226,12 +233,6 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 			result.BackupPath = backupPath
 			result.BackupCreated = true
 		}
-	}
-
-	// Dry-run: report what would happen without touching the registry.
-	if opts.DryRun {
-		result.Status = "restored"
-		return result, nil
 	}
 
 	// Import the .reg file.
@@ -266,7 +267,7 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 			return result, nil
 		}
 		result.Status = "failed"
-		result.Error = "source not found"
+		result.Error = requiredSourceMissingMessage
 		return result, nil
 	} else if err != nil {
 		result.Status = "failed"
@@ -348,6 +349,13 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 		}
 	}
 
+	// Dry-run stops before the backup write; the comparison export above is a
+	// disposable file that its cleanup removes.
+	if opts.DryRun {
+		result.Status = "restored"
+		return result, nil
+	}
+
 	if entry.Backup && keyExists {
 		backupDir := opts.BackupDir
 		if backupDir == "" {
@@ -377,11 +385,6 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 		}
 		result.BackupPath = backupPath
 		result.BackupCreated = true
-	}
-
-	if opts.DryRun {
-		result.Status = "restored"
-		return result, nil
 	}
 
 	importPath, cleanup, err := validationRegistryTemp(context, "registry-import-*.reg")

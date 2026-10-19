@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
@@ -504,14 +505,13 @@ func v2RestoreEventMatches(event map[string]any, item restore.RestoreResult, mod
 	}
 	var reason any
 	var backup any
-	message := "restoring settings"
 	if status == "restored" {
 		backup = item.BackupPath
-		message = "settings restored"
 	} else if status == "skipped_up_to_date" {
 		reason = "already_up_to_date"
-		message = "target settings are already current"
 	}
+	// The harness drives a real restore, never a preview.
+	message := events.RestoreItemMessage(events.RestoreItemStatus(status), false)
 	return event["id"] == item.ID && event["module"] == moduleID && event["restorer"] == restorer &&
 		event["source"] == item.Source && event["target"] == item.Target && event["status"] == status &&
 		eventValueMatches(event["reason"], reason) && eventValueMatches(event["backupPath"], backup) &&

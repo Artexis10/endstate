@@ -42,9 +42,11 @@ type CaptureFlags struct {
 	Pin              bool
 	Drivers          []string // repeatable explicit package drivers; empty uses platform capture defaults
 	Events           string   // "jsonl" or ""
-	// Only limits the capture to a comma-separated selection. Bare tokens are
-	// captured app IDs; tokens prefixed "apps." are config module IDs. Mirrors
-	// apply --only so a selection reads the same on both sides.
+	// Only limits the capture to a comma-separated selection. A token whose text
+	// before the first dot names a catalog tier (apps.vscode,
+	// windows-settings.explorer) is a config module ID; every other token is a
+	// captured app ID. Mirrors apply --only so a selection reads the same on
+	// both sides.
 	//
 	// Under a selection, config modules attach only when a selected app matches
 	// them BY PACKAGE REF, or when the module is named outright. A module that
@@ -93,47 +95,50 @@ func (s captureSelection) active() bool {
 	return len(s.appIDs) > 0 || len(s.moduleIDs) > 0
 }
 
+// captureCatalogTiersFn lists the catalog tier names that make a --only token
+// a module ID. Tests replace it alongside the mock catalog.
+var captureCatalogTiersFn = func() ([]string, error) {
+	repoRoot := resolveRepoRootFn()
+	if repoRoot == "" {
+		return nil, nil
+	}
+	tiers, err := modules.CatalogTierDirs(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(tiers))
+	for _, tier := range tiers {
+		names = append(names, tier.Name)
+	}
+	return names, nil
+}
+
 // parseCaptureOnly splits a --only value into app and module selections.
 //
-// Tokens without a dot are app IDs; dotted tokens are config module IDs. Every
-// catalog module ID is "<tier>.<dir>" (apps.vscode, windows-settings.explorer),
-// and generated app IDs never contain a dot because wingetIDToManifestID
-// replaces them. An app ID can still carry a dot when it comes from an
-// existing manifest under --update or from another package manager, so
-// validateCaptureOnly moves a dotted token that names a captured app back to
-// the app selection.
+// A token is a config module ID when its text before the first dot names a
+// catalog tier (apps.vscode, windows-settings.explorer). The tiers are the
+// closed set that the catalog's directory layout defines, so the rule does not
+// guess what a dot means. Every other token is an app ID, dotted or not: an app
+// ID from an existing manifest or another package manager can contain a dot
+// (Vendor.Tool, python3.12).
 //
 // Note the deliberate asymmetry with --restore-filter, which also accepts a bare
 // short module ID: here bare always means app. Accepting bare module IDs would
 // make "vscode" ambiguous between an app and a module.
-func parseCaptureOnly(only string) captureSelection {
+func parseCaptureOnly(only string, tiers []string) captureSelection {
+	isTier := make(map[string]bool, len(tiers))
+	for _, tier := range tiers {
+		isTier[tier] = true
+	}
 	var sel captureSelection
 	for _, token := range parseOnlyIDs(only) {
-		if strings.Contains(token, ".") {
+		if prefix, _, dotted := strings.Cut(token, "."); dotted && isTier[prefix] {
 			sel.moduleIDs = append(sel.moduleIDs, token)
 			continue
 		}
 		sel.appIDs = append(sel.appIDs, token)
 	}
 	return sel
-}
-
-// claimCapturedAppIDs moves dotted tokens that name a captured app from the
-// module selection to the app selection.
-func (s captureSelection) claimCapturedAppIDs(captured []capturedApp) captureSelection {
-	appIDs := make(map[string]bool, len(captured))
-	for _, app := range captured {
-		appIDs[app.ID] = true
-	}
-	claimed := captureSelection{appIDs: append([]string(nil), s.appIDs...)}
-	for _, id := range s.moduleIDs {
-		if appIDs[id] {
-			claimed.appIDs = append(claimed.appIDs, id)
-			continue
-		}
-		claimed.moduleIDs = append(claimed.moduleIDs, id)
-	}
-	return claimed
 }
 
 // validateCaptureOnly parses and validates --only against the captured app set,
@@ -144,7 +149,13 @@ func validateCaptureOnly(only string, captured []capturedApp) (captureSelection,
 		return captureSelection{}, captured, nil
 	}
 
-	sel := parseCaptureOnly(only).claimCapturedAppIDs(captured)
+	tiers, err := captureCatalogTiersFn()
+	if err != nil {
+		return captureSelection{}, nil, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			fmt.Sprintf("Could not read the module catalog to interpret --only: %v", err))
+	}
+	sel := parseCaptureOnly(only, tiers)
 
 	if !sel.active() {
 		return sel, nil, envelope.NewError(
@@ -603,6 +614,52 @@ func assignDeterministicCaptureIDs(apps []capturedApp, used map[string]bool) {
 	}
 }
 
+// collapseSharedInstallRows keeps one entry for each installed program that
+// one package manager lists under several sources, such as a winget package
+// that both the community and the Microsoft Store source report. Two rows are
+// the same program only when their install fingerprints agree on a non-empty
+// key, publisher and version; a row without a full fingerprint is never
+// collapsed. Rows from different package managers stay separate, because an
+// explicit driver decides which manager installs the app.
+func collapseSharedInstallRows(apps []capturedApp) []capturedApp {
+	kept := make(map[string]int, len(apps))
+	result := make([]capturedApp, 0, len(apps))
+	for _, app := range apps {
+		identity := sharedInstallIdentity(app)
+		if identity == "" {
+			result = append(result, app)
+			continue
+		}
+		index, seen := kept[identity]
+		if !seen {
+			kept[identity] = len(result)
+			result = append(result, app)
+			continue
+		}
+		// Prefer the default source: its entry installs on any PC without a
+		// Microsoft Store sign-in. Otherwise the first row in capture order stays.
+		if effectiveCapturedSource(result[index]) != packagesource.Winget && effectiveCapturedSource(app) == packagesource.Winget {
+			result[index] = app
+		}
+	}
+	return result
+}
+
+// sharedInstallIdentity returns the package manager and full install
+// fingerprint of a package-manager row, or "" when the row has no package
+// reference or any fingerprint part is empty.
+func sharedInstallIdentity(app capturedApp) string {
+	fingerprint := app.Fingerprint
+	if fingerprint == nil || strings.TrimSpace(app.Refs["windows"]) == "" {
+		return ""
+	}
+	key, publisher, version := strings.TrimSpace(fingerprint.Key), strings.TrimSpace(fingerprint.Publisher), strings.TrimSpace(fingerprint.Version)
+	if key == "" || publisher == "" || version == "" {
+		return ""
+	}
+	return effectiveCaptureDriver(app.Driver) + "\x00" + strings.ToLower(key) + "\x00" + strings.ToLower(publisher) + "\x00" + strings.ToLower(version)
+}
+
 func possibleDuplicateWarnings(apps []capturedApp) []CommandWarning {
 	type prior struct{ driverName string }
 	seen := make(map[string][]prior)
@@ -633,7 +690,7 @@ func possibleDuplicateWarnings(apps []capturedApp) []CommandWarning {
 		if otherManager != "" {
 			warnings = append(warnings, CommandWarning{
 				Code:    "possible_duplicate",
-				Message: fmt.Sprintf("%q was found in both %s and %s; both copies were captured", name, otherManager, driverName),
+				Message: fmt.Sprintf("%s was found twice: once through %s and once through %s. Endstate kept both entries in the capture. If they are the same app, remove one entry from the manifest so only one package manager installs it.", name, otherManager, driverName),
 				Driver:  driverName,
 				Source:  effectiveCapturedSource(app),
 				Ref:     ref,
@@ -833,6 +890,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	} else {
 		warnings = append(warnings, CommandWarning{Code: "inventory_union_skipped", Message: "Installed-software inventory union skipped because a package-manager row lacks an authoritative ARP binding."})
 	}
+	captured = collapseSharedInstallRows(captured)
 	totalFound = len(captured) + skipped
 	assignDeterministicCaptureIDs(captured, nil)
 

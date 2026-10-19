@@ -160,7 +160,7 @@ func (session *configRestoreExecutionSession) Execute(
 		for _, item := range prepared {
 			outcome := inspectDryRunConfigRestoreSet(ctx, item.materialized, options.Registry, options.HostBoundary, options.StateDir)
 			applyConfigRestoreSetOutcome(&result.Plan.Sets[item.setIndex], outcome)
-			items := configRestoreResultsForSet(result.Plan.Sets[item.setIndex], item.materialized, outcome)
+			items := configRestoreResultsForSet(result.Plan.Sets[item.setIndex], item.materialized, outcome, options.DryRun)
 			dryRunOutcomes[item.setIndex] = outcome
 			dryRunItems[item.setIndex] = items
 			result.RestoreItems = append(result.RestoreItems, items...)
@@ -170,10 +170,10 @@ func (session *configRestoreExecutionSession) Execute(
 		emitGenerationConfigResolutions(options.Emitter, legacyPreview)
 		for _, item := range prepared {
 			emitGenerationConfigRestoreStarts(
-				options.Emitter, result.Plan.Sets[item.setIndex], item.materialized, dryRunOutcomes[item.setIndex].Prepared,
+				options.Emitter, result.Plan.Sets[item.setIndex], item.materialized, dryRunOutcomes[item.setIndex].Prepared, options.DryRun,
 			)
 			items := dryRunItems[item.setIndex]
-			emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[item.setIndex].Source.ModuleID)
+			emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[item.setIndex].Source.ModuleID, options.DryRun)
 		}
 		legacy, ordinary, eventResults, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options, collisions)
 		if runErr != nil {
@@ -239,7 +239,7 @@ func (session *configRestoreExecutionSession) Execute(
 			continue
 		}
 		applyConfigRestoreSetOutcome(set, outcome)
-		earlyItems[item.setIndex] = configRestoreResultsForSet(*set, item.materialized, outcome)
+		earlyItems[item.setIndex] = configRestoreResultsForSet(*set, item.materialized, outcome, options.DryRun)
 	}
 	for index := range prepared {
 		item := &prepared[index]
@@ -285,7 +285,7 @@ func (session *configRestoreExecutionSession) Execute(
 		}
 		result.RestoreItems = append(result.RestoreItems, items...)
 		result.EventResults = append(result.EventResults, items...)
-		emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[index].Source.ModuleID)
+		emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[index].Source.ModuleID, options.DryRun)
 	}
 	for _, set := range legacyPreview.Sets {
 		if set.Resolution.Status != planner.StatusPlanned {
@@ -311,7 +311,7 @@ func (session *configRestoreExecutionSession) Execute(
 			Ready: func(prepared *configrestore.PreparedSet) {
 				emitGenerationConfigResolution(options.Emitter, *set)
 				emittedResolutions[item.setIndex] = true
-				emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized, prepared)
+				emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized, prepared, options.DryRun)
 				readyCalled = true
 			},
 		})
@@ -319,12 +319,12 @@ func (session *configRestoreExecutionSession) Execute(
 		if !readyCalled {
 			emitGenerationConfigResolution(options.Emitter, *set)
 			emittedResolutions[item.setIndex] = true
-			emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized, outcome.Prepared)
+			emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized, outcome.Prepared, options.DryRun)
 		}
-		items := configRestoreResultsForSet(*set, item.materialized, outcome)
+		items := configRestoreResultsForSet(*set, item.materialized, outcome, options.DryRun)
 		result.RestoreItems = append(result.RestoreItems, items...)
 		result.EventResults = append(result.EventResults, items...)
-		emitConfigRestoreItems(options.Emitter, items, set.Source.ModuleID)
+		emitConfigRestoreItems(options.Emitter, items, set.Source.ModuleID, options.DryRun)
 		if outcome.Reason != nil && *outcome.Reason == planner.ReasonJournalIntentFailed {
 			for index := range result.Plan.Sets {
 				if emittedResolutions[index] {
@@ -745,10 +745,15 @@ func configRestoreJournalLineage(runID string, set planner.PlanSet) configrestor
 	}
 }
 
+// configRestoreResultsForSet projects one config set's outcome onto its
+// concrete restore items. preview is the run's dry-run flag: a preview's prior
+// snapshots live in a disposable root that is deleted after inspection, so a
+// preview item reports no backup.
 func configRestoreResultsForSet(
 	set planner.PlanSet,
 	materialized *configrestore.MaterializedSet,
 	outcome configRestoreSetOutcome,
+	preview bool,
 ) []restore.RestoreResult {
 	if materialized == nil {
 		return []restore.RestoreResult{}
@@ -779,7 +784,7 @@ func configRestoreResultsForSet(
 		if index < len(prepared) {
 			prior := prepared[index].Prior()
 			item.TargetExistedBefore = prior.Kind != configrestore.StateAbsent
-			if outcome.Status != planner.StatusSkipped {
+			if outcome.Status != planner.StatusSkipped && !preview {
 				item.BackupPath = prior.BackupPath
 				item.BackupCreated = prior.BackupPath != ""
 			}
@@ -1070,7 +1075,7 @@ func executeLegacyAndOrdinaryConfigRestores(
 			results = append(results, linked...)
 			eventResult := configRestoreEventResultForAction(descriptor, linked)
 			eventResults = append(eventResults, eventResult)
-			emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{eventResult}, lane.moduleID)
+			emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{eventResult}, lane.moduleID, options.DryRun)
 		}
 		execution.ResultsByCaptureID[lane.captureID] = results
 	}
@@ -1091,7 +1096,7 @@ func executeLegacyAndOrdinaryConfigRestores(
 				}
 				ordinary = append(ordinary, result)
 				eventResults = append(eventResults, result)
-				emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{result}, "")
+				emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{result}, "", options.DryRun)
 				continue
 			}
 			results, runErr := restore.RunRestore([]restore.RestoreAction{action}, restoreOptions, nil)
@@ -1101,7 +1106,7 @@ func executeLegacyAndOrdinaryConfigRestores(
 			ordinary = append(ordinary, results...)
 			eventResult := configRestoreEventResultForAction(descriptor, results)
 			eventResults = append(eventResults, eventResult)
-			emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{eventResult}, "")
+			emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{eventResult}, "", options.DryRun)
 		}
 	}
 	return legacy, ordinary, eventResults, nil
@@ -1123,6 +1128,8 @@ type configRestoreEventLineage struct {
 	TargetGeneration string
 }
 
+// emitRestoreActionStarts emits the in-progress transition for each action.
+// options.DryRun marks a preview, whose message never claims a restore.
 func emitRestoreActionStarts(
 	emitter *events.Emitter,
 	actions []restore.RestoreAction,
@@ -1141,7 +1148,7 @@ func emitRestoreActionStarts(
 		emitter.EmitRestoreItem(events.RestoreItemProgress{
 			ID: descriptor.ID, Module: moduleID, Restorer: descriptor.RestoreType,
 			Source: descriptor.Source, Target: descriptor.Target, Status: events.RestoreItemRestoring,
-			TargetExisted: descriptor.TargetExisted, Message: "restoring settings",
+			TargetExisted: descriptor.TargetExisted, Message: events.RestoreItemMessage(events.RestoreItemRestoring, options.DryRun),
 			CaptureID: lineage.CaptureID, ConfigSetID: lineage.ConfigSetID,
 			TargetInstanceID: lineage.TargetInstanceID, SourceGeneration: lineage.SourceGeneration,
 			TargetGeneration: lineage.TargetGeneration,
@@ -1154,6 +1161,7 @@ func emitGenerationConfigRestoreStarts(
 	set planner.PlanSet,
 	materialized *configrestore.MaterializedSet,
 	prepared *configrestore.PreparedSet,
+	preview bool,
 ) {
 	if emitter == nil || materialized == nil {
 		return
@@ -1171,7 +1179,7 @@ func emitGenerationConfigRestoreStarts(
 			ID:     fmt.Sprintf("config:%s:%06d", set.Source.CaptureID, index),
 			Module: set.Source.ModuleID, Restorer: action.Strategy,
 			Source: action.Source, Target: action.Target, Status: events.RestoreItemRestoring,
-			TargetExisted: targetExisted, Message: "restoring settings",
+			TargetExisted: targetExisted, Message: events.RestoreItemMessage(events.RestoreItemRestoring, preview),
 			CaptureID: set.Source.CaptureID, ConfigSetID: set.Source.ConfigSetID,
 			TargetInstanceID: set.Resolution.TargetInstanceID,
 			SourceGeneration: set.Source.Generation, TargetGeneration: set.Resolution.TargetGeneration,
@@ -1179,7 +1187,9 @@ func emitGenerationConfigRestoreStarts(
 	}
 }
 
-func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreResult, moduleID string) {
+// emitConfigRestoreItems emits the terminal transition for each result. preview
+// is the run's dry-run flag: a preview item's message says what would happen.
+func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreResult, moduleID string, preview bool) {
 	if emitter == nil {
 		return
 	}
@@ -1190,20 +1200,23 @@ func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreRe
 		}
 		status := events.RestoreItemRestored
 		var reason *string
-		message := "settings restored"
 		switch result.Status {
 		case "skipped_up_to_date":
 			status = events.RestoreItemSkippedUpToDate
 			value := planner.ReasonAlreadyUpToDate.String()
-			reason, message = &value, "target settings are already current"
+			reason = &value
 		case "skipped_missing_source":
 			status = events.RestoreItemSkippedMissingSource
 			value := "source_missing"
-			reason, message = &value, "optional settings source is missing"
+			reason = &value
 		case "failed":
 			status = events.RestoreItemFailed
 			value := "restore_failed"
-			reason, message = &value, result.Error
+			reason = &value
+		}
+		message := events.RestoreItemMessage(status, preview)
+		if status == events.RestoreItemFailed {
+			message = result.Error
 		}
 		var backupPath *string
 		if result.BackupPath != "" {
