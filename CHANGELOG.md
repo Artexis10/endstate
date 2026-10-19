@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.32.0](https://github.com/Artexis10/endstate/compare/v2.31.0...v2.32.0) (2026-10-19)
+
+
+### Features
+
+* restore Windows settings and filter module secrets out of registry capture ([#238](https://github.com/Artexis10/endstate/issues/238)) ([2c578e3](https://github.com/Artexis10/endstate/commit/2c578e390663b3175e913c1dcaf239cc75678769)), closes [#234](https://github.com/Artexis10/endstate/issues/234)
+
+
+### Bug Fixes
+
+* **restore:** stop expanding ~user paths as the current user's home ([#230](https://github.com/Artexis10/endstate/issues/230)) ([2b693f2](https://github.com/Artexis10/endstate/commit/2b693f212f2e55110b89991adcf3f5cb1ad226ee))
+
 ## [2.31.0](https://github.com/Artexis10/endstate/compare/v2.30.0...v2.31.0) (2026-10-03)
 
 
