@@ -8,6 +8,7 @@ The GUI contract said the GUI never maps resolutions to its own copy. A summary 
 
 - A consumer may fold resolutions that need no decision into one summary line that it writes and computes from the rows.
 - A row qualifies only when its status is not `failed`, `rolled_back` or `rollback_failed`, its reason is absent or one of `target_not_detected`, `already_up_to_date`, `restore_filtered` and `restore_not_enabled`, and its resolution is `legacy_unverified`, or `unknown` with one of those reasons.
+- A `direct` row that did not fail, with an absent or listed reason, may show as its engine label alone.
 - Every other row is shown on its own with the engine's label, message and remediation. A failure reason on a stream event, which has no status, keeps the row on its own.
 - The preview and the results keep each folded row's engine copy verbatim behind progressive disclosure. A live progress list may show the summary line alone.
 - The contract paragraph and the two places that forbade GUI copy or GUI logic on details now name this exception.
