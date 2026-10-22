@@ -325,6 +325,8 @@ The engine authors each row's distilled `label`, `message`, nullable `remediatio
 | `unknown` or `legacy_unverified` | **Compatibility unknown** |
 | `incompatible` | **Not supported** |
 
+One exception: the GUI may fold rows that need no decision into one GUI-written summary line whose counts it computes from those rows. A row qualifies only when its `status` is not `failed`, `rolled_back` or `rollback_failed`, and its resolution is `legacy_unverified`, or `unknown` with reason `target_not_detected`, `already_up_to_date`, `restore_filtered` or `restore_not_enabled`. Every other row, including an `unknown` row with an absent or unlisted reason, renders on its own with the engine copy. Each folded row's `label`, `message` and `remediation` stay available verbatim behind progressive disclosure.
+
 Advanced details display the engine-provided source/target instance versions, config-set and generation IDs, migration path, capture/restore module revisions, and stable reason verbatim. They are progressive disclosure of engine output, not inputs to GUI-side logic.
 
 Explicit legacy v1 module lanes remain usable through existing consent, use `configSetId: "legacy"` plus the deterministic capture ID returned by `bundle.LegacyCaptureID(moduleId)`, and receive the engine label **Compatibility unknown** (`legacy_unverified`), never falsely incompatible. Anonymous inline actions without a module-lane association appear only as ordinary restore items; the GUI must not invent config-resolution rows for them. Invalid v2 provenance is shown as the engine's `unknown`/failure reason and never offered through a legacy fallback.
