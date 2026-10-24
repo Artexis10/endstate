@@ -183,7 +183,7 @@ The default flow presents one toggle per app:
 4. Default behavior: `onConflict: skip` — only restores files that don't exist yet
 5. No jargon, no file paths, no technical detail
 
-For generation-aware payloads, the engine may expose multiple config sets or side-by-side target choices beneath one app. The GUI renders those engine-provided rows, labels, messages, remediation, technical details, and mappings verbatim; it does not inspect module rules, compare app versions, select generations, infer compatibility, or author replacement copy.
+For generation-aware payloads, the engine may expose multiple config sets or side-by-side target choices beneath one app. The GUI renders those engine-provided rows, labels, messages, remediation, technical details, and mappings verbatim; it does not inspect module rules, compare app versions, select generations, infer compatibility, or author replacement copy. The one exception is the summary line for rows that need no decision, defined in `gui-integration-contract.md`, "Locked Default Labels".
 
 Engine-authored default compatibility labels are locked:
 
