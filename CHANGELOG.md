@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.32.1](https://github.com/Artexis10/endstate/compare/v2.32.0...v2.32.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** patch x/crypto and cryptography security advisories ([#241](https://github.com/Artexis10/endstate/issues/241)) ([2c01f46](https://github.com/Artexis10/endstate/commit/2c01f46b36a3835b2ca8cb2c5ebbca1c71770e70))
+
 ## [2.32.0](https://github.com/Artexis10/endstate/compare/v2.31.0...v2.32.0) (2026-10-19)
 
 
