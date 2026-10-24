@@ -2,6 +2,13 @@ module github.com/Artexis10/endstate/go-engine
 
 go 1.26.0
 
+// Keep Go 1.22 Windows path semantics: EvalSymlinks resolves junctions and
+// mount points (ResolveRepoRoot, bootstrap). Drop only with a junction test.
+godebug (
+	winreadlinkvolume=0
+	winsymlink=0
+)
+
 require (
 	github.com/danieljoos/wincred v1.2.3
 	github.com/gofrs/flock v0.11.0
