@@ -413,7 +413,7 @@ with the public naming.
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| Go | 1.22+ | Build and development |
+| Go | 1.26+ | Build and development |
 | Winget | Latest | Default app installation (Windows) |
 | Chocolatey | Current, optional | Additional Windows app catalog; Endstate can set it up with explicit consent |
 
