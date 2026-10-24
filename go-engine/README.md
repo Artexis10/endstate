@@ -8,7 +8,7 @@ Go rewrite of the Endstate engine — a declarative system provisioning and reco
 github.com/Artexis10/endstate/go-engine
 ```
 
-Requires Go 1.22 or later.
+Requires Go 1.26 or later.
 
 ## Structure
 

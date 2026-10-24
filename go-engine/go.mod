@@ -1,6 +1,6 @@
 module github.com/Artexis10/endstate/go-engine
 
-go 1.22
+go 1.26.0
 
 require (
 	github.com/danieljoos/wincred v1.2.3
@@ -8,8 +8,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/tyler-smith/go-bip39 v1.1.0
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/crypto v0.32.0
-	golang.org/x/sys v0.29.0
+	golang.org/x/crypto v0.56.0
+	golang.org/x/sys v0.47.0
 )
 
 require github.com/godbus/dbus/v5 v5.2.2 // indirect
