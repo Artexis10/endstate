@@ -25,6 +25,30 @@ func (adapter fakeAdapter) Inventory(context.Context) (AdapterInventory, error) 
 	return adapter.result, adapter.err
 }
 
+type cancelingAdapter struct{ cancel context.CancelFunc }
+
+func (cancelingAdapter) ID() string { return "z-canceling-source" }
+func (adapter cancelingAdapter) Inventory(context.Context) (AdapterInventory, error) {
+	adapter.cancel()
+	return AdapterInventory{}, context.Canceled
+}
+
+func TestDiscoveryCancellationDoesNotPublishPartialInventory(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	orchestrator := Orchestrator{
+		Catalog: testPackageCatalog(t), NixpkgsInput: "github:NixOS/nixpkgs/release",
+		Adapters: []Adapter{
+			fakeAdapter{id: "a-readable", result: AdapterInventory{Items: []InventoryItem{{Source: "debian", Ref: "ripgrep"}}}},
+			cancelingAdapter{cancel: cancel},
+		},
+	}
+	result, err := orchestrator.Discover(ctx, Request{})
+	if !errors.Is(err, context.Canceled) || len(result.Resolved) != 0 {
+		t.Fatalf("cancellation published partial inventory: result=%+v error=%v", result, err)
+	}
+}
+
 func testPackageCatalog(t *testing.T) *packagecatalog.Catalog {
 	t.Helper()
 	dir := t.TempDir()

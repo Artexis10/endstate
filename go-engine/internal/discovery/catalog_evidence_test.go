@@ -11,7 +11,78 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
 )
+
+func TestCrossSourceFixtureReconcilesNativeDesktopAndConfig(t *testing.T) {
+	root := t.TempDir()
+	executable := "sample-editor"
+	if runtime.GOOS == "windows" {
+		executable += ".cmd"
+	}
+	entry := map[string]any{
+		"schemaVersion": 1, "id": "sample-editor", "displayName": "Sample Editor",
+		"nix": map[string]string{"attribute": "sample-editor"},
+		"aliases": map[string][]string{
+			"debian": {"sample-editor"}, "flatpak": {"org.example.Editor"},
+			"desktop": {"sample-editor.desktop"}, "executable": {executable},
+			"config": {"${home}/editor.json"},
+		},
+	}
+	body, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "editor.json"), body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := packagecatalog.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, home, desktop := t.TempDir(), t.TempDir(), t.TempDir()
+	for path, contents := range map[string]string{
+		filepath.Join(bin, executable):                  "Never execute this inventory evidence.",
+		filepath.Join(home, "editor.json"):              "private settings",
+		filepath.Join(desktop, "sample-editor.desktop"): "[Desktop Entry]\nType=Application\nName=Sample Editor\n",
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	orchestrator := Orchestrator{
+		Catalog: catalog, NixpkgsInput: "github:NixOS/nixpkgs/1111111111111111111111111111111111111111",
+		Adapters: []Adapter{
+			DebianAdapter{Runner: &fixtureRunner{outputs: map[string][]byte{
+				"apt-mark":   []byte("sample-editor\n"),
+				"dpkg-query": []byte("sample-editor\t1.2-debian\tii \tno\toptional\teditors\n"),
+			}}},
+			FlatpakAdapter{Runner: &sequenceRunner{results: []sequenceResult{
+				{output: []byte("org.example.Editor\t1.3-flatpak\n")}, {output: []byte("org.example.Platform\n")},
+			}}},
+			DesktopAdapter{Roots: []string{desktop}}, CatalogExecutableAdapter{Catalog: catalog},
+			CatalogConfigAdapter{Catalog: catalog, Environment: config.PathEnvironment{GOOS: runtime.GOOS, Home: home}},
+		},
+	}
+	result, err := orchestrator.Discover(context.Background(), Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Resolved) != 1 || result.Resolved[0].ID != "sample-editor" || len(result.Resolved[0].Evidence) != 5 {
+		t.Fatalf("one app must retain all source-qualified evidence: %+v", result)
+	}
+	if len(result.Settings) != 1 || result.Settings[0].Portability != PortabilityResolved || len(result.Settings[0].Actions) != 0 {
+		t.Fatalf("config evidence changed settings authority: %+v", result.Settings)
+	}
+	for _, evidence := range result.Resolved[0].Evidence {
+		if evidence.Source == "debian" && evidence.Version != "1.2-debian" || evidence.Source == "flatpak" && evidence.Version != "1.3-flatpak" {
+			t.Fatalf("source versions were conflated: %+v", result.Resolved[0].Evidence)
+		}
+	}
+}
 
 func TestExecutableAndConfigEvidenceUsesBoundedCoordinates(t *testing.T) {
 	root := t.TempDir()

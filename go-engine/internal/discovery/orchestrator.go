@@ -75,6 +75,9 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 			return Result{}, err
 		}
 		inventory, err := adapter.Inventory(ctx)
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
 		status := SourceStatus{ID: adapter.ID()}
 		switch {
 		case errors.Is(err, ErrNotAvailable):
@@ -131,6 +134,13 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 
 	if selectedAdapters > 0 && succeeded == 0 {
 		return Result{}, fmt.Errorf("no trustworthy selected Linux application source could be read")
+	}
+	for _, candidate := range settings {
+		// Config presence enriches an independently resolved package; it cannot
+		// establish package intent or grant a settings action.
+		if accumulator := resolved[candidate.PackageID]; accumulator != nil {
+			accumulator.evidence = append(accumulator.evidence, candidate.Evidence...)
+		}
 	}
 
 	allowedApps, allowedModules := splitOnly(request.Only)
