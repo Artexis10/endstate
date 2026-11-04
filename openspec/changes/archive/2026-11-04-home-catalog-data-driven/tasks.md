@@ -40,7 +40,7 @@
 - [x] 4.2 `cd go-engine && go test ./internal/realizer/... ./internal/manifest/...` green.
 - [x] 4.3 `go vet ./internal/realizer/... ./internal/manifest/...` clean; `go build ./...` clean
       (host is windows/amd64, so this is the `GOOS=windows` build).
-- [ ] 4.4 **PENDING (WSL follow-up — cannot run on Windows):** real-nix `home-manager switch`
+- [ ] 4.4 **TRANSFERRED, NOT VERIFIED:** `add-linux-product-parity` task 9.15 owns real-nix `home-manager switch`
       activation smoke, ONE per StableField KIND, on a Linux/WSL box with `--enable-restore`:
       - `kindString`   → `zsh` (assert generated `home.nix` has `programs.zsh.initContent` and
         activation succeeds: `.zshrc` body present).
@@ -49,5 +49,29 @@
       - `kindAnyMap`   → `helix` (assert `programs.helix.settings` and helix `config.toml`).
       - `kindStringMap` → `bat` (already curated; assert `programs.bat.config` still activates).
       - `kindNone`     → `fzf` (already curated; assert `programs.fzf.enable` still activates).
-- [ ] 4.5 **PENDING (gate):** `npm run openspec:validate` — node_modules is absent in this
-      worktree, so validation is deferred to the gate environment.
+- [x] 4.5 OpenSpec 1.14.0 strict validation passes during the archive batch;
+      the validator runs from an isolated tool install without changing dependencies.
+
+## Archive reconciliation — 2026-11-04
+
+Source inspection at `d76d3e5` confirms the descriptor table, derived overlap
+guard, eleven typed concepts, generic emission loop, example, and existing
+manifest/render regressions. Tasks 1.1–4.3 retain implementation evidence;
+Windows build and vet results remain historical, not fresh results from this batch.
+Task 4.5 receives current strict validation before and after spec sync.
+
+Task 4.4 stays unchecked. Its complete acceptance transfers to
+`add-linux-product-parity` task 9.15: one real `home-manager switch` activation
+for each of `kindNone`, `kindString`, `kindStringMap`, `kindAnyMap`, and
+`kindStringSlice`, checking the generated statement and activated target.
+The five concrete cases above remain acceptance examples, not completed smokes.
+The Linux serialized registry/real-Home-Manager packet owns that gate against
+the immutable release input pair. This archive performs no Nix activation.
+
+The existing main spec's Purpose and requirements remain intact. This change
+adds its three requirements before archive. Later Linux settings and adapter
+packets may edit `home_catalog.go` only after this archive batch lands.
+
+The scoped Go recheck passes the 27 selected settings cases in
+`internal/manifest` and 34 selected render/flake cases in `internal/realizer/nix`.
+These counts include subtests and prove no real Home Manager activation.
