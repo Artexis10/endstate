@@ -60,3 +60,9 @@ emit loop. After that, adding a program is one typed field + one table row — n
   entries + an `lsd` raw-passthrough demo.
 - Zero winget / Windows / package-capture regression; the catalog path is Nix-only and never
   reached on the winget path.
+
+## Archive status
+
+This proposal records the original scope. The archive reconciliation in
+`tasks.md` identifies shipped behavior, historical evidence, and acceptance
+that remains deferred or belongs to another repository.

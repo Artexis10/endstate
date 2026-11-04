@@ -30,3 +30,9 @@ A scheduled drift check makes Endstate continuously valuable without violating t
 - Contract docs: `docs/contracts/cli-json-contract.md` (new "Command: schedule" section + commands table), `docs/contracts/gui-integration-contract.md` (capabilities example).
 - **Consumer (separate `endstate-gui` change):** scheduled drift-check settings card, launch-time `schedule status` fetch + re-assert of `enable` (self-heals task path after app updates), drift chip on the intent landing. All drift logic stays in the CLI.
 - Backward-compatible: purely additive surface; machines without the feature enabled are unaffected.
+
+## Archive status
+
+This proposal records the original scope. The archive reconciliation in
+`tasks.md` identifies shipped behavior, historical evidence, and acceptance
+that remains deferred or belongs to another repository.

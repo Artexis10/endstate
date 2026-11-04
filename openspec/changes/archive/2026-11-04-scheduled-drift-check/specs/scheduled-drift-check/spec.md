@@ -1,3 +1,7 @@
+## Purpose
+
+Defines opt-in Windows drift checks that run through the operating system scheduler, persist local results, and deliver queued backups without a resident process.
+
 ## ADDED Requirements
 
 ### Requirement: Scheduled Cloud delivery does not repeat ambiguous mutations
@@ -58,7 +62,7 @@ Because scheduler-executed actions cannot set environment variables, `schedule e
 
 ### Requirement: schedule run verifies, optionally pushes, and records its result
 
-`schedule run` SHALL verify the machine against the configured manifest in-process and write its outcome atomically to `state/schedule/last-run.json`. After acquiring `run.lock` and before reading configuration, verification, capture, or Cloud work, it SHALL atomically replace any prior result with `{status: "running"}` for the new run. Terminal writes SHALL replace that marker with `status: "completed"` or `status: "failed"`; clients SHALL treat `running` as non-healthy. Detected drift SHALL NOT cause a non-zero exit (drift is data). When the config enables auto-push, every detected drift SHALL first publish a fresh local baseline and append it to an ordered durable upload queue, then retry queued captures oldest-first with if-changed semantics using the persisted keychain session. Authentication and transport failure SHALL leave queued local captures intact and SHALL never prompt interactively; corrupt queue entries SHALL be quarantined without blocking later entries. Hard failures (missing manifest, auth required, subscription lapsed, last-run persistence failure) SHALL be reported with a stable error code. Scheduled runs SHALL emit no NDJSON events.
+`schedule run` SHALL verify the machine against the configured manifest in-process and write its outcome atomically to `state/schedule/last-run.json`. After acquiring `run.lock` and before reading configuration, verification, capture, or Cloud work, it SHALL atomically replace any prior result with `{status: "running"}` for the new run. Terminal writes SHALL replace that marker with `status: "completed"` or `status: "failed"`; clients SHALL treat `running` as non-healthy. Detected drift SHALL NOT cause a non-zero exit (drift is data). When the config enables auto-push, every detected drift SHALL first publish a fresh local baseline and append it to an ordered durable upload queue, then retry queued captures oldest-first with if-changed semantics using the persisted keychain session. Authentication and transport failure SHALL leave queued local captures intact and SHALL never prompt interactively; corrupt queue entries SHALL be quarantined without blocking later entries. Manifest and last-run persistence failures SHALL report a stable error code. Authentication, subscription, and transport failures SHALL record stable auto-backup outcomes without prompting. Scheduled runs SHALL emit no NDJSON events.
 
 #### Scenario: Interrupted run does not retain an earlier healthy result
 
