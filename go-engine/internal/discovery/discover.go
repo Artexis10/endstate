@@ -61,15 +61,18 @@ func DiscoverWithAdapters(ctx context.Context, request Request, extraAdapters ..
 		}
 	}
 
+	home, _ := os.UserHomeDir()
+	environment := config.PathEnvironment{GOOS: runtime.GOOS, Home: home, Env: hostXDGEnvironment()}
 	adapters := []Adapter{
+		CatalogExecutableAdapter{Catalog: catalog},
+		CatalogConfigAdapter{Catalog: catalog, Environment: environment},
 		DebianAdapter{}, RPMAdapter{}, ArchAdapter{}, FlatpakAdapter{}, DesktopAdapter{},
 		NixUserProfileAdapter{DefaultInput: inputs.Nixpkgs.FlakeRef},
 	}
 	if registry != nil {
-		home, _ := os.UserHomeDir()
 		adapters = append(adapters, HomeManagerAdapter{
 			Registry:    registry,
-			Environment: config.PathEnvironment{GOOS: runtime.GOOS, Home: home, Env: hostXDGEnvironment()},
+			Environment: environment,
 		})
 	}
 	adapters = append(adapters, extraAdapters...)

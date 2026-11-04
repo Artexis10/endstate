@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
@@ -26,6 +27,7 @@ var (
 	nixAttribute      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+_-]*(?:\.[A-Za-z0-9][A-Za-z0-9+_-]*)*$`)
 )
 
+// These namespaces belong to the versioned inventory protocol, not app names.
 var allowedSources = map[string]struct{}{
 	"nix": {}, "endstate-profile": {}, "debian": {}, "rpm": {}, "arch": {},
 	"flatpak": {}, "snap": {}, "desktop": {}, "executable": {}, "config": {},
@@ -118,6 +120,17 @@ func validateEntry(entry *Entry) error {
 		for _, ref := range refs {
 			if strings.TrimSpace(ref) == "" || ref != strings.TrimSpace(ref) {
 				return fmt.Errorf("alias source %q contains an empty or padded ref", source)
+			}
+			switch source {
+			case "executable":
+				// An executable alias is a name searched on PATH, never a supplied path.
+				if ref == "." || ref == ".." || strings.ContainsAny(ref, "/\\\x00") {
+					return fmt.Errorf("executable alias %q must be a file name", ref)
+				}
+			case "config":
+				if err := config.ValidateEnginePath(ref, "linux"); err != nil {
+					return fmt.Errorf("config alias %q is not a Linux coordinate: %w", ref, err)
+				}
 			}
 			if _, duplicate := seen[ref]; duplicate {
 				return fmt.Errorf("alias source %q repeats ref %q", source, ref)

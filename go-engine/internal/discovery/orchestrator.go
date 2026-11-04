@@ -214,7 +214,11 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 	result.Counts.Resolved = len(result.Resolved)
 	result.Counts.Selected = len(result.Resolved)
 	result.Counts.Unresolved = len(result.Unresolved)
-	result.Counts.Settings = len(result.Settings)
+	for _, candidate := range result.Settings {
+		if len(candidate.Actions) > 0 {
+			result.Counts.Settings++
+		}
+	}
 	return result, nil
 }
 

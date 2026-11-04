@@ -56,10 +56,13 @@ func TestParseEntryStrictAndDeterministic(t *testing.T) {
 
 func TestParseEntryRejectsUnknownFieldsAndUnsafeTargets(t *testing.T) {
 	tests := map[string]string{
-		"unknown field":   strings.Replace(validRipgrep, `"configModule":`, `"surprise": true, "configModule":`, 1),
-		"flake injection": strings.Replace(validRipgrep, `"attribute": "ripgrep"`, `"attribute": "nixpkgs#ripgrep"`, 1),
-		"attr traversal":  strings.Replace(validRipgrep, `"attribute": "ripgrep"`, `"attribute": "../ripgrep"`, 1),
-		"unknown source":  strings.Replace(validRipgrep, `"debian":`, `"mystery":`, 1),
+		"unknown field":    strings.Replace(validRipgrep, `"configModule":`, `"surprise": true, "configModule":`, 1),
+		"flake injection":  strings.Replace(validRipgrep, `"attribute": "ripgrep"`, `"attribute": "nixpkgs#ripgrep"`, 1),
+		"attr traversal":   strings.Replace(validRipgrep, `"attribute": "ripgrep"`, `"attribute": "../ripgrep"`, 1),
+		"unknown source":   strings.Replace(validRipgrep, `"debian":`, `"mystery":`, 1),
+		"executable path":  strings.Replace(validRipgrep, `"executable": ["rg"]`, `"executable": ["../rg"]`, 1),
+		"unbounded config": strings.Replace(validRipgrep, `"executable": ["rg"]`, `"config": ["/etc/editor/config"]`, 1),
+		"config traversal": strings.Replace(validRipgrep, `"executable": ["rg"]`, `"config": ["${home}/../editor/config"]`, 1),
 	}
 	for name, data := range tests {
 		t.Run(name, func(t *testing.T) {
