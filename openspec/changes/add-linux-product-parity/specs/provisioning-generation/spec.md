@@ -72,7 +72,7 @@ A Provisioning Generation SHALL be a self-describing, versioned record stored as
 ## ADDED Requirements
 
 ### Requirement: Nix provisioning records portable intent and effective immutable inputs
-A Provisioning Generation written for Nix package or Endstate-generated Home Manager work SHALL record the portable requested attributes/config identity separately from the effective immutable Nixpkgs and Home Manager inputs used to resolve and activate them. Every accepted override SHALL itself resolve to immutable provenance before mutation; the record SHALL NOT infer reproducibility from a parsed installed version alone.
+A Provisioning Generation written for Nix package or Endstate-generated Home Manager work SHALL record the portable requested attributes/config identity separately from the effective immutable Nixpkgs and Home Manager inputs used to resolve and activate them. Every accepted override SHALL produce an immutable effective resolution before mutation; the record SHALL NOT infer reproducibility from a parsed installed version alone. A frozen native derivation, selected outputs, and effective lock graph MAY establish immutable resolution for a mutable source. The record SHALL identify such source metadata as mutable and SHALL NOT claim that the original root became immutable.
 
 #### Scenario: Release-default package generation
 - **WHEN** apply installs a bare portable package attribute through the release-default Nixpkgs revision
@@ -84,11 +84,11 @@ A Provisioning Generation written for Nix package or Endstate-generated Home Man
 - **THEN** the generation SHALL record the platform/config identity, effective immutable Nixpkgs and Home Manager inputs, and resulting Home Manager generation
 
 #### Scenario: Advanced immutable input override
-- **WHEN** an advanced user applies with an input override that resolves to immutable provenance
+- **WHEN** an advanced user applies with an input override whose evaluated derivation and selected outputs are frozen before mutation
 - **THEN** the generation SHALL record the effective resolved override
 - **AND** it SHALL NOT claim the Endstate release default was used
 
 #### Scenario: Override cannot be resolved immutably
-- **WHEN** an input override cannot be resolved to immutable provenance before mutation
+- **WHEN** an input override cannot produce an immutable mutation installable before mutation
 - **THEN** apply SHALL fail before mutation with a stable input-provenance error
 - **AND** no Provisioning Generation SHALL be written for that operation

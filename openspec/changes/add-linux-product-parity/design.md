@@ -255,6 +255,20 @@ Main loads application and desktop catalog tiers together. Linux application par
 
 OpenSpec uses the repository-selected version `1.14.0`, pinned exactly so a fresh install does not change validation policy. Delta scenarios retain the current spec's scenario identities while applying the approved Linux refinements. Darwin empty-profile capture remains unchanged.
 
+### 18. Native Nix derivations freeze provisioning before mutation
+
+Nix resolves each requested installable through its own parser and evaluator. The engine retains the requested reference, effective root provenance, and the native lock graph. Native dry-run build JSON identifies the exact derivation and selected outputs. A native priority evaluation must identify that same derivation. Installed versions remain observations.
+
+One input-free metadata flake exposes the frozen derivations through native derivation imports and preserves each package's priority. Its immutable source supplies every reference in one atomic profile addition. The engine records the source/attribute pair and observed output paths alongside the original application identity. Current inventory verifies that pair and restores the original identity before plan, verify, prune, discovery, or capture. Native removal keys remain unchanged. Capture never exports the metadata flake or labels floating provenance reproducible.
+
+Generated Home Manager work resolves and builds its frozen activation before package mutation. Native roots retain prepared derivations and activation outputs through finalization. Activation uses the existing store-script mechanism with the native backup environment. External ownership remains explicit. New ownership evidence compares the active output with the recorded output, rather than trusting a generation number alone.
+
+New provisioning records retain configuration identity and effective inputs without storing settings payloads. A settings-generated record may reference the declared source manifest and its settings digest. Capture recovers declared settings only when that source still matches the recorded digest. Otherwise it reports the unavailable declaration and preserves independent live-settings discovery. Legacy embedded settings remain readable. Generated machine-local flakes never become portable capture input.
+
+Finalization records every committed backend generation even when a later stage fails. Persistence failure remains visible as committed state whose provenance could not be saved. Rollback uses the recorded native snapshot or a retained frozen derivation; it never re-evaluates the latest generated configuration.
+
+This extends the existing Nix backend and provisioning records. A copied source-flake system would change source metadata and duplicate native locking. Raw derivation addition would lose package priority and identity. The small metadata flake is required to preserve those existing package semantics.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.

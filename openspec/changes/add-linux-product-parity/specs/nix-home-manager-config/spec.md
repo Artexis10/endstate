@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Engine-generated Home Manager configuration uses immutable compatible inputs
-Release-default generated Home Manager configurations SHALL use revision-locked, mutually compatible Nixpkgs and Home Manager inputs owned by the Endstate release. The engine SHALL record the effective inputs used for activation. Environment overrides MAY replace them for advanced use, but the effective resolved inputs SHALL remain inspectable and SHALL NOT be reported as release defaults.
+Release-default generated Home Manager configurations SHALL use revision-locked, mutually compatible Nixpkgs and Home Manager inputs owned by the Endstate release. The engine SHALL record the effective inputs used for activation. Environment overrides MAY replace them for advanced use, but the effective resolved inputs SHALL remain inspectable and SHALL NOT be reported as release defaults. If an override source remains mutable, the engine SHALL distinguish that source from its frozen activation derivation and effective lock graph. The engine SHALL NOT claim that the original source became immutable.
 
 #### Scenario: Release-default catalog activation
 - **WHEN** Endstate compiles and activates `homeManager.settings` under release defaults

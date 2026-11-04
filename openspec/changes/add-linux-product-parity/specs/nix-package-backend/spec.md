@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Nix package references resolve to pinned installables
-The engine SHALL resolve `App.Refs["linux"]`/`App.Refs["darwin"]` through an immutable effective Nixpkgs input on the realizer path. Release defaults SHALL name a revision-locked input rather than a floating registry alias or branch. A bare portable attribute SHALL expand against that input. An explicit flakeref SHALL be resolved before mutation to a canonical locked installable that preserves its requested attribute/output, and that exact locked installable SHALL be passed to Nix. Apps with no Nix reference SHALL be skipped rather than receiving a non-Nix reference.
+The engine SHALL resolve `App.Refs["linux"]`/`App.Refs["darwin"]` through an immutable effective Nix resolution on the realizer path. Release defaults SHALL name a revision-locked input rather than a floating registry alias or branch. A bare portable attribute SHALL expand against that input. An explicit flakeref SHALL be resolved before mutation to a canonical locked installable that preserves its requested attribute/output, and that exact locked installable SHALL be passed to Nix. Apps with no Nix reference SHALL be skipped rather than receiving a non-Nix reference.
 
 #### Scenario: Bare attribute is pinned
 - **WHEN** a Nix ref is a bare attribute name under release defaults
@@ -10,8 +10,9 @@ The engine SHALL resolve `App.Refs["linux"]`/`App.Refs["darwin"]` through an imm
 
 #### Scenario: Explicit flakeref passes through
 - **WHEN** an explicit installable already names its canonical immutable input and requested target
-- **THEN** the engine SHALL pass that locked installable to `nix profile add` unchanged
-- **AND** it SHALL record the requested installable and immutable input separately
+- **THEN** the engine SHALL preserve that requested installable unchanged in provisioning provenance
+- **AND** mutation SHALL consume a canonical immutable installable for the same evaluated derivation and selected outputs
+- **AND** the engine SHALL retain the effective input separately
 
 #### Scenario: Explicit flakeref is locked before mutation
 - **WHEN** a Nix ref is an explicit flakeref installable
@@ -24,9 +25,9 @@ The engine SHALL resolve `App.Refs["linux"]`/`App.Refs["darwin"]` through an imm
 - **AND** it SHALL NOT inspect one revision and then mutate through the unresolved ref
 
 #### Scenario: Advanced immutable override is recorded honestly
-- **WHEN** an advanced user overrides the Nixpkgs input with a reference that resolves to immutable provenance before mutation
+- **WHEN** an advanced user overrides the Nixpkgs input with a reference whose evaluated derivation and selected outputs are frozen before mutation
 - **THEN** the engine SHALL use the resolved override
-- **AND** it SHALL record the effective immutable input rather than claiming the release default was used
+- **AND** it SHALL record the effective immutable resolution and actual source metadata rather than claiming the release default was used
 
 #### Scenario: App with no Nix ref is skipped
 - **WHEN** an app has no `linux`/`darwin` ref on the realizer path
@@ -36,7 +37,7 @@ The engine SHALL resolve `App.Refs["linux"]`/`App.Refs["darwin"]` through an imm
 ## ADDED Requirements
 
 ### Requirement: Provisioning records portable intent and effective Nix resolution separately
-For every Nix package operation, the engine SHALL retain the portable package attribute or explicit requested installable separately from the immutable input/revision that resolved it. Provisioning Generation and inspection output SHALL expose enough data to reproduce the effective resolution without treating an observed source-manager version as a Nix pin.
+For every Nix package operation, the engine SHALL retain the portable package attribute or explicit requested installable separately from its immutable effective resolution. A frozen native derivation, selected outputs, and effective lock graph MAY establish that resolution when the original source remains mutable. The record SHALL distinguish mutable source metadata from the immutable mutation installable and SHALL NOT describe that source as a revision pin. Provisioning Generation and inspection output SHALL expose enough data to reproduce the effective resolution without treating an observed source-manager version as a Nix pin.
 
 #### Scenario: Mapped external package is applied
 - **WHEN** a portable attribute captured from an external Linux manager is applied through the release Nixpkgs input
@@ -44,6 +45,6 @@ For every Nix package operation, the engine SHALL retain the portable package at
 - **AND** it SHALL retain the source-manager version only as capture evidence
 
 #### Scenario: Exact resolution cannot be established
-- **WHEN** a requested release-default or advanced input cannot be resolved to immutable provenance before mutation
+- **WHEN** a requested release-default or advanced input cannot produce an immutable mutation installable before mutation
 - **THEN** the engine SHALL fail before mutation with stable error `INPUT_PROVENANCE_UNRESOLVED`
 - **AND** it SHALL NOT provide a product-flow override that silently performs a floating operation
