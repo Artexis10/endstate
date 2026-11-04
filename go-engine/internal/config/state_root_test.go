@@ -27,6 +27,7 @@ func TestStateRootFor_IsUserScopedNotRelative(t *testing.T) {
 		{goos: "darwin", home: "/Users/someone", want: "/Users/someone/Library/Application Support/Endstate/state"},
 		{goos: "linux", home: "/home/someone", want: "/home/someone/.local/state/endstate"},
 		{goos: "linux", home: "/home/someone", xdgState: "/custom/state", want: "/custom/state/endstate"},
+		{goos: "linux", home: "/home/someone", xdgState: "relative/state", want: "/home/someone/.local/state/endstate"},
 	}
 
 	for _, tt := range tests {

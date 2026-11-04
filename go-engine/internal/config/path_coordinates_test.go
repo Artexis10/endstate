@@ -25,6 +25,11 @@ func TestResolveEnginePathUsesXDGDefaultsAndOverrides(t *testing.T) {
 	if got != filepath.FromSlash("/mnt/config/ripgrep/ripgreprc") {
 		t.Fatalf("custom XDG config path = %q", got)
 	}
+	environment.Env["XDG_CONFIG_HOME"] = "/mnt/config "
+	got, err = ResolveEnginePath(`${xdg.config}/ripgrep/ripgreprc`, environment)
+	if err != nil || got != filepath.FromSlash("/mnt/config /ripgrep/ripgreprc") {
+		t.Fatalf("valid XDG root lost a literal space: %q, %v", got, err)
+	}
 }
 
 func TestResolveEnginePathIgnoresRelativeXDGRoots(t *testing.T) {

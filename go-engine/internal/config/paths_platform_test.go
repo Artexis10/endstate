@@ -32,6 +32,13 @@ func TestProfileDirFor_LinuxDefaultsToLocalShare(t *testing.T) {
 	}
 }
 
+func TestProfileDirFor_LinuxIgnoresRelativeXDGRoot(t *testing.T) {
+	got := profileDirFor("linux", "/home/example", "relative/data")
+	if want := "/home/example/.local/share/endstate/profiles"; got != want {
+		t.Fatalf("profile storage depends on the working directory: got=%q want=%q", got, want)
+	}
+}
+
 func TestExpandEnvVarsFor_WindowsExpandsPercent(t *testing.T) {
 	t.Setenv("ENDSTATE_TEST_X", "VAL")
 	if got := expandEnvVarsFor("windows", "%ENDSTATE_TEST_X%/a"); got != "VAL/a" {

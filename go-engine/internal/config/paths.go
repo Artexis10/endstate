@@ -118,7 +118,7 @@ func stateRootFor(goos, home, xdgStateHome string) string {
 	case "darwin":
 		return home + "/Library/Application Support/Endstate/state"
 	default:
-		base := xdgStateHome
+		base := absoluteXDGRoot(xdgStateHome)
 		if base == "" {
 			base = home + "/.local/state"
 		}
@@ -149,7 +149,7 @@ func profileDirFor(goos, home, xdgDataHome string) string {
 	case "darwin":
 		return home + "/Library/Application Support/Endstate/Profiles"
 	default: // linux and other unix-likes
-		base := xdgDataHome
+		base := absoluteXDGRoot(xdgDataHome)
 		if base == "" {
 			base = home + "/.local/share"
 		}
