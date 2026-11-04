@@ -1,4 +1,10 @@
-## ADDED Requirements
+# catalog-discovery Specification
+
+## Purpose
+
+Defines installed module catalog discovery, Windows bootstrap catalog installation, and visible capture failures when settings cannot be collected.
+
+## Requirements
 
 ### Requirement: Repo-root resolution finds an installed layout
 
@@ -35,7 +41,7 @@ explicit override and a repo checkout both retain their existing results.
 
 ### Requirement: Bootstrap installs the module catalog
 
-Bootstrap SHALL copy the `modules` and `payload` trees from the resolved source root into the
+Windows bootstrap SHALL copy the `modules` and `payload` trees from the resolved source root into the
 install directory, and SHALL report which trees were installed.
 
 A tree absent at the source SHALL be skipped without failing bootstrap, so an install that
@@ -46,31 +52,32 @@ and reported as present.
 
 #### Scenario: Catalog is installed alongside the binary
 
-- **WHEN** bootstrap runs from a source root containing `modules` and `payload`
+- **WHEN** Windows bootstrap runs from a source root containing `modules` and `payload`
 - **THEN** both trees exist in the install directory
 - **AND** the result reports both as installed
 
 #### Scenario: Refresh drops modules removed upstream
 
-- **WHEN** bootstrap runs against an install whose catalog contains a module no longer present
+- **WHEN** Windows bootstrap runs against an install whose catalog contains a module no longer present
   at the source
 - **THEN** that module is absent from the install afterwards
 
 #### Scenario: Re-bootstrapping from an installed binary is not destructive
 
-- **WHEN** the resolved source root and the install directory are the same location
+- **WHEN** Windows bootstrap resolves the source root to the install directory
 - **THEN** the catalog remains intact and is reported as installed
 
 #### Scenario: A bare binary still bootstraps
 
-- **WHEN** no catalog trees exist at the resolved source root
+- **WHEN** Windows bootstrap finds no catalog trees at the resolved source root
 - **THEN** bootstrap succeeds, reports no trees installed, and still writes the shim
 
-### Requirement: Capture reports an unreachable config module catalog
+### Requirement: Capture reports an unavailable or broken config module catalog
 
-Capture SHALL emit a `module_catalog_unavailable` warning when config module attachment is not
-explicitly disabled and no module catalog can be reached. The warning SHALL state that the
-capture records installed apps but none of their settings, and SHALL carry remediation.
+When config module attachment is enabled and no root resolves, capture SHALL emit a
+`module_catalog_unavailable` warning with remediation. The warning SHALL state that the capture
+records installed apps but none of their settings. If a root resolves but its catalog cannot
+load, capture SHALL fail rather than silently omit settings.
 
 A catalog that loads successfully but contains no modules SHALL NOT trigger this warning: that
 is a correctly configured install that matched nothing, and conflating it with a
@@ -81,10 +88,10 @@ misconfiguration would make the warning routine and ignorable.
 - **WHEN** capture runs and no repo root resolves
 - **THEN** the result carries a `module_catalog_unavailable` warning
 
-#### Scenario: Failed catalog load warns
+#### Scenario: Failed catalog load fails capture
 
 - **WHEN** a root resolves but loading the catalog returns an error
-- **THEN** the result carries a `module_catalog_unavailable` warning
+- **THEN** capture fails rather than returning a successful app-list-only result
 
 #### Scenario: A wired but empty catalog does not warn
 

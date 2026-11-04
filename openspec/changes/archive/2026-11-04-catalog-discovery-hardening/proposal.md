@@ -85,3 +85,9 @@ The new resolution step makes any ancestor directory containing `modules/apps` a
 root. In practice the walk starts from the executable's directory, so this only triggers for
 binaries deliberately installed beside a catalog. `ENDSTATE_ROOT` remains the override for
 anything ambiguous.
+
+## Archive status
+
+This proposal records the original scope. The archive reconciliation in
+`tasks.md` identifies shipped behavior, historical evidence, and acceptance
+that remains deferred or belongs to another repository.
