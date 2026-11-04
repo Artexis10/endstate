@@ -39,7 +39,7 @@ func TestExecutableAndConfigEvidenceUsesBoundedCoordinates(t *testing.T) {
 	entry := map[string]any{
 		"schemaVersion": 1, "id": "example-editor", "displayName": "Example Editor",
 		"nix":          map[string]string{"attribute": "example-editor"},
-		"aliases":      map[string][]string{"executable": {name}, "config": {"${xdg.config}/editor.json"}},
+		"aliases":      map[string][]string{"executable": {name}, "config": {"${home}/config/editor.json"}},
 		"configModule": "apps.example-editor",
 	}
 	data, err := json.Marshal(entry)
@@ -51,7 +51,8 @@ func TestExecutableAndConfigEvidenceUsesBoundedCoordinates(t *testing.T) {
 	}
 	t.Setenv("ENDSTATE_ROOT", root)
 	t.Setenv("PATH", bin)
-	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	result, err := Discover(context.Background(), Request{SelectedSources: []string{"catalog-executables", "catalog-config-paths"}})
 	if err != nil {
 		t.Fatal(err)

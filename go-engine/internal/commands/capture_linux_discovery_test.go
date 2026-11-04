@@ -32,7 +32,7 @@ func TestRunCaptureLinux_ConfigPresenceDoesNotAuthorizeCapture(t *testing.T) {
 	}
 	for id, entry := range map[string]any{
 		"ripgrep": map[string]any{"schemaVersion": 1, "id": "ripgrep", "displayName": "ripgrep", "nix": map[string]string{"attribute": "ripgrep"}, "aliases": map[string][]string{"executable": {executable}}},
-		"editor":  map[string]any{"schemaVersion": 1, "id": "editor", "displayName": "Editor", "nix": map[string]string{"attribute": "editor"}, "aliases": map[string][]string{"config": {"${xdg.config}/editor.json"}}},
+		"editor":  map[string]any{"schemaVersion": 1, "id": "editor", "displayName": "Editor", "nix": map[string]string{"attribute": "editor"}, "aliases": map[string][]string{"config": {"${home}/editor.json"}}},
 	} {
 		body, err := json.Marshal(entry)
 		if err != nil {
@@ -51,7 +51,8 @@ func TestRunCaptureLinux_ConfigPresenceDoesNotAuthorizeCapture(t *testing.T) {
 	}
 	t.Setenv("ENDSTATE_ROOT", root)
 	t.Setenv("PATH", bin)
-	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("HOME", configRoot)
+	t.Setenv("USERPROFILE", configRoot)
 	oldGOOS, oldRealizer, oldDiscovery := captureGOOSFn, newRealizerFn, discoverLinuxFn
 	t.Cleanup(func() { captureGOOSFn, newRealizerFn, discoverLinuxFn = oldGOOS, oldRealizer, oldDiscovery })
 	captureGOOSFn = func() string { return "linux" }
