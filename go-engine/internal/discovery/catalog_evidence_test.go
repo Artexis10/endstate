@@ -6,6 +6,7 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,8 @@ func TestCrossSourceFixtureReconcilesNativeDesktopAndConfig(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", bin)
+	t.Setenv("LC_ALL", "tr_TR.UTF-8")
+	t.Setenv("LANG", "tr_TR.UTF-8")
 	orchestrator := Orchestrator{
 		Catalog: catalog, NixpkgsInput: "github:NixOS/nixpkgs/1111111111111111111111111111111111111111",
 		Adapters: []Adapter{
@@ -61,10 +64,11 @@ func TestCrossSourceFixtureReconcilesNativeDesktopAndConfig(t *testing.T) {
 				"dpkg-query": []byte("sample-editor\t1.2-debian\tii \tno\toptional\teditors\n"),
 			}}},
 			FlatpakAdapter{Runner: &sequenceRunner{results: []sequenceResult{
-				{output: []byte("org.example.Editor\t1.3-flatpak\n")}, {output: []byte("org.example.Platform\n")},
+				{output: []byte("org.example.Editor\t1.3-flatpak\norg.example.editor\t1.0\n")}, {output: []byte("org.example.Platform\n")},
 			}}},
 			DesktopAdapter{Roots: []string{desktop}}, CatalogExecutableAdapter{Catalog: catalog},
 			CatalogConfigAdapter{Catalog: catalog, Environment: config.PathEnvironment{GOOS: runtime.GOOS, Home: home}},
+			fakeAdapter{id: "unreadable", err: errors.New("private diagnostic: " + home)},
 		},
 	}
 	result, err := orchestrator.Discover(context.Background(), Request{})
@@ -76,6 +80,18 @@ func TestCrossSourceFixtureReconcilesNativeDesktopAndConfig(t *testing.T) {
 	}
 	if len(result.Settings) != 1 || result.Settings[0].Portability != PortabilityResolved || len(result.Settings[0].Actions) != 0 {
 		t.Fatalf("config evidence changed settings authority: %+v", result.Settings)
+	}
+	if len(result.Unresolved) != 1 || result.Unresolved[0].Evidence[0].Ref != "org.example.editor" {
+		t.Fatalf("case-sensitive source identity was guessed: %+v", result.Unresolved)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{home, bin, desktop, "private settings", "private diagnostic"} {
+		if strings.Contains(string(encoded), private) {
+			t.Fatalf("source evidence leaked private contents or paths: %s", encoded)
+		}
 	}
 	for _, evidence := range result.Resolved[0].Evidence {
 		if evidence.Source == "debian" && evidence.Version != "1.2-debian" || evidence.Source == "flatpak" && evidence.Version != "1.3-flatpak" {

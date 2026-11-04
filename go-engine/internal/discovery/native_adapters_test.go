@@ -38,6 +38,20 @@ func TestRPMAdapterUnavailableOnlyWhenNoSafeLedgerExists(t *testing.T) {
 	}
 }
 
+func TestRPMAdapterReportsFailureAfterBoundedFallback(t *testing.T) {
+	runner := &fixtureRunner{errors: map[string]error{
+		"dnf5": &CommandError{Path: "dnf5", ExitCode: 1},
+		"dnf":  &CommandError{Path: "dnf", ExitCode: 1},
+	}}
+	_, err := (RPMAdapter{Runner: runner}).Inventory(context.Background())
+	if err == nil || errors.Is(err, ErrNotAvailable) {
+		t.Fatalf("failed inventory was reported as empty or unavailable: %v", err)
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("inventory exceeded its two available queries: %+v", runner.commands)
+	}
+}
+
 func TestArchAdapterDiscoversExplicitPackages(t *testing.T) {
 	runner := &fixtureRunner{outputs: map[string][]byte{
 		"pacman": []byte("ripgrep 14.1.1-1\nfd 10.2.0-1\n"),
