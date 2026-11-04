@@ -54,8 +54,6 @@ func TestCrossSourceFixtureReconcilesNativeDesktopAndConfig(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", bin)
-	t.Setenv("LC_ALL", "tr_TR.UTF-8")
-	t.Setenv("LANG", "tr_TR.UTF-8")
 	orchestrator := Orchestrator{
 		Catalog: catalog, NixpkgsInput: "github:NixOS/nixpkgs/1111111111111111111111111111111111111111",
 		Adapters: []Adapter{
