@@ -27,6 +27,27 @@ func TestResolveEnginePathUsesXDGDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestResolveEnginePathIgnoresRelativeXDGRoots(t *testing.T) {
+	home := t.TempDir()
+	for _, testCase := range []struct {
+		coordinate, variable, suffix string
+	}{
+		{"xdg.config", "XDG_CONFIG_HOME", ".config"},
+		{"xdg.data", "XDG_DATA_HOME", ".local/share"},
+		{"xdg.state", "XDG_STATE_HOME", ".local/state"},
+		{"xdg.cache", "XDG_CACHE_HOME", ".cache"},
+	} {
+		t.Run(testCase.coordinate, func(t *testing.T) {
+			environment := PathEnvironment{GOOS: "linux", Home: home, Env: map[string]string{testCase.variable: "relative-root"}}
+			got, err := ResolveEnginePath("${"+testCase.coordinate+"}/editor/settings", environment)
+			want := filepath.Join(home, filepath.FromSlash(testCase.suffix), "editor", "settings")
+			if err != nil || got != want {
+				t.Fatalf("relative XDG root redirected capture toward the working directory: got=%q want=%q error=%v", got, want, err)
+			}
+		})
+	}
+}
+
 func TestResolveEnginePathSupportsPlatformRoots(t *testing.T) {
 	windows := PathEnvironment{GOOS: "windows", Home: `C:\Users\Hugo`, Env: map[string]string{"APPDATA": `C:\Users\Hugo\AppData\Roaming`}}
 	if got, err := ResolveEnginePath(`${windows.appdata}/ripgrep/config`, windows); err != nil || got != filepath.Clean(`C:\Users\Hugo\AppData\Roaming/ripgrep/config`) {

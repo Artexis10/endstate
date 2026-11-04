@@ -37,13 +37,15 @@ func TestSnapAdapterCapabilityContract(t *testing.T) {
 
 func TestSnapAdapterRejectsFailedAndMalformedInventory(t *testing.T) {
 	for name, response := range map[string]string{
-		"non-JSON":        "private server response",
-		"HTTP error":      `{"type":"error","status-code":500,"result":{"message":"private details"}}`,
-		"missing result":  `{"type":"sync","status-code":200}`,
-		"invalid name":    `{"type":"sync","status-code":200,"result":[{"name":"","type":"app","status":"active","apps":[{}]}]}`,
-		"private name":    `{"type":"sync","status-code":200,"result":[{"name":"/private/config","version":"1","type":"app","status":"active","apps":[{"name":"editor"}]}]}`,
-		"private version": `{"type":"sync","status-code":200,"result":[{"name":"editor","version":"/private/config","type":"app","status":"active","apps":[{"name":"editor"}]}]}`,
-		"empty command":   `{"type":"sync","status-code":200,"result":[{"name":"editor","version":"1","type":"app","status":"active","apps":[{}]}]}`,
+		"non-JSON":         "private server response",
+		"HTTP error":       `{"type":"error","status-code":500,"result":{"message":"private details"}}`,
+		"missing result":   `{"type":"sync","status-code":200}`,
+		"null row":         `{"type":"sync","status-code":200,"result":[null]}`,
+		"missing row type": `{"type":"sync","status-code":200,"result":[{"name":"editor","version":"1","status":"active"}]}`,
+		"invalid name":     `{"type":"sync","status-code":200,"result":[{"name":"","type":"app","status":"active","apps":[{}]}]}`,
+		"private name":     `{"type":"sync","status-code":200,"result":[{"name":"/private/config","version":"1","type":"app","status":"active","apps":[{"name":"editor"}]}]}`,
+		"private version":  `{"type":"sync","status-code":200,"result":[{"name":"editor","version":"/private/config","type":"app","status":"active","apps":[{"name":"editor"}]}]}`,
+		"empty command":    `{"type":"sync","status-code":200,"result":[{"name":"editor","version":"1","type":"app","status":"active","apps":[{}]}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fixtureRunner{outputs: map[string][]byte{"snap": []byte(response)}}
@@ -55,5 +57,16 @@ func TestSnapAdapterRejectsFailedAndMalformedInventory(t *testing.T) {
 	runner := &fixtureRunner{errors: map[string]error{"snap": ErrNotAvailable}}
 	if _, err := (SnapAdapter{Runner: runner}).Inventory(context.Background()); !errors.Is(err, ErrNotAvailable) {
 		t.Fatalf("missing client lost unavailable state: %v", err)
+	}
+}
+
+func TestExperimentalSnapSelectionReportsUnavailableClient(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ENDSTATE_ROOT", root)
+	t.Setenv("PATH", root)
+	// The empty PATH directory guarantees this check cannot reach snapd.
+	_, err := Discover(context.Background(), Request{SelectedSources: []string{" " + SnapExperimentalSource + " "}})
+	if err == nil {
+		t.Fatal("selected missing Snap client was silently treated as no selected source")
 	}
 }

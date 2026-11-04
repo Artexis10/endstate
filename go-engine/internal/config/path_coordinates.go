@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -123,27 +124,36 @@ func coordinateRoot(coordinate string, environment PathEnvironment) (string, err
 		return "", fmt.Errorf("user home is unavailable")
 	}
 	env := func(name string) string { return strings.TrimSpace(environment.Env[name]) }
+	xdgEnv := func(name string) string {
+		value := env(name)
+		// XDG Base Directory 0.8 requires ignoring relative roots. These are
+		// Unix coordinates even when a test supplies them on another host.
+		if !path.IsAbs(value) {
+			return ""
+		}
+		return value
+	}
 	root := ""
 	switch coordinate {
 	case "home":
 		root = home
 	case "xdg.config":
-		root = env("XDG_CONFIG_HOME")
+		root = xdgEnv("XDG_CONFIG_HOME")
 		if root == "" {
 			root = filepath.Join(home, ".config")
 		}
 	case "xdg.data":
-		root = env("XDG_DATA_HOME")
+		root = xdgEnv("XDG_DATA_HOME")
 		if root == "" {
 			root = filepath.Join(home, ".local", "share")
 		}
 	case "xdg.state":
-		root = env("XDG_STATE_HOME")
+		root = xdgEnv("XDG_STATE_HOME")
 		if root == "" {
 			root = filepath.Join(home, ".local", "state")
 		}
 	case "xdg.cache":
-		root = env("XDG_CACHE_HOME")
+		root = xdgEnv("XDG_CACHE_HOME")
 		if root == "" {
 			root = filepath.Join(home, ".cache")
 		}

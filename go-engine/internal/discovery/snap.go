@@ -70,15 +70,15 @@ func (adapter SnapAdapter) Inventory(ctx context.Context) (AdapterInventory, err
 		if err := ctx.Err(); err != nil {
 			return AdapterInventory{}, err
 		}
+		base, _, _ := strings.Cut(snap.Name, "_")
+		if !snapInstanceName.MatchString(snap.Name) || len(base) < 2 || len(base) > 40 || strings.IndexFunc(base, func(r rune) bool { return r >= 'a' && r <= 'z' }) < 0 || !snapVersion.MatchString(snap.Version) || strings.TrimSpace(snap.Type) == "" || strings.TrimSpace(snap.Status) == "" {
+			return AdapterInventory{}, fmt.Errorf("Snap inventory contains an invalid package identity or status")
+		}
 		// snapd defines these protocol enum values. select=enabled alone does
 		// not exclude disabled current revisions in snapd 2.76.
 		if snap.Type != "app" || snap.Status != "active" {
 			inventory.Ignored++
 			continue
-		}
-		base, _, _ := strings.Cut(snap.Name, "_")
-		if !snapInstanceName.MatchString(snap.Name) || len(base) < 2 || len(base) > 40 || strings.IndexFunc(base, func(r rune) bool { return r >= 'a' && r <= 'z' }) < 0 || !snapVersion.MatchString(snap.Version) {
-			return AdapterInventory{}, fmt.Errorf("Snap inventory contains an invalid application name or version")
 		}
 		if len(snap.Apps) == 0 {
 			// Missing commands can mean content-only metadata or a snapd service

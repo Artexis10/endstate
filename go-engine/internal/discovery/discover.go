@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
@@ -70,7 +69,7 @@ func DiscoverWithAdapters(ctx context.Context, request Request, extraAdapters ..
 		DebianAdapter{}, RPMAdapter{}, ArchAdapter{}, FlatpakAdapter{}, DesktopAdapter{},
 		NixUserProfileAdapter{DefaultInput: inputs.Nixpkgs.FlakeRef},
 	}
-	if slices.Contains(request.SelectedSources, SnapExperimentalSource) {
+	if stringSet(request.SelectedSources)[SnapExperimentalSource] {
 		adapters = append(adapters, SnapAdapter{})
 	}
 	if registry != nil {
