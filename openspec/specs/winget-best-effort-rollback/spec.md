@@ -1,7 +1,8 @@
 # winget-best-effort-rollback Specification
 
 ## Purpose
-TBD - created by archiving change winget-best-effort-rollback. Update Purpose after archive.
+Extends `rollback` to per-package backends without native rollback, such as Winget. It uninstalls the packages added after the target generation, tolerates per-package failures, requires confirmation, and appends a rollback-marked generation.
+
 ## Requirements
 ### Requirement: Best-effort rollback for non-native backends
 

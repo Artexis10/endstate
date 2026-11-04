@@ -146,6 +146,21 @@ func TestErrorCodeSerialization(t *testing.T) {
 	}
 }
 
+// TestRunStampSeparatesRunsInTheSameSecond catches two commands that start in
+// the same second sharing a run identifier, and with it a backup directory, a
+// journal name and an event log.
+func TestRunStampSeparatesRunsInTheSameSecond(t *testing.T) {
+	start := time.Date(2026, 3, 11, 14, 30, 52, 0, time.UTC)
+	first := envelope.RunStamp(start)
+	second := envelope.RunStamp(start.Add(400 * time.Millisecond))
+	if first == second {
+		t.Fatalf("two runs in one second share the stamp %q", first)
+	}
+	if !strings.HasPrefix(first, "20260311-143052-000-") || !strings.HasPrefix(second, "20260311-143052-400-") || first > second {
+		t.Fatalf("stamps %q and %q do not keep the time prefix and start order", first, second)
+	}
+}
+
 // TestRunIDFormat validates that BuildRunID produces a string matching the expected
 // pattern: <command>-YYYYMMDD-HHMMSS-<hostname>.
 func TestRunIDFormat(t *testing.T) {

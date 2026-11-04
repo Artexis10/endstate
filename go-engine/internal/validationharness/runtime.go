@@ -232,7 +232,7 @@ func prepareScenarioRuntimeWithRegistryFixtureFactory(selected *selection, facto
 	switch selected.scenario.Mode {
 	case validationmatrix.ScenarioConfigRoundtripV1:
 		if moduleHasRegistryFixtureContract(selected.module) {
-			if len(selected.registries.Entries) == 0 {
+			if len(selected.registries.Entries) == 0 && len(selected.registries.Values) == 0 {
 				fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "capture.registry", "selected registry fixture contract is absent")
 				break
 			}
@@ -403,7 +403,11 @@ func copyProductionModule(mod *modules.Module, root string) error {
 		return err
 	}
 	directory := filepath.Base(filepath.Dir(mod.FilePath))
-	relative := filepath.ToSlash(filepath.Join("modules", "apps", directory, "module.jsonc"))
+	tier := mod.Tier
+	if tier == "" {
+		tier = modules.AppsTier
+	}
+	relative := filepath.ToSlash(filepath.Join("modules", tier, directory, "module.jsonc"))
 	if err := safepath.MkdirParent(root, relative, 0o700); err != nil {
 		return err
 	}
@@ -418,7 +422,7 @@ func copyProductionModule(mod *modules.Module, root string) error {
 	if err != nil || string(copied) != string(raw) {
 		return fmt.Errorf("production module bytes changed during copy")
 	}
-	catalog, err := modules.LoadCatalog(filepath.Join(root, "modules", "apps"))
+	catalog, err := modules.GetCatalog(root)
 	if err != nil {
 		return err
 	}

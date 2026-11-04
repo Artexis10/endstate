@@ -1,7 +1,8 @@
 # sandbox-validation Specification
 
 ## Purpose
-TBD - created by archiving change sandbox-validation-loop. Update Purpose after archive.
+Defines the host-side workflow that validates a module's capture and restore cycle inside Windows Sandbox without modifying the host. It covers single and batch runs, the golden queue, winget bootstrap and offline fallbacks, artifacts, smoke testing, and deterministic teardown.
+
 ## Requirements
 ### Requirement: Single-App Sandbox Validation
 

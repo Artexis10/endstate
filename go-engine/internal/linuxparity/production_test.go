@@ -30,8 +30,14 @@ func TestProductionMatrixAccountsForEveryExistingApplicationModule(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matrix.Rows) != len(moduleCatalog) || matrix.Counts.Total != len(moduleCatalog) {
-		t.Fatalf("matrix rows=%d total=%d modules=%d", len(matrix.Rows), matrix.Counts.Total, len(moduleCatalog))
+	applicationCount := 0
+	for _, module := range moduleCatalog {
+		if module.Tier == modules.AppsTier {
+			applicationCount++
+		}
+	}
+	if len(matrix.Rows) != applicationCount || matrix.Counts.Total != applicationCount {
+		t.Fatalf("matrix rows=%d total=%d applications=%d", len(matrix.Rows), matrix.Counts.Total, applicationCount)
 	}
 
 	statuses := make(map[string]Status, len(matrix.Rows))

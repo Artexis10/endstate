@@ -23,11 +23,10 @@ The apply and restore commands SHALL support a --RestoreFilter flag that limits 
 - **WHEN** `apply --EnableRestore --RestoreFilter apps.vscode` is run with manifest containing both configModule entries and inline restore entries
 - **THEN** inline restore entries (those without _fromModule) are always executed regardless of filter
 
-#### Scenario: restoreFilter in JSON envelope
+#### Scenario: restoreModulesAvailable in JSON envelope
 
 - **WHEN** `apply --EnableRestore --RestoreFilter apps.vscode --json` is run
-- **THEN** the JSON envelope data contains `restoreFilter: ["apps.vscode"]`
-- **AND** the envelope data contains `restoreModulesAvailable` listing all modules that had restore entries as enriched objects with `id` and `displayName` fields
+- **THEN** the envelope data contains `restoreModulesAvailable` listing all modules that had restore entries as enriched objects with `id` and `displayName` fields
 
 #### Scenario: restoreModulesAvailable shows all available modules
 

@@ -29,7 +29,7 @@ func RestoreCopy(entry RestoreAction, source, target string, opts RestoreOptions
 	if err != nil {
 		if os.IsNotExist(err) {
 			result.Status = "failed"
-			result.Error = fmt.Sprintf("source not found: %s", source)
+			result.Error = requiredSourceMissingMessage
 			return result, nil
 		}
 		return nil, err

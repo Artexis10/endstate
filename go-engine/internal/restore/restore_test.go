@@ -1098,28 +1098,32 @@ func TestResolveSource_FallbackToManifestDir(t *testing.T) {
 // Pester: Restore.SourceNotFound
 // ---------------------------------------------------------------------------
 
+// TestRestoreCopy_SourceNotFound catches a required input that the saved setup
+// lacks being skipped like an optional one, or failing with a message that
+// carries the host path instead of plain text.
 func TestRestoreCopy_SourceNotFound(t *testing.T) {
 	tmp := t.TempDir()
 
 	srcFile := filepath.Join(tmp, "nonexistent-source.txt")
 	tgtFile := filepath.Join(tmp, "target.txt")
 
-	entry := RestoreAction{
+	results, err := RunRestore([]RestoreAction{{
 		Type:   "copy",
 		Source: srcFile,
 		Target: tgtFile,
-	}
-
-	result, err := RestoreCopy(entry, srcFile, tgtFile, RestoreOptions{})
+	}}, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if result.Status != "failed" {
-		t.Errorf("expected status=failed, got %q", result.Status)
+	if len(results) != 1 || results[0].Status != "failed" {
+		t.Fatalf("expected one failed result, got %+v", results)
 	}
-	if !strings.Contains(strings.ToLower(result.Error), "source not found") {
-		t.Errorf("expected error about source not found, got %q", result.Error)
+	if results[0].Error != requiredSourceMissingMessage {
+		t.Errorf("error = %q, want the plain required-source message", results[0].Error)
+	}
+	if results[0].Source != srcFile {
+		t.Errorf("source = %q, want the missing path %q", results[0].Source, srcFile)
 	}
 }
 
@@ -2237,6 +2241,39 @@ func TestExpandPath_TildeExpansion(t *testing.T) {
 	}
 }
 
+func TestExpandPath_BackslashTildeExpandsHome(t *testing.T) {
+	// Windows manifests write "~\..."; leaving it literal makes resolveTarget
+	// place the restore under "<cwd>\~\..." instead of the user's home.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home directory")
+	}
+	want := homeDir + `\AppData\app.ini`
+	if result := expandPath(`~\AppData\app.ini`); result != want {
+		t.Errorf("expandPath(%q) = %q, want %q", `~\AppData\app.ini`, result, want)
+	}
+}
+
+func TestExpandPath_LoneTildeIsHome(t *testing.T) {
+	// A target of just "~" means the home directory itself.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home directory")
+	}
+	if result := expandPath("~"); result != homeDir {
+		t.Errorf("expandPath(%q) = %q, want %q", "~", result, homeDir)
+	}
+}
+
+func TestExpandPath_LeavesOtherUserTilde(t *testing.T) {
+	// "~otheruser/..." must not be rewritten against the current home.
+	in := "~otheruser/.config/app"
+	result := expandPath(in)
+	if result != in {
+		t.Fatalf("expandPath(%q) = %q, want unchanged", in, result)
+	}
+}
+
 func TestExpandPath_GoStyleEnvVar(t *testing.T) {
 	// Go-style $VAR expansion via os.ExpandEnv.
 	t.Setenv("ENDSTATE_GO_VAR_TEST", "/go/expanded")
@@ -3181,6 +3218,9 @@ func TestRestoreDeleteGlob_DryRunDoesNotDelete(t *testing.T) {
 	}
 }
 
+// TestRestoreDeleteGlob_MissingTargetOptionalSkips catches an absent cleanup
+// directory being reported as missing from the saved setup: there is nothing
+// to delete, so the target is already up to date.
 func TestRestoreDeleteGlob_MissingTargetOptionalSkips(t *testing.T) {
 	tmp := t.TempDir()
 	missingDir := filepath.Join(tmp, "does-not-exist")
@@ -3203,8 +3243,8 @@ func TestRestoreDeleteGlob_MissingTargetOptionalSkips(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if results[0].Status != "skipped_missing_source" {
-		t.Errorf("expected status=skipped_missing_source, got %q", results[0].Status)
+	if results[0].Status != "skipped_up_to_date" {
+		t.Errorf("expected status=skipped_up_to_date, got %q", results[0].Status)
 	}
 }
 

@@ -35,7 +35,7 @@ Every implementation packet SHALL:
 
 Protected paths `go-engine/cmd/endstate/`, `docs/contracts/*.md`, and
 `.github/workflows/` may be edited only by packets that explicitly name them.
-`docs/ai/AI_CONTRACT.md`, `LICENSE`, and `NOTICE` remain forbidden.
+Current `CLAUDE.md` governs repository authority; do not restore the retired `docs/ai` hierarchy. `LICENSE` and `NOTICE` remain forbidden.
 
 The dependency graph is:
 
@@ -71,9 +71,10 @@ baseline, and a fresh lane-delegate Stage-0 readiness audit.
 - [x] 1.1 Audit the branch against every prior task and record the independently reproduced 391-program and 359-row matrix baseline
 - [x] 1.2 Reconcile proposal, design, delta specs, and this ledger with the execution-authority, immutable-input, count, desktop-transaction, scheduler, runtime-bundle, and GUI-package decisions
 - [x] 1.3 Reconcile or explicitly serialize the active `scheduled-drift-check`, `catalog-discovery-hardening`, `home-catalog-data-driven`, and `verified-module-matrix` changes before touching their shared implementation surfaces
-  - Resolved by explicit serialization: design decision 16 records the state of each change verified on 2026-09-01 against `5a597d1` and the surface rules R1–R6. The three implemented changes archive through separate documentation changes; `verified-module-matrix` stays active and is serialized by R1, R2, and R6.
-- [ ] 1.4 Re-run lane-delegate Stage 0 against the revised artifact digest and emit only dependency-ready packets with exact base revisions and file ownership
-- [ ] 1.5 Create and land three archive documentation changes from `origin/main`, each independently reviewed: reconcile the `scheduled-drift-check` ledger against the shipped implementation and archive it; archive `catalog-discovery-hardening`; sync and archive `home-catalog-data-driven` with 4.5 ticked and 4.4 carried by task 9.15 here. Sections 7.2, 9 (`home_catalog.go`), 11, and 12.6 dispatch only after the archive they depend on lands
+  - Resolved by explicit serialization: design decision 16 records the state of each change verified on 2026-09-01 against `5a597d1` and the surface rules R1–R6. The three implemented changes sync and archive in one cohesive documentation batch; `verified-module-matrix` stays active and is serialized by R1, R2, and R6.
+- [x] 1.4 Re-run lane-delegate Stage 0 against the revised artifact digest and emit only dependency-ready packets with exact base revisions and file ownership
+  - Recovery intake on 2026-11-04 integrates main `d76d3e5`, passes the four scoped Go packages and all 101 OpenSpec items, and reproduces 359 application rows with 344 blockers. An independent planning recheck permits tasks 1.5, 2.3, and 2.4; downstream archive and external acceptance holds remain. Each packet uses the committed integration revision.
+- [ ] 1.5 Create and land one independently reviewed archive documentation batch from current `origin/main`: reconcile the `scheduled-drift-check` ledger against the shipped implementation and archive it; archive `catalog-discovery-hardening`; sync and archive `home-catalog-data-driven` with 4.5 ticked and 4.4 carried by task 9.15 here. Sections 7.2, 9 (`home_catalog.go`), 11, and 12.6 dispatch only after the archive they depend on lands
 
 ## 2. Compatibility guards and product-truth baseline
 

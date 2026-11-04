@@ -76,6 +76,12 @@ func resolveCaptureSecretPatterns(context *validationmode.Context, moduleID stri
 		case modules.SecretCoordinateRegistry:
 			continue
 		case modules.SecretCoordinateRegistryInvalid:
+			// Production treats a malformed registry secret as a registry
+			// contradiction that the registry collectors report per entry; it is
+			// never a filesystem pattern, so file capture continues.
+			if context == nil {
+				continue
+			}
 			return nil, captureIsolation(moduleID, fmt.Sprintf("secrets.files[%d]", index), "registry", authored, validationmode.ErrUnsafeRegistry)
 		}
 		if context == nil {

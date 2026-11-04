@@ -395,7 +395,7 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 	}
 	seen := make(map[string]struct{}, len(items))
 	for _, raw := range items {
-		item, err := liveObjectAllowed(raw, []string{"id", "source", "target", "status", "backupCreated", "targetExistedBefore"}, []string{"id", "source", "target", "status", "backupPath", "backupCreated", "targetExistedBefore", "restoreType", "warnings", "error", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"})
+		item, err := liveObjectAllowed(raw, []string{"id", "source", "target", "status", "backupCreated", "targetExistedBefore"}, []string{"id", "source", "target", "status", "backupPath", "backupCreated", "targetExistedBefore", "restoreType", "warnings", "error", "label", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"})
 		if err != nil {
 			return false
 		}
@@ -570,7 +570,7 @@ func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
 			return liveEventRecord{}, false
 		}
 	case "restore-item":
-		if !liveEventKeys(fields, append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message"), append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration")) {
+		if !liveEventKeys(fields, append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message"), append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "label", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration")) {
 			return liveEventRecord{}, false
 		}
 		for _, key := range []string{"id", "module", "restorer", "source", "target", "status", "message"} {

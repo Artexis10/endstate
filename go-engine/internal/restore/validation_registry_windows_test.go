@@ -27,9 +27,9 @@ func TestValidationRegistrySetMapsOnlyAtNativeBoundaryAndKeepsBackupSemantic(t *
 	}
 	originalRead, originalWrite := registrySetReadNative, registrySetWriteNative
 	var readKey, writeKey string
-	registrySetReadNative = func(key, name string) (bool, string, string, bool) {
+	registrySetReadNative = func(key, name string) (bool, string, string, bool, error) {
 		readKey = key
-		return true, "REG_SZ", "prior", true
+		return true, "REG_SZ", "prior", true, nil
 	}
 	registrySetWriteNative = func(key, name, valueType, data string) error {
 		writeKey = key
@@ -241,6 +241,47 @@ func TestValidationRegistryImportRestoresByteOrderingMismatch(t *testing.T) {
 	assertNoLegacyValidationIdentity(t, context, result.Source, result.Target, result.Error)
 }
 
+// TestValidationRegistryImportDryRunWritesNoBackup catches a validation-mode
+// preview that writes the prior-state backup before it checks for dry-run.
+func TestValidationRegistryImportDryRunWritesNoBackup(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regimport-preview")
+	semanticKey := `HKCU\Software\Vendor\Preview`
+	mappedKey, err := context.MapHKCU(semanticKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRoot := filepath.Join(context.Root(), "manifests", "legacy-regimport-preview")
+	source := filepath.Join(manifestRoot, "payload", "settings.reg")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, validationRegistryDocument(semanticKey, "desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mappedCurrent, err := registryfile.RewriteSubtree(validationRegistryDocument(semanticKey, "prior"), semanticKey, mappedKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
+	registryImportQueryNative = func(string) (bool, error) { return true, nil }
+	registryImportExportNative = func(_ string, path string) error { return os.WriteFile(path, mappedCurrent, 0o600) }
+	registryImportApplyNative = func(string) error { t.Fatal("dry-run imported the registry file"); return nil }
+	t.Cleanup(func() {
+		registryImportQueryNative, registryImportExportNative, registryImportApplyNative = originalQuery, originalExport, originalImport
+	})
+	backupDir := filepath.Join(context.Root(), "state", "backups", "legacy-regimport-preview")
+
+	results, err := RunRestore([]RestoreAction{{
+		Type: "registry-import", Source: "payload/settings.reg", Target: semanticKey, Backup: true,
+	}}, RestoreOptions{ManifestDir: manifestRoot, BackupDir: backupDir, DryRun: true, ValidationContext: context}, nil)
+	if err != nil || len(results) != 1 || results[0].Status != "restored" || results[0].BackupCreated {
+		t.Fatalf("dry-run results = %+v, %v", results, err)
+	}
+	if _, err := os.Stat(backupDir); !os.IsNotExist(err) {
+		t.Fatalf("dry-run created the backup root: %v", err)
+	}
+}
+
 func TestValidationRegistryImportStateInspectionFailuresDoNotImport(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -357,7 +398,10 @@ func TestValidationRegistryRejectsUnsafeIdentityBeforeNativeCallbacks(t *testing
 	originalRead, originalWrite := registrySetReadNative, registrySetWriteNative
 	originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
 	panicNative := func() { panic("native registry callback reached") }
-	registrySetReadNative = func(string, string) (bool, string, string, bool) { panicNative(); return false, "", "", false }
+	registrySetReadNative = func(string, string) (bool, string, string, bool, error) {
+		panicNative()
+		return false, "", "", false, nil
+	}
 	registrySetWriteNative = func(string, string, string, string) error { panicNative(); return nil }
 	registryImportQueryNative = func(string) (bool, error) { panicNative(); return false, nil }
 	registryImportExportNative = func(string, string) error { panicNative(); return nil }
@@ -396,9 +440,9 @@ func TestValidationRegistrySetRejectsOutsideBackupBeforeNativeCallbacks(t *testi
 	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regset-outside-backup")
 	originalRead, originalWrite := registrySetReadNative, registrySetWriteNative
 	readCalled := false
-	registrySetReadNative = func(string, string) (bool, string, string, bool) {
+	registrySetReadNative = func(string, string) (bool, string, string, bool, error) {
 		readCalled = true
-		return false, "", "", false
+		return false, "", "", false, nil
 	}
 	registrySetWriteNative = func(string, string, string, string) error {
 		panic("registry write callback reached")
@@ -423,8 +467,8 @@ func TestValidationRegistrySetRejectsOutsideBackupBeforeNativeCallbacks(t *testi
 func TestValidationRegistrySetDryRunDoesNotAuthorizeUnusedDefaultBackup(t *testing.T) {
 	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regset-dry-run")
 	originalRead, originalWrite := registrySetReadNative, registrySetWriteNative
-	registrySetReadNative = func(string, string) (bool, string, string, bool) {
-		return false, "", "", false
+	registrySetReadNative = func(string, string) (bool, string, string, bool, error) {
+		return false, "", "", false, nil
 	}
 	registrySetWriteNative = func(string, string, string, string) error {
 		panic("registry write callback reached")
@@ -492,11 +536,11 @@ func TestValidationDurableRegistrySetRevertMapsOnlyAtNativeBoundary(t *testing.T
 
 	originalRead, originalWrite, originalDelete := registrySetReadNative, registrySetWriteNative, registrySetDeleteNative
 	current := "restored"
-	registrySetReadNative = func(key, name string) (bool, string, string, bool) {
+	registrySetReadNative = func(key, name string) (bool, string, string, bool, error) {
 		if !strings.EqualFold(key, mappedKey) || name != "Setting" {
 			t.Fatalf("native registry read = %q %q", key, name)
 		}
-		return true, "REG_SZ", current, true
+		return true, "REG_SZ", current, true, nil
 	}
 	registrySetWriteNative = func(key, name, valueType, data string) error {
 		if !strings.EqualFold(key, mappedKey) || name != "Setting" || valueType != "REG_SZ" {

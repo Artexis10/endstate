@@ -1,7 +1,8 @@
 # macos-brew-best-effort-rollback Specification
 
 ## Purpose
-TBD - created by archiving change macos-brew-best-effort-rollback. Update Purpose after archive.
+Extends rollback on macOS so Homebrew packages are rolled back too. When Nix owns the native rollback, the brew packages added after the target generation are uninstalled on a best-effort basis, behind confirmation and with dry-run preview.
+
 ## Requirements
 ### Requirement: Best-effort brew rollback composes with the native rollback on darwin
 

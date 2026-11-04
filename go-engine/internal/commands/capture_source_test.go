@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
@@ -350,6 +351,73 @@ func TestDedupeWingetSourcePackages_UsesRefSpecificSourcePrecedence(t *testing.T
 		if pkg.Ref == "Vendor.App" && pkg.Source != "winget" {
 			t.Fatalf("community ref winner=%+v", pkg)
 		}
+	}
+}
+
+// TestCollapseSharedInstallRows catches one installed program that winget
+// lists under two sources becoming two manifest entries, which a new PC shows
+// and installs twice. Rows that only look alike stay separate.
+func TestCollapseSharedInstallRows(t *testing.T) {
+	powerToys := func() *manifest.InstallFingerprint {
+		return &manifest.InstallFingerprint{Key: "{1EACF27D}", Publisher: "Microsoft Corporation", Version: "0.98.1"}
+	}
+	tests := []struct {
+		name string
+		apps []capturedApp
+		want []string
+	}{
+		{
+			name: "same fingerprint across sources keeps the community entry",
+			apps: []capturedApp{
+				{Driver: "winget", Source: "msstore", Refs: map[string]string{"windows": "XP89DCGQ3K6VLD"}, Fingerprint: powerToys()},
+				{Refs: map[string]string{"windows": "Microsoft.PowerToys"}, Fingerprint: powerToys()},
+			},
+			want: []string{"Microsoft.PowerToys"},
+		},
+		{
+			name: "different fingerprint versions stay separate",
+			apps: []capturedApp{
+				{Refs: map[string]string{"windows": "Microsoft.PowerToys"}, Fingerprint: powerToys()},
+				{Driver: "winget", Source: "msstore", Refs: map[string]string{"windows": "XP89DCGQ3K6VLD"},
+					Fingerprint: &manifest.InstallFingerprint{Key: "{1EACF27D}", Publisher: "Microsoft Corporation", Version: "0.99.0"}},
+			},
+			want: []string{"Microsoft.PowerToys", "XP89DCGQ3K6VLD"},
+		},
+		{
+			name: "a fingerprint without a version is never collapsed",
+			apps: []capturedApp{
+				{Refs: map[string]string{"windows": "Vendor.App"}, Fingerprint: &manifest.InstallFingerprint{Key: "App", Publisher: "Vendor"}},
+				{Driver: "winget", Source: "msstore", Refs: map[string]string{"windows": "9NBLGGH4NNS1"}, Fingerprint: &manifest.InstallFingerprint{Key: "App", Publisher: "Vendor"}},
+			},
+			want: []string{"Vendor.App", "9NBLGGH4NNS1"},
+		},
+		{
+			name: "rows without a fingerprint stay separate",
+			apps: []capturedApp{
+				{Refs: map[string]string{"windows": "Vendor.App"}},
+				{Driver: "winget", Source: "msstore", Refs: map[string]string{"windows": "9NBLGGH4NNS1"}},
+			},
+			want: []string{"Vendor.App", "9NBLGGH4NNS1"},
+		},
+		{
+			name: "rows from different package managers stay separate",
+			apps: []capturedApp{
+				{Refs: map[string]string{"windows": "Microsoft.PowerToys"}, Fingerprint: powerToys()},
+				{Driver: "chocolatey", Refs: map[string]string{"windows": "powertoys"}, Fingerprint: powerToys()},
+			},
+			want: []string{"Microsoft.PowerToys", "powertoys"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, app := range collapseSharedInstallRows(tt.apps) {
+				got = append(got, app.Refs["windows"])
+			}
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("kept refs = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

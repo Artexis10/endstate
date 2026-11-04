@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
@@ -113,7 +114,10 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 		counts[validationmatrix.AssertionPayload]++
 		counts[validationmatrix.AssertionRewrittenRestore]++
 	}
-	if failure := validateCapturedProjection(runtime, &captured); failure != nil {
+	if failure := validateRegistryValuesPayload(runtime, entries, counts); failure != nil {
+		return captureEvidence{}, failure
+	}
+	if failure := validateCapturedProjection(runtime, &captured, false); failure != nil {
 		return captureEvidence{}, failure
 	}
 
@@ -216,6 +220,9 @@ func validateArtifactConfigPayloadSet(runtime *scenarioRuntime, entries map[stri
 		if target.Registry {
 			expected[strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, target.Destination))] = struct{}{}
 		}
+		if target.Value {
+			expected[strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, registryValuesPayloadName))] = struct{}{}
+		}
 	}
 	seen := 0
 	for name := range entries {
@@ -292,7 +299,7 @@ func validateOptionalAbsentArtifactEntries(runtime *scenarioRuntime, entries map
 	if failure := validateCapturedManifestIdentity(runtime, &captured); failure != nil {
 		return failure
 	}
-	return validateCapturedProjection(runtime, &captured)
+	return validateCapturedProjection(runtime, &captured, true)
 }
 
 // v1ArtifactPayloadPath mirrors bundle.CollectConfigFilesWithValidation: schema-v1
@@ -330,17 +337,97 @@ func capturedAppSourceMatches(app manifest.App, inventory validationmode.Invento
 	return source == strings.ToLower(strings.TrimSpace(inventory.Source))
 }
 
-func validateCapturedProjection(runtime *scenarioRuntime, captured *manifest.Manifest) *Failure {
-	if runtime == nil || runtime.Module == nil || runtime.Plan == nil || captured == nil ||
-		len(captured.Restore) != len(runtime.Module.Restore) || len(captured.Verify) != len(runtime.Module.Verify) {
+// validateRegistryValuesPayload checks the named registry values that capture
+// recorded: exactly the declared values, with the captured type and data, the
+// absent value marked absent, and nothing from the unrelated value.
+func validateRegistryValuesPayload(runtime *scenarioRuntime, entries map[string][]byte, counts map[string]int) *Failure {
+	values := runtime.Plan.registryValues()
+	if len(values) == 0 {
+		return nil
+	}
+	payload, exists := entries[strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, registryValuesPayloadName))]
+	if !exists {
+		return fail(CodeArtifactContract, "capture", values[0].Coordinate, "capture ZIP lacks the named registry value payload")
+	}
+	var recorded []bundle.CapturedRegistryValue
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&recorded); err != nil || len(recorded) != len(values) {
+		return fail(CodeArtifactContract, "capture", values[0].Coordinate, "named registry value payload is malformed or incomplete")
+	}
+	for index, value := range values {
+		want := bundle.CapturedRegistryValue{Key: value.Key, ValueName: value.ValueName, Existed: !value.Absent}
+		if !value.Absent {
+			want.ValueType, want.Data = engineRegistryValue(value.Captured)
+		}
+		if recorded[index] != want {
+			return fail(CodeArtifactContract, "capture", value.Coordinate, "named registry value payload differs from the captured fixture value")
+		}
+		if !value.Absent {
+			counts[validationmatrix.AssertionCaptured]++
+			counts[validationmatrix.AssertionPayload]++
+			counts[validationmatrix.AssertionRewrittenRestore]++
+		}
+	}
+	return nil
+}
+
+// validateCapturedProjection checks the bundle restore and verifier entries
+// against the production module. Entries for captured named values carry the
+// captured type and data; entries for an absent value are left out. When
+// valuesAbsent is set, the capture saw none of the named values.
+func validateCapturedProjection(runtime *scenarioRuntime, captured *manifest.Manifest, valuesAbsent bool) *Failure {
+	if runtime == nil || runtime.Module == nil || runtime.Plan == nil || captured == nil {
+		return fail(CodeArtifactContract, "capture", "manifest", "captured restore or verifier projection differs from production module")
+	}
+	type expectedRestore struct {
+		restore modules.RestoreDef
+		source  string
+	}
+	var expectedRestores []expectedRestore
+	for _, restore := range runtime.Module.Restore {
+		if restore.Type == "registry-set" {
+			value, bound := runtime.Plan.registryValue(restore.Key, restore.ValueName)
+			if !bound {
+				return fail(CodeArtifactContract, "capture", "manifest.restore", "production restore has no exact fixture projection")
+			}
+			if value.Absent || valuesAbsent {
+				continue
+			}
+			restore.ValueType, restore.Data = engineRegistryValue(value.Captured)
+			expectedRestores = append(expectedRestores, expectedRestore{restore: restore})
+			continue
+		}
+		rewritten, ok := expectedCapturedRestoreSource(runtime.Plan, runtime.Module.ID, restore)
+		if !ok {
+			return fail(CodeArtifactContract, "capture", "manifest.restore", "production restore has no exact fixture projection")
+		}
+		expectedRestores = append(expectedRestores, expectedRestore{restore: restore, source: rewritten})
+	}
+	var expectedVerifies []manifest.VerifyEntry
+	for _, verifier := range runtime.Module.Verify {
+		entry := manifest.VerifyEntry{
+			Type: verifier.Type, Command: verifier.Command, Path: verifier.Path,
+			ValueName: verifier.ValueName, ValueType: verifier.ValueType, Data: verifier.Data,
+		}
+		if value, bound := runtime.Plan.registryValue(verifier.Path, verifier.ValueName); verifier.Type == "registry-value-equals" && bound {
+			if value.Absent || valuesAbsent {
+				continue
+			}
+			entry.ValueType, entry.Data = engineRegistryValue(value.Captured)
+			entry.FromModule = runtime.Module.ID
+		}
+		expectedVerifies = append(expectedVerifies, entry)
+	}
+	if len(captured.Restore) != len(expectedRestores) || len(captured.Verify) != len(expectedVerifies) {
 		return fail(CodeArtifactContract, "capture", "manifest", "captured restore or verifier projection differs from production module")
 	}
 
 	usedVerifiers := make([]bool, len(captured.Verify))
-	for _, expected := range runtime.Module.Verify {
+	for _, expected := range expectedVerifies {
 		matched := -1
 		for index, actual := range captured.Verify {
-			if !usedVerifiers[index] && exactVerifyProjection(actual, expected) {
+			if !usedVerifiers[index] && actual == expected {
 				if matched >= 0 {
 					return fail(CodeArtifactContract, "capture", "manifest.verify", "captured verifier projection is ambiguous")
 				}
@@ -354,14 +441,10 @@ func validateCapturedProjection(runtime *scenarioRuntime, captured *manifest.Man
 	}
 
 	usedRestores := make([]bool, len(captured.Restore))
-	for _, expected := range runtime.Module.Restore {
-		rewritten, ok := expectedCapturedRestoreSource(runtime.Plan, runtime.Module.ID, expected)
-		if !ok {
-			return fail(CodeArtifactContract, "capture", "manifest.restore", "production restore has no exact fixture projection")
-		}
+	for _, expected := range expectedRestores {
 		matched := -1
 		for index, actual := range captured.Restore {
-			if !usedRestores[index] && exactRestoreProjection(actual, expected, runtime.Module.ID, rewritten) {
+			if !usedRestores[index] && exactRestoreProjection(actual, expected.restore, runtime.Module.ID, expected.source) {
 				if matched >= 0 {
 					return fail(CodeArtifactContract, "capture", "manifest.restore", "captured restore projection is ambiguous")
 				}

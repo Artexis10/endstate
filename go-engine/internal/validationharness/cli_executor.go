@@ -214,6 +214,11 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			} else if err != nil {
 				return err
 			}
+		case "registry-value-equals":
+			// The registry value fixture seeds and checks the asserted value.
+			if _, bound := runtime.Plan.registryValue(verifier.Path, verifier.ValueName); !bound {
+				return fmt.Errorf("verify[%d] asserts a registry value the fixture does not capture", index)
+			}
 		case "registry-key-exists":
 			if runtime.RegistryFixture == nil {
 				return &registryVerifierFixtureSetupError{verifierIndex: index, verifierKind: verifier.Type, cause: fmt.Errorf("registry fixture was not prepared")}
@@ -706,7 +711,8 @@ func (executor *cliJourneyExecutor) Verify(ctx context.Context, runtime *scenari
 	if failure := validateVerifyEvidence(output.Envelope.Data, runtime, "verify"); failure != nil {
 		return 0, failure
 	}
-	return 1 + len(runtime.Module.Verify), nil
+	_, moduleTotal, captured := runtime.expectedVerifyResults()
+	return 1 + moduleTotal - captured, nil
 }
 
 type boundedBuffer struct {

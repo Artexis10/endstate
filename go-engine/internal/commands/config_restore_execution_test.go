@@ -304,6 +304,62 @@ func TestConfigRestoreExecutionKeepsDuplicateInputActionsAsDistinctLifecycles(t 
 	}
 }
 
+// TestConfigRestoreExecutionPreviewMessagesNeverClaimARestore catches a dry run
+// whose restore-item messages read as if settings were restored, which is how
+// a preview was once mistaken for a finished restore.
+func TestConfigRestoreExecutionPreviewMessagesNeverClaimARestore(t *testing.T) {
+	manifestDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(manifestDir, "settings.json"), []byte("settings"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	targetDir := t.TempDir()
+	present := filepath.Join(targetDir, "settings.json")
+	inputs := emptyConfigRestoreInputs()
+	inputs.hasConfigPayloads = true
+	inputs.legacyLanes = []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy",
+		restoreEntries: []manifest.RestoreEntry{
+			{Type: "copy", Source: "settings.json", Target: present, FromModule: "apps.legacy"},
+			{Type: "copy", Source: "absent.json", Target: filepath.Join(targetDir, "absent.json"), Optional: true, FromModule: "apps.legacy"},
+		},
+		selected: true,
+	}}
+	buffer := &bytes.Buffer{}
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+		Emitter: events.NewEmitterWithWriter("preview-messages", true, buffer),
+	})
+	if envErr != nil {
+		t.Fatalf("execute: %+v", envErr)
+	}
+	got := []string{}
+	for _, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["event"] == "restore-item" {
+			got = append(got, fmt.Sprintf("%v: %v", event["status"], event["message"]))
+		}
+	}
+	want := []string{
+		"restoring: Checking settings",
+		"restored: Would restore settings",
+		"restoring: Checking settings",
+		"skipped_missing_source: Not included in the saved setup",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("preview restore-item messages = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(present); !os.IsNotExist(err) {
+		t.Fatalf("preview wrote the target: %v", err)
+	}
+}
+
 func TestWriteLegacyConfigRestoreJournalReturnsExactAbsolutePathWithoutConfiguredLogsDir(t *testing.T) {
 	working := t.TempDir()
 	originalWorkingDirectory, err := os.Getwd()

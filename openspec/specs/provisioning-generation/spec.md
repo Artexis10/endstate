@@ -1,7 +1,8 @@
 # provisioning-generation Specification
 
 ## Purpose
-TBD - created by archiving change provisioning-generation. Update Purpose after archive.
+Defines the Provisioning Generation: a numbered, versioned record of the package set committed by each successful `apply`, stored durably as an individual file, with a read-only `generations` command to list them. It is the history that rollback and drift features build on.
+
 ## Requirements
 ### Requirement: Apply persists a Provisioning Generation
 After a successful `apply` that advances the committed package set, the engine SHALL write a numbered Provisioning Generation for every backend that committed packages, including the Nix realizer and per-package Winget, Chocolatey, and Brew drivers. Mixed-driver runs SHALL write separate backend-scoped generations. A Provisioning Generation is an install-stage record only; it does not represent configuration or restore state.

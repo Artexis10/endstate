@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "windows-settings.mouse",
+  "moduleRevision": "8428dcbecfe8126a7e431a2cdc9480d7fe2b9ccbb29173b39ce7520dfb0b68c1",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

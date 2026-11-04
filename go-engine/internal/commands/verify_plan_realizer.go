@@ -71,8 +71,9 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 	}
 
 	// Manifest verify entries run through the same verifier dispatcher.
-	if len(mf.Verify) > 0 {
-		verifyResults, verifyErr := runVerifierFn(mf.Verify, currentValidationMode)
+	verifyEntries, notRestored := scopeRestoredVerifies(mf.Verify, flags.restoredRegistryValues)
+	if len(verifyEntries) > 0 {
+		verifyResults, verifyErr := runVerifierFn(verifyEntries, currentValidationMode)
 		if verifyErr != nil {
 			return nil, validationRuntimeIsolationFailure("verify.execution", "verifier", verifyErr)
 		}
@@ -114,7 +115,8 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 	fail += brewFail
 	unsupportedResults := verifyUnsupportedDrivers(firstAppSlice(unsupportedApps), emitter)
 	results = append(results, unsupportedResults...)
-	skipped := brewSkipped + len(unsupportedResults)
+	results = append(results, notRestored...)
+	skipped := brewSkipped + len(unsupportedResults) + len(notRestored)
 
 	total := pass + fail + skipped
 	emitter.EmitSummary("verify", total, pass, skipped, fail)

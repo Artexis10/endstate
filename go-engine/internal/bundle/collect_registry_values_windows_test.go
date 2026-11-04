@@ -10,7 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows/registry"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
@@ -20,6 +23,51 @@ const bScratchKey = `HKCU\Software\Endstate\BundleTest`
 func cleanupBScratch(t *testing.T) {
 	t.Helper()
 	_ = exec.Command("reg", "delete", bScratchKey, "/f").Run()
+}
+
+// TestCollectRegistryValues_KeepsStringDataVerbatim catches capture changing a
+// string's spaces, tabs or variables, so restore would write different data
+// than the old PC held.
+func TestCollectRegistryValues_KeepsStringDataVerbatim(t *testing.T) {
+	cleanupBScratch(t)
+	defer cleanupBScratch(t)
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, strings.TrimPrefix(bScratchKey, `HKCU\`), registry.SET_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"Plain": "  alpha\t beta  ", "Expandable": "  %USERPROFILE%\t x  "}
+	if err := key.SetStringValue("Plain", want["Plain"]); err != nil {
+		t.Fatal(err)
+	}
+	if err := key.SetExpandStringValue("Expandable", want["Expandable"]); err != nil {
+		t.Fatal(err)
+	}
+	_ = key.Close()
+
+	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryValues: []modules.CaptureRegistryValue{
+		{Key: bScratchKey, ValueName: "Plain"}, {Key: bScratchKey, ValueName: "Expandable"},
+	}}}
+	staging := t.TempDir()
+	if _, err := CollectRegistryValues(mod, staging); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(staging, "configs", "example", "registry-values.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var captured []CapturedRegistryValue
+	if err := json.Unmarshal(data, &captured); err != nil {
+		t.Fatal(err)
+	}
+	wantType := map[string]string{"Plain": "REG_SZ", "Expandable": "REG_EXPAND_SZ"}
+	if len(captured) != 2 {
+		t.Fatalf("captured = %+v", captured)
+	}
+	for _, value := range captured {
+		if value.ValueType != wantType[value.ValueName] || value.Data != want[value.ValueName] {
+			t.Errorf("%s captured as %s %q, want %s %q", value.ValueName, value.ValueType, value.Data, wantType[value.ValueName], want[value.ValueName])
+		}
+	}
 }
 
 // CollectRegistryValues reads only the declared named values (value-level) and

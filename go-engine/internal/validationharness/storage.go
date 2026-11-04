@@ -336,6 +336,15 @@ func validateJournalEntries(runtime *scenarioRuntime, journal *restore.Journal, 
 }
 
 func validateFixtureBackup(runtime *scenarioRuntime, target FixtureRestoreTarget, backup string) *Failure {
+	if target.Value {
+		// The revert step proves the backup content: it must put back the
+		// exact mutated type and data.
+		info, err := os.Lstat(backup)
+		if err != nil || safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() || info.Size() == 0 || !strings.EqualFold(filepath.Ext(backup), ".json") {
+			return fail(CodeContentMismatch, "rebuild", target.Coordinate, "registry value backup is not a regular nonempty .json file")
+		}
+		return nil
+	}
 	if target.Registry {
 		info, err := os.Lstat(backup)
 		if err != nil || safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() || info.Size() == 0 || !strings.EqualFold(filepath.Ext(backup), ".reg") {

@@ -1,7 +1,8 @@
 # nix-home-manager-rollback Specification
 
 ## Purpose
-TBD - created by archiving change nix-home-manager-rollback. Update Purpose after archive.
+Lets `rollback` also revert the home-manager configuration recorded in the target Provisioning Generation by re-activating its snapshot append-only, behind confirmation and preview, and refused cleanly where the backend cannot do it.
+
 ## Requirements
 ### Requirement: Rollback optionally reverts the recorded home-manager config
 

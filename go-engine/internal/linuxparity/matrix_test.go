@@ -14,10 +14,10 @@ import (
 
 func TestBuildClassifiesEveryWindowsModuleFromIndependentEvidence(t *testing.T) {
 	moduleCatalog := map[string]*modules.Module{
-		"apps.alacritty": {ID: "apps.alacritty", DisplayName: "Alacritty"},
-		"apps.git":       {ID: "apps.git", DisplayName: "Git"},
+		"apps.alacritty": {Tier: modules.AppsTier, ID: "apps.alacritty", DisplayName: "Alacritty"},
+		"apps.git":       {Tier: modules.AppsTier, ID: "apps.git", DisplayName: "Git"},
 		"apps.native": {
-			ID: "apps.native", DisplayName: "Native",
+			Tier: modules.AppsTier, ID: "apps.native", DisplayName: "Native",
 			ModuleSchemaVersion: 3,
 			Platforms: map[string]modules.PlatformVariant{
 				"windows": parityVariant(true),
@@ -25,15 +25,15 @@ func TestBuildClassifiesEveryWindowsModuleFromIndependentEvidence(t *testing.T) 
 			},
 		},
 		"apps.capture-only": {
-			ID: "apps.capture-only", DisplayName: "Capture only",
+			Tier: modules.AppsTier, ID: "apps.capture-only", DisplayName: "Capture only",
 			ModuleSchemaVersion: 3,
 			Platforms: map[string]modules.PlatformVariant{
 				"windows": parityVariant(true),
 				"linux":   parityVariant(false),
 			},
 		},
-		"apps.package-only": {ID: "apps.package-only", DisplayName: "Package only"},
-		"apps.unknown":      {ID: "apps.unknown", DisplayName: "Unknown"},
+		"apps.package-only": {Tier: modules.AppsTier, ID: "apps.package-only", DisplayName: "Package only"},
+		"apps.unknown":      {Tier: modules.AppsTier, ID: "apps.unknown", DisplayName: "Unknown"},
 	}
 	packages := []*packagecatalog.Entry{{ID: "package-only", ConfigModule: "apps.package-only"}}
 	registry := &hmregistry.Registry{
@@ -76,6 +76,19 @@ func TestBuildClassifiesEveryWindowsModuleFromIndependentEvidence(t *testing.T) 
 	}
 }
 
+func TestBuildKeepsDesktopSettingsOutsideApplicationParity(t *testing.T) {
+	matrix, err := Build(map[string]*modules.Module{
+		"apps.editor":            {ID: "apps.editor", Tier: modules.AppsTier},
+		"windows-settings.theme": {ID: "windows-settings.theme", Tier: "windows-settings"},
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matrix.Counts.Total != 1 || len(matrix.Rows) != 1 || matrix.Rows[0].ModuleID != "apps.editor" {
+		t.Fatalf("application parity includes non-application settings: %+v", matrix)
+	}
+}
+
 func parityVariant(withRestore bool) modules.PlatformVariant {
 	variant := modules.PlatformVariant{
 		Realization: "endstate-restore",
@@ -93,7 +106,7 @@ func parityVariant(withRestore bool) modules.PlatformVariant {
 
 func TestBuildUsesFullHomeManagerIndexToExposeUnreviewedCounterpart(t *testing.T) {
 	matrix, err := Build(
-		map[string]*modules.Module{"apps.vscode": {ID: "apps.vscode", DisplayName: "VS Code"}},
+		map[string]*modules.Module{"apps.vscode": {Tier: modules.AppsTier, ID: "apps.vscode", DisplayName: "VS Code"}},
 		nil,
 		&hmregistry.Registry{Programs: []string{"vscode"}},
 	)
@@ -108,7 +121,7 @@ func TestBuildUsesFullHomeManagerIndexToExposeUnreviewedCounterpart(t *testing.T
 
 func TestBuildRejectsDuplicateLinuxAuthorities(t *testing.T) {
 	_, err := Build(
-		map[string]*modules.Module{"apps.same": {ID: "apps.same"}},
+		map[string]*modules.Module{"apps.same": {Tier: modules.AppsTier, ID: "apps.same"}},
 		nil,
 		&hmregistry.Registry{Programs: []string{"one", "two"}, Entries: []hmregistry.Entry{
 			{ID: "one", Program: "one", ModuleID: "apps.same", Disposition: hmregistry.FileRoundTrip},

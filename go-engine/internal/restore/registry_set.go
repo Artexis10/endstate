@@ -9,17 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-// registrySetValueTypes is the set of REG_* value types the registry-set
-// restore strategy supports. These cover the Windows OS-settings preference
-// values the seed modules need (DWORDs and string forms); deliberately narrow
-// so the surface stays reversible single-value writes only.
-var registrySetValueTypes = map[string]bool{
-	"REG_DWORD":     true,
-	"REG_SZ":        true,
-	"REG_EXPAND_SZ": true,
-}
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+)
 
 // registrySetBackup is the prior-value record persisted to the backup/journal
 // directory BEFORE a registry-set write, so revert can restore the exact prior
@@ -38,6 +30,14 @@ type registrySetBackup struct {
 	PriorType string `json:"priorType,omitempty"`
 	PriorData string `json:"priorData,omitempty"`
 }
+
+// registrySetUnreadablePriorMessage is the failure message for a registry-set
+// whose current value cannot be read, so that no backup of it can be made.
+const registrySetUnreadablePriorMessage = "The current value of this setting cannot be read, so restore leaves it unchanged."
+
+// registrySetUnsupportedPriorMessage is the failure message for a registry-set
+// whose current value has a type that a backup cannot restore exactly.
+const registrySetUnsupportedPriorMessage = "The current value of this setting has a type that restore cannot back up, so restore leaves it unchanged."
 
 // registrySetTarget renders a human-readable target string (Key\ValueName) for
 // a registry-set action, used in results and events. It is cross-platform so
@@ -58,16 +58,15 @@ func validateRegistrySet(entry RestoreAction) error {
 	if strings.TrimSpace(entry.ValueName) == "" {
 		return fmt.Errorf("registry-set requires a non-empty valueName")
 	}
-	vt := strings.ToUpper(strings.TrimSpace(entry.ValueType))
-	if !registrySetValueTypes[vt] {
-		return fmt.Errorf("registry-set unsupported valueType %q (supported: REG_DWORD, REG_SZ, REG_EXPAND_SZ)", entry.ValueType)
+	if !manifest.IsRegistrySetValueType(entry.ValueType) {
+		return fmt.Errorf("registry-set unsupported valueType %q (supported: %s)", entry.ValueType, strings.Join(manifest.RegistrySetValueTypes(), ", "))
 	}
 	return nil
 }
 
 // writeRegistrySetBackup persists the prior-value record as a JSON sidecar and
-// returns its path. The filename is derived from the sanitized key + value name
-// so concurrent entries within a run do not collide.
+// returns its path. The file name comes from the sanitized key and value name,
+// and the function never overwrites an existing record.
 func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (string, error) {
 	backupDir := opts.BackupDir
 	if backupDir == "" {
@@ -82,7 +81,28 @@ func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (stri
 	}
 	safe := strings.NewReplacer(`\`, "_", ` `, "_", "/", "_", ":", "_").Replace(
 		backup.Key + "_" + backup.ValueName)
-	backupPath := filepath.Join(backupDir, "regset_"+safe+".json")
+	name := "regset_" + safe + ".json"
+	backupPath := filepath.Join(backupDir, name)
+	// The name can already exist: a caller can pass the same BackupDir to more
+	// than one run, and the replacer gives different values, such as key A\B
+	// and key A_B, one name. Overwriting the earlier record would lose its prior
+	// value, so a repeated name goes to a fresh action directory, as
+	// CreateBackup does for files. The live-restore mutation lock serializes
+	// the writers.
+	if _, err := boundary.lstat("registry-set-backup-destination-lstat", backupPath); err == nil {
+		for ordinal := 1; ; ordinal++ {
+			actionDir := filepath.Join(backupDir, fmt.Sprintf("action-%06d", ordinal))
+			if err := boundary.mkdir("registry-set-backup-action-mkdir", actionDir, 0o755); os.IsExist(err) {
+				continue
+			} else if err != nil {
+				return "", fmt.Errorf("allocate unique registry-set backup directory: %w", err)
+			}
+			backupPath = filepath.Join(actionDir, name)
+			break
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect registry-set backup destination: %w", err)
+	}
 
 	data, err := json.MarshalIndent(backup, "", "  ")
 	if err != nil {

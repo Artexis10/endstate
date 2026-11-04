@@ -74,6 +74,9 @@ type Action struct {
 	Strategy string
 	Source   string
 	Target   string
+	// Label is the authored reason of the restore declaration that produced
+	// this action. It is empty when the declaration has none.
+	Label string
 
 	SourceMode        os.FileMode
 	SourceIsDirectory bool

@@ -1,3 +1,21 @@
+## ADDED Requirements
+
+### Requirement: Go engine capture passes display names to item events
+
+The Go engine capture command SHALL pass display names to `EmitItem` for captured apps.
+
+#### Scenario: Capture item events pass display name from Go engine
+
+- **WHEN** the Go engine capture emits item events for detected apps
+- **AND** the captured app has a non-empty `Name` field
+- **THEN** the `EmitItem` call SHALL include the display name value
+
+#### Scenario: Capture item events omit name when unavailable in Go engine
+
+- **WHEN** the Go engine capture emits item events for detected apps
+- **AND** the captured app has an empty `Name` field
+- **THEN** the `EmitItem` call SHALL pass empty string for name
+
 ## MODIFIED Requirements
 
 ### Requirement: Display Name in Capture Envelope appsIncluded
@@ -22,18 +40,10 @@ The capture JSON envelope SHALL include an optional `name` field in each `appsIn
 - **THEN** each entry SHALL still contain `id` and `source` fields with unchanged semantics
 - **AND** the addition of `name` SHALL NOT alter any existing field values or behavior
 
+## REMOVED Requirements
+
 ### Requirement: Display Name in Capture Item Streaming Events
 
-The Go engine capture command SHALL pass display names to `EmitItem` for captured apps.
+**Reason**: The PowerShell `Write-ItemEvent -Name` contract it described no longer exists; item events are emitted by the Go engine's `EmitItem`.
 
-#### Scenario: Capture item events pass display name from Go engine
-
-- **WHEN** the Go engine capture emits item events for detected apps
-- **AND** the captured app has a non-empty `Name` field
-- **THEN** the `EmitItem` call SHALL include the display name value
-
-#### Scenario: Capture item events omit name when unavailable in Go engine
-
-- **WHEN** the Go engine capture emits item events for detected apps
-- **AND** the captured app has an empty `Name` field
-- **THEN** the `EmitItem` call SHALL pass empty string for name
+**Migration**: Use **Go engine capture passes display names to item events**.

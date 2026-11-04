@@ -80,6 +80,4 @@ Common issues:
 
 ## References
 
-- [AI_CONTRACT.md](../ai/AI_CONTRACT.md) — enforcement levels definition
-- [PROJECT_RULES.md](../ai/PROJECT_RULES.md) — OpenSpec scripts reference
 - [lefthook.yml](../../lefthook.yml) — hook configuration

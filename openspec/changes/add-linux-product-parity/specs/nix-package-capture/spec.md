@@ -3,7 +3,7 @@
 ### Requirement: Capture works on realizer backends
 The engine SHALL support `capture` on Linux and Darwin without requiring Winget and SHALL combine available realizer inventory with platform discovery. On Linux, capture SHALL remain available when the Nix realizer or Endstate-managed profile is absent by using the ordinary-machine discovery sources. When a working realizer is present, its Endstate-managed package set SHALL remain authoritative evidence for that profile and SHALL be reconciled with, rather than substituted for, the wider discovered machine state. Windows capture SHALL continue to use its package-driver path unchanged.
 
-#### Scenario: Capture combines the managed realizer set and ordinary-machine discovery
+#### Scenario: Capture emits the installed realizer set as a manifest
 - **WHEN** Linux capture runs with a working Endstate Nix profile and supported applications are also found through other discovery sources
 - **THEN** the engine SHALL write one manifest containing the reconciled resolved package intents
 - **AND** it SHALL preserve source-qualified evidence while retaining the same manifest output shape and output-path resolution as the existing capture path
@@ -18,19 +18,24 @@ The engine SHALL support `capture` on Linux and Darwin without requiring Winget 
 - **THEN** the engine SHALL write a valid settings-only artifact with an empty apps list
 - **AND** it SHALL report the source and unresolved/ignored counts
 
+#### Scenario: Empty realizer set produces a valid empty manifest
+- **WHEN** Darwin capture reads an empty realizer set
+- **THEN** the engine SHALL preserve its valid manifest with an empty apps list
+- **AND** the Linux zero-useful-state rule SHALL NOT change Darwin capture behavior
+
 #### Scenario: Discovery finds no useful state
 - **WHEN** all available capture sources succeed but report no resolved applications and no selected configuration can be captured
 - **THEN** the engine SHALL return the governed zero-useful-state capture error
 - **AND** it SHALL NOT write a misleading empty artifact
 
-#### Scenario: No trustworthy source can be read
+#### Scenario: A backend infrastructure failure surfaces as an error
 - **WHEN** every selected available capture source fails with a systemic, permission, or malformed-output error
 - **THEN** the engine SHALL return a top-level capture error rather than writing a misleading empty manifest
 
 ### Requirement: Realizer capture is package-scoped
 The Nix realizer inventory adapter SHALL enumerate installed packages only and SHALL NOT infer application configuration from Nix store contents. After package discovery and reconciliation, the platform capture orchestrator MAY attach configuration modules and a configuration bundle selected from trusted platform variants and live config evidence. Configuration capture SHALL remain owned by the config-module pipeline, not the realizer implementation.
 
-#### Scenario: Realizer inventory contains packages only
+#### Scenario: No config modules on the realizer path
 - **WHEN** the Nix inventory adapter reads the current profile
 - **THEN** its direct output SHALL contain only package elements and package provenance
 - **AND** it SHALL NOT scan Nix store outputs for mutable user configuration

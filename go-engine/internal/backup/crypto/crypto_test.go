@@ -411,10 +411,10 @@ type vectorsFile struct {
 }
 
 type argon2idVec struct {
-	Passphrase string            `json:"passphrase"`
-	SaltHex    string            `json:"salt_hex"`
-	Params     crypto.KDFParams  `json:"params"`
-	OutputHex  string            `json:"output_hex"`
+	Passphrase string           `json:"passphrase"`
+	SaltHex    string           `json:"salt_hex"`
+	Params     crypto.KDFParams `json:"params"`
+	OutputHex  string           `json:"output_hex"`
 }
 
 type chunkDecryptVec struct {

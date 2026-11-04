@@ -66,7 +66,7 @@ Every `--json` output includes this envelope:
 | `schemaVersion` | string | JSON schema version |
 | `cliVersion` | string | CLI version (semver) |
 | `command` | string | Command that produced output |
-| `runId` | string | Unique run ID (yyyyMMdd-HHmmss) |
+| `runId` | string | Unique run ID, `<command>-YYYYMMDD-HHMMSS-mmm-<8 hex digits>-<host>` in UTC |
 | `timestampUtc` | string | ISO 8601 UTC timestamp |
 | `success` | boolean | Whether command succeeded |
 | `data` | object | Command-specific result |
@@ -248,7 +248,7 @@ For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, 
 - Package items use the CLI-resolved `driver`; the GUI never retries through a different package manager. Known unsupported-host drivers remain visible as skipped.
 - Capture may pass repeatable `--driver <name>` filters. With no filter, it captures all available drivers.
 - Prefer `packageModuleMap` (`driver:ref` keys, arrays of matching module IDs) for settings correlation; fall back to legacy Winget-only `configModuleMap`. Capture module metadata may add `chocolateyRefs` beside `wingetRefs`.
-- Parse additive warnings from capture, plan, apply, and verify as `{code,message,driver?,ref?}`. `optional_driver_unavailable` keeps available lanes usable. Render `possible_duplicate` as an advisory ownership risk while keeping every affected item visible and actionable; never deduplicate, reroute, block, or rewrite item status or summary data in the GUI. Runtime warnings use exact trimmed case-insensitive equality of explicit manifest display names across different resolved per-package drivers, so the GUI must not add fuzzy matching or infer duplicates from refs, IDs, versions, fallback labels, or detected names.
+- Parse additive warnings from capture, plan, apply, and verify as `{code,message,driver?,source?,ref?,moduleId?}`. `config_secret_scope_conflict` names the affected config module in `moduleId`. `optional_driver_unavailable` keeps available lanes usable. Render `possible_duplicate` as an advisory ownership risk while keeping every affected item visible and actionable; never deduplicate, reroute, block, or rewrite item status or summary data in the GUI. Runtime warnings use exact trimmed case-insensitive equality of explicit manifest display names across different resolved per-package drivers, so the GUI must not add fuzzy matching or infer duplicates from refs, IDs, versions, fallback labels, or detected names.
 - `rebootRequired: true` on a successful apply item/item event is a restart-needed state, not a warning or failure.
 
 ### Capture Progress and Store Sources

@@ -74,6 +74,9 @@ func Materialize(ctx context.Context, request Request) (*MaterializedSet, error)
 		if err != nil {
 			return nil, err
 		}
+		for actionIndex := range concrete {
+			concrete[actionIndex].Label = entry.definition.Reason
+		}
 		actions = append(actions, concrete...)
 	}
 	validations, err := resolveValidations(generation.Validate, resolved)

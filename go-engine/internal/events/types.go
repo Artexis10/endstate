@@ -145,6 +145,31 @@ const (
 	RestoreItemFailed               RestoreItemStatus = "failed"
 )
 
+// RestoreItemMessage returns the plain-language message for a restore-item
+// status. preview is the run's dry-run flag: a preview changes nothing, so its
+// messages say what would happen and never claim a restore. A failed item
+// carries its own error text, so failed returns "".
+func RestoreItemMessage(status RestoreItemStatus, preview bool) string {
+	switch status {
+	case RestoreItemRestoring:
+		if preview {
+			return "Checking settings"
+		}
+		return "Restoring settings"
+	case RestoreItemRestored:
+		if preview {
+			return "Would restore settings"
+		}
+		return "Settings restored"
+	case RestoreItemSkippedUpToDate:
+		return "Already up to date"
+	case RestoreItemSkippedMissingSource:
+		return "Not included in the saved setup"
+	default:
+		return ""
+	}
+}
+
 // RestoreItemEvent reports one concrete restore action. Nullable fields stay
 // present as JSON null to keep the streaming contract deterministic.
 type RestoreItemEvent struct {
@@ -160,6 +185,9 @@ type RestoreItemEvent struct {
 	TargetExisted bool              `json:"targetExisted"`
 	Message       string            `json:"message"`
 
+	// Label is the restore entry's authored reason, a plain description of
+	// what the item restores. It is absent when the entry declares none.
+	Label            string `json:"label,omitempty"`
 	CaptureID        string `json:"captureId,omitempty"`
 	ConfigSetID      string `json:"configSetId,omitempty"`
 	TargetInstanceID string `json:"targetInstanceId,omitempty"`

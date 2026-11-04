@@ -30,21 +30,57 @@ type verifyEvidenceItem struct {
 	Reason string `json:"reason"`
 }
 
+// verifyReasonNotRestored is the reason verify gives for a captured value
+// that the same run did not restore.
+const verifyReasonNotRestored = "not_restored"
+
+// expectedVerifyResults returns the module verifier types that the captured
+// bundle carries and how many of them assert captured named values.
+func (runtime *scenarioRuntime) expectedVerifyResults() (map[string]int, int, int) {
+	types := make(map[string]int, len(runtime.Module.Verify))
+	total, captured := 0, 0
+	for _, verifier := range runtime.Module.Verify {
+		if verifier.Type == "registry-value-equals" {
+			if value, bound := runtime.Plan.registryValue(verifier.Path, verifier.ValueName); bound {
+				if value.Absent {
+					continue
+				}
+				captured++
+			}
+		}
+		types[verifier.Type]++
+		total++
+	}
+	return types, total, captured
+}
+
+// validateVerifyEvidence checks one verify result. A rebuild verifies the
+// captured named values it restored. A standalone verify restored nothing, so
+// it must skip them visibly instead of checking them.
 func validateVerifyEvidence(raw []byte, runtime *scenarioRuntime, phase string) *Failure {
 	var data verifyEvidence
 	if runtime == nil || runtime.Module == nil || json.Unmarshal(raw, &data) != nil {
 		return fail(CodeEnvelopeContract, phase, "verify", "verifier result is malformed")
 	}
-	expectedTotal := 1 + len(runtime.Module.Verify)
-	if data.Summary.Total != expectedTotal || data.Summary.Pass != expectedTotal || data.Summary.Fail != 0 || data.Summary.Skipped != 0 || len(data.Results) != expectedTotal {
+	expectedTypes, moduleTotal, captured := runtime.expectedVerifyResults()
+	expectedTotal := 1 + moduleTotal
+	expectedSkipped := 0
+	if phase != "rebuild" {
+		expectedSkipped = captured
+	}
+	if data.Summary.Total != expectedTotal || data.Summary.Pass != expectedTotal-expectedSkipped || data.Summary.Fail != 0 || data.Summary.Skipped != expectedSkipped || len(data.Results) != expectedTotal {
 		return fail(CodeEnvelopeContract, phase, "verify.summary", "verifier summary is not the exact app and module proof set")
 	}
-	expectedTypes := make(map[string]int, len(runtime.Module.Verify))
-	appCount := 0
-	for _, verifier := range runtime.Module.Verify {
-		expectedTypes[verifier.Type]++
-	}
+	appCount, skipped := 0, 0
 	for _, item := range data.Results {
+		if item.Status == "skipped" && expectedSkipped > 0 {
+			if item.Type != "registry-value-equals" || item.Reason != verifyReasonNotRestored || item.ID != "" || item.Ref != "" || item.Driver != "" || expectedTypes[item.Type] == 0 {
+				return fail(CodeEnvelopeContract, phase, "verify.results", "skipped verifier is not a captured value this run did not restore")
+			}
+			expectedTypes[item.Type]--
+			skipped++
+			continue
+		}
 		if item.Status != "pass" || item.Reason != "" {
 			return fail(CodeEnvelopeContract, phase, "verify.results", "verifier item did not pass")
 		}
@@ -62,6 +98,9 @@ func validateVerifyEvidence(raw []byte, runtime *scenarioRuntime, phase string) 
 	}
 	if appCount != 1 {
 		return fail(CodeEnvelopeContract, phase, "verify.app", "verifier result must contain exactly one selected app")
+	}
+	if skipped != expectedSkipped {
+		return fail(CodeEnvelopeContract, phase, "verify.results", "verifier did not skip exactly the captured values")
 	}
 	for _, remaining := range expectedTypes {
 		if remaining != 0 {
@@ -197,7 +236,7 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 	}
 	expected := make(map[string]expectedRestore, runtime.Plan.OperationCount())
 	for _, target := range runtime.Plan.RestoreTargets() {
-		expected[strings.ToLower(target.Authored)] = expectedRestore{source: v1RestoreSource(runtime.Module.ID, target.Destination), strategy: target.Strategy}
+		expected[strings.ToLower(target.Authored)] = expectedRestore{source: target.restoreSource(runtime.Module.ID), strategy: target.Strategy}
 	}
 	if len(expected) != runtime.Plan.OperationCount() {
 		return fail(CodeEnvelopeContract, "rebuild", "restoreItems", "fixture restore target identities are not unique")
@@ -268,8 +307,10 @@ func validateV1RebuildEvents(events []map[string]any, runtime *scenarioRuntime, 
 		}
 		targetText := restoreEventString(event["target"])
 		target, ok := expected[strings.ToLower(targetText)]
+		// Validation-mode restore does not probe a registry-set value before
+		// the write, so only the terminal event reports whether it existed.
 		if !ok || event["module"] != runtime.Module.ID || event["restorer"] != target.Strategy ||
-			filepath.ToSlash(restoreEventString(event["source"])) != v1RestoreSource(runtime.Module.ID, target.Destination) || event["targetExisted"] != true {
+			filepath.ToSlash(restoreEventString(event["source"])) != target.restoreSource(runtime.Module.ID) || !target.Value && event["targetExisted"] != true {
 			return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 restore item attribution differs")
 		}
 		if event["status"] != "restoring" || event["reason"] != nil || event["backupPath"] != nil || index+1 >= len(segment)-1 {
@@ -279,7 +320,7 @@ func validateV1RebuildEvents(events []map[string]any, runtime *scenarioRuntime, 
 		backup, backupOK := terminal["backupPath"].(string)
 		expectedBackup, backupBound := binding.BackupsByTarget[strings.ToLower(target.Authored)]
 		if terminal["event"] != "restore-item" || terminal["module"] != runtime.Module.ID || terminal["restorer"] != target.Strategy ||
-			filepath.ToSlash(restoreEventString(terminal["source"])) != v1RestoreSource(runtime.Module.ID, target.Destination) || terminal["target"] != target.Authored ||
+			filepath.ToSlash(restoreEventString(terminal["source"])) != target.restoreSource(runtime.Module.ID) || terminal["target"] != target.Authored ||
 			terminal["targetExisted"] != true || (!repeat && (terminal["status"] != "restored" || terminal["reason"] != nil || !backupOK || strings.TrimSpace(backup) == "" || !backupBound || backup != expectedBackup)) ||
 			(repeat && (terminal["status"] != "skipped_up_to_date" || terminal["reason"] != "already_up_to_date" || terminal["backupPath"] != nil)) {
 			return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 terminal restore event differs")

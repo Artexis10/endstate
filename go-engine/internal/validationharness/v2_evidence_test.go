@@ -590,14 +590,14 @@ func v2DirectEventsFixture(t *testing.T, runtime *scenarioRuntime, resolution pl
 	start := map[string]any{
 		"event": "restore-item", "id": item.ID, "module": runtime.Module.ID, "restorer": item.RestoreType,
 		"source": item.Source, "target": item.Target, "status": "restoring", "reason": nil, "backupPath": nil,
-		"targetExisted": item.TargetExistedBefore, "message": "restoring settings", "captureId": item.CaptureID,
+		"targetExisted": item.TargetExistedBefore, "message": "Restoring settings", "captureId": item.CaptureID,
 		"configSetId": item.ConfigSetID, "targetInstanceId": item.TargetInstanceID,
 		"sourceGeneration": item.SourceGeneration, "targetGeneration": item.TargetGeneration,
 	}
 	completed := cloneV2Map(t, start)
 	completed["status"] = "restored"
 	completed["backupPath"] = item.BackupPath
-	completed["message"] = "settings restored"
+	completed["message"] = "Settings restored"
 	events := verify()
 	events = append(events,
 		map[string]any{"event": "phase", "phase": "restore"},
@@ -668,7 +668,7 @@ func v2RepeatEventsFixture(t *testing.T, runtime *scenarioRuntime, resolution pl
 	skipped["status"] = "skipped_up_to_date"
 	skipped["reason"] = "already_up_to_date"
 	skipped["backupPath"] = nil
-	skipped["message"] = "target settings are already current"
+	skipped["message"] = "Already up to date"
 	events := []map[string]any{{"event": "phase", "phase": "plan"}}
 	events = append(events, initial[:3]...)
 	events = append(events, initial[3:8]...)

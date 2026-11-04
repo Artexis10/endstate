@@ -41,7 +41,7 @@ Every JSON output includes this envelope:
 | `schemaVersion` | string | Yes | JSON schema version (e.g., "1.0") |
 | `cliVersion` | string | Yes | Endstate CLI version (semver) |
 | `command` | string | Yes | Command that produced this output |
-| `runId` | string | Yes | Unique run identifier (format: `yyyyMMdd-HHmmss`) |
+| `runId` | string | Yes | Unique run identifier, `<command>-YYYYMMDD-HHMMSS-mmm-<8 hex digits>-<host>` in UTC. Two runs that start in the same second still get different identifiers. |
 | `timestampUtc` | string | Yes | ISO 8601 UTC timestamp |
 | `success` | boolean | Yes | Whether the command succeeded |
 | `testMode` | object | No | Present only for the internal disposable CI validation mode. Contains exactly `active: true`, `scenarioId`, and `moduleId`; omitted for ordinary runs. |
@@ -149,6 +149,7 @@ descriptor identity was not established.
 | `driver` | string | No | Stable driver name related to the warning |
 | `source` | string | No | Stable WinGet source related to the warning (`winget` or `msstore`) |
 | `ref` | string | No | Package reference related to the warning |
+| `moduleId` | string | No | Config module ID related to the warning. Additive in schema `1.0`. |
 
 The defined warning codes are:
 
@@ -158,6 +159,7 @@ The defined warning codes are:
 - `store_source_unavailable`: Store enumeration failed while another selected source produced usable inventory.
 - `winget_source_unavailable`: community-source enumeration failed while Store produced usable inventory.
 - `store_version_unpinned`: `capture --pin` omitted unreliable exact Store versions; one aggregate warning reports the affected count.
+- `config_secret_scope_conflict` (`capture`): a module's registry capture entry overlaps the module's own secret declaration, so capture skipped that entry and captured the module's other settings. One warning per affected module; `moduleId` names the module, and the same message appears in that module's `configModules[].warnings`. Additive in schema `1.0`.
 
 For `plan`, `apply`, and `verify`, `possible_duplicate` is an advisory ownership warning based only on routed, non-manual per-package entries. Two entries qualify when their resolved driver names differ and their non-empty explicit manifest `displayName` values are equal after trimming outer whitespace and case-insensitive comparison. Refs, IDs, versions, inferred or backend-detected labels, substrings, punctuation normalization, and fuzzy similarity are not duplicate evidence. Whole-set realizer and manual entries do not participate.
 
@@ -493,9 +495,9 @@ WinGet capture enumerates the built-in `winget` and `msstore` sources concurrent
 | `manifestVersion` | integer | No | Embedded manifest version (`2` for generation-aware capture) |
 | `sanitized` | boolean | Yes | Whether output was sanitized |
 | `isExample` | boolean | Yes | Whether this is an example manifest |
-| `counts` | object | Yes | Capture statistics |
+| `counts` | object | Yes | Capture statistics. `sensitiveExcludedCount` counts the secret files and the secret registry keys and values that capture removed; a value inside a removed key counts only as part of that key. |
 | `appsIncluded` | array | Yes | Apps included in manifest |
-| `configModules` | array | Yes | Per-module capture results; entries include legacy `wingetRefs` and additive `chocolateyRefs` arrays |
+| `configModules` | array | Yes | Per-module capture results; entries include legacy `wingetRefs` and additive `chocolateyRefs` arrays, and an optional `warnings` array of plain-language messages, for example a skipped registry entry or a setting that is not set on this PC |
 | `configsIncluded` | array | No | Config module IDs bundled in zip |
 | `configsSkipped` | array | No | Config module IDs that matched but were skipped |
 | `configsCaptureErrors` | array | No | Config capture error descriptions |
@@ -505,7 +507,7 @@ WinGet capture enumerates the built-in `winget` and `msstore` sources concurrent
 | `warnings` | array | No | Structured `CommandWarning` entries |
 | `configCapture.configSets` | array | No | Per-instance/per-config-set generation provenance and capture results |
 
-**Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`. Legacy `configModuleMap` remains Winget-only and always present. `packageModuleMap` is its driver-aware companion, uses `(driver, ref)` identity, and retains every matching module ID in a deterministic array. Capture never suppresses a cross-driver entry based on equal refs, versions, or display-name similarity; exact case-insensitive display-name equality emits `possible_duplicate` and retains both entries.
+**Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`. Legacy `configModuleMap` remains Winget-only and always present. `packageModuleMap` is its driver-aware companion, uses `(driver, ref)` identity, and retains every matching module ID in a deterministic array. Capture never suppresses a cross-driver entry based on equal refs, versions, or display-name similarity; exact case-insensitive display-name equality emits `possible_duplicate` and retains both entries. One package manager can list one installed program under two sources, for example winget under both `winget` and `msstore`. When two rows of the same package manager carry install fingerprints whose `key`, `publisher`, and `version` are all non-empty and equal, capture keeps one entry: the default-source (`winget`) entry when one exists, because it installs without a Microsoft Store sign-in, and otherwise the first row in capture order. The program counts once in `totalFound` and `included`, so `totalFound == included + skipped` still holds. Rows without a full fingerprint, and rows from different package managers, are never collapsed.
 
 Existing schema-v1 module fields remain backward compatible. Generation-aware fields are absent for schema-v1 payloads or explicitly identify them as unversioned; the engine never fabricates source versions or generations. A generation-aware artifact reports bundle schema `2.0` and manifest version `2` without changing this stdout envelope's additive schema `1.0` contract.
 
@@ -741,6 +743,21 @@ Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with u
 
 Concrete `restoreItems[]` retain all existing fields. Items produced from a generation-aware config set add optional `captureId`, `configSetId`, `targetInstanceId`, `sourceGeneration`, and `targetGeneration` fields so actions remain traceable to the resolution plan.
 
+Each `restoreItems[]` entry may carry an optional `label` string. It holds the authored `reason` text of the restore entry, for example "Keyboard repeat delay". The engine sets it for every restore type when the entry declares a reason, in a live run and a dry run. It omits `label` when the entry declares none. The streamed `restore-item` events carry the same `label`. A consumer may show `label` as the item's name instead of `target`. This optional field is additive in schema `1.0`.
+
+#### Restore item status meanings
+
+Each `restoreItems[]` entry has a `status` from this unchanged vocabulary, and each status has one meaning:
+
+| Status | Meaning |
+|--------|---------|
+| `restored` | The action changed the target. In a dry run, the action would change the target and nothing was changed. |
+| `skipped_up_to_date` | The target already has the desired state, so nothing needed to change. An optional `delete-glob` action whose target directory is absent reports this status, because there is nothing to delete. |
+| `skipped_missing_source` | An optional input is not included in the saved setup. |
+| `failed` | The action could not complete; `error` says why. A required input that the saved setup does not include fails with `error` "The saved setup does not include this required file."; `source` carries the path. |
+
+A dry run decides each outcome before any backup write, so it writes no file under the backup root, and each dry-run item reports `backupCreated: false` and no `backupPath`. The streamed `restore-item` events carry the same statuses with an engine-authored plain-language `message`. In a dry run, that message says what would happen and never claims a restore; `event-contract.md` lists the messages.
+
 If durable journal intent cannot be written, the affected config set is `failed` before mutation with `journal_intent_failed`. A completion-record failure uses `journal_completion_failed`; journal errors are never ignored or represented as successful restore. Before a new restore-capable mutation, an unrecoverable pending intent reports `recovery_required` and prevents all new config mutation.
 
 ### Explicit Target Mapping
@@ -775,9 +792,10 @@ Clients may render this list as a per-module selection. An entry that would rest
 | Token form | Selects | Matched against |
 |------------|---------|-----------------|
 | `git-git` | a detected app | the captured app `id` |
-| `apps.vscode` | a config module | the catalog module `id` |
+| `Vendor.Tool` | a detected app | the captured app `id` |
+| `apps.vscode`, `windows-settings.explorer` | a config module | the catalog module `id` |
 
-A bare token is **always** an app id. Bare module ids are not accepted, because a value like `vscode` would otherwise be ambiguous between an app and a module. This is a deliberate asymmetry with `--restore-filter`, which does accept short module ids.
+A token selects a config module when the text before its first dot names a catalog tier, which is a directory under `modules/` such as `apps` or `windows-settings`. Every other token is an app id, including a dotted id from an existing manifest or another package manager. A bare token is **always** an app id. Bare module ids are not accepted, because a value like `vscode` would otherwise be ambiguous between an app and a module. This is a deliberate asymmetry with `--restore-filter`, which does accept short module ids.
 
 Under an active selection, a config module attaches only when **(a)** a selected app matches it by package reference (`matches.winget` / `matches.chocolatey`), or **(b)** the module is named outright. A module matched solely by `matches.pathExists` is never pulled in by a selection: that matcher tests the filesystem without consulting the app list, so including it would attach configs for apps the user did not select.
 
@@ -789,7 +807,7 @@ Under an active selection, a config module attaches only when **(a)** a selected
 
 Counts keep their existing meaning: `totalFound` reports what was detected on the machine (pre-filter), deselected apps are counted in `skipped`, and `totalFound == included + skipped` continues to hold.
 
-On a host using a platform realizer (Nix/brew), `--only` filters the captured app set the same way. That path attaches no config modules by design, so `apps.`-prefixed tokens select nothing there.
+On a host using a platform realizer (Nix/brew), `--only` filters the captured app set the same way. That path attaches no config modules by design, so module tokens select nothing there.
 
 > **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), which is not the token `--only` matches. Each entry additionally carries `manifestId` (e.g. `git-git`) — the app's id in the written manifest, and the value to pass to `capture --only`, `apply --only`, and `rebuild --only`. Clients building a selection UI should use `manifestId`. The field is additive; `id` is unchanged.
 
@@ -1128,6 +1146,8 @@ endstate verify --manifest ./manifest.jsonc --json
 Every app `VerifyItem` includes its resolved `driver`; non-package verification items omit it. `packageModuleMap` may accompany `configModuleMap` using the same driver-aware and legacy shapes documented under `capture`.
 
 `verify.data.warnings` may include the advisory `possible_duplicate` warning described under **Command Warnings**. Both verification results remain present, and the warning does not affect their statuses or summary counts.
+
+A manifest verify entry may carry `fromModule`. Capture sets it on a `registry-value-equals` entry whose expected type and data come from the old PC. Such an entry holds only after the same run restored that value, so verify evaluates it only when the run restored it; `rebuild` passes its restore results to its verify step. Otherwise the result item has `status: "skipped"`, `reason: "not_restored"`, and a plain-language `message`, and `summary.skipped` counts it. A standalone `verify` restores nothing, so it skips every such entry. Additive in schema `1.0`.
 
 ```json
 ```

@@ -8,6 +8,7 @@ package restore
 import (
 	"golang.org/x/sys/windows/registry"
 
+	"github.com/Artexis10/endstate/go-engine/internal/registryvalue"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -20,7 +21,8 @@ func describeRegistryTargetExists(action RestoreAction) bool {
 		return false
 	}
 	if action.Type == "registry-set" {
-		existed, _, _, _ := readRegistryValue(hive, subkey, action.ValueName)
+		// The descriptor only reports targetExisted; an unreadable value shows as false.
+		_, existed, _, _ := registryvalue.Read(action.Key, action.ValueName)
 		return existed
 	}
 	key, err := registry.OpenKey(hive, subkey, registry.QUERY_VALUE)

@@ -14,6 +14,8 @@ import (
 // but no corresponding app in mf.Apps. This allows config-only modules (e.g.
 // Adobe Lightroom Classic with no winget ID) to surface in the planner and GUI.
 //
+// Only apps-tier modules become app entries: a module from another tier, such
+// as Windows settings, configures the system rather than an installed app.
 // Modules listed in manifest.ExcludeConfigs are skipped.
 // The function modifies mf.Apps in place, appending synthesized entries.
 func SynthesizeAppsFromModules(mf *manifest.Manifest, catalog map[string]*Module) {
@@ -39,6 +41,11 @@ func SynthesizeAppsFromModules(mf *manifest.Manifest, catalog map[string]*Module
 
 		mod, exists := catalog[moduleID]
 		if !exists {
+			continue
+		}
+		// A module built outside catalog loading has no tier and keeps the
+		// historical behaviour; a loaded module names its tier.
+		if mod.Tier != "" && mod.Tier != AppsTier {
 			continue
 		}
 

@@ -101,7 +101,10 @@ func durableLegacyRegistryStates(entry JournalEntry, workRoot string, boundary l
 		if boundary.context != nil && !strings.EqualFold(entry.TargetPath, registrySetTarget(RestoreAction{Key: backup.Key, ValueName: backup.ValueName})) {
 			return durableLegacyRevertState{}, durableLegacyRevertState{}, fmt.Errorf("registry-set journal target differs from semantic backup identity")
 		}
-		existed, valueType, data, _ := registrySetReadNative(nativeKey, backup.ValueName)
+		existed, valueType, data, _, err := registrySetReadNative(nativeKey, backup.ValueName)
+		if err != nil {
+			return durableLegacyRevertState{}, durableLegacyRevertState{}, fmt.Errorf("read current registry-set value: %w", err)
+		}
 		before := digestDurableRegistryValue(backup.Key, backup.ValueName, existed, valueType, data)
 		desired := digestDurableRegistryValue(
 			backup.Key, backup.ValueName, backup.Existed, backup.PriorType, backup.PriorData,

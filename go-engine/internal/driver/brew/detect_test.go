@@ -23,8 +23,8 @@ func TestParseVersions_MultiplePackages(t *testing.T) {
 	output := "node 20.11.0\nripgrep 14.1.0\npython@3.11 3.11.7\n"
 	got := parseVersions(output)
 	want := map[string]string{
-		"node":       "20.11.0",
-		"ripgrep":    "14.1.0",
+		"node":        "20.11.0",
+		"ripgrep":     "14.1.0",
 		"python@3.11": "3.11.7",
 	}
 	for name, ver := range want {

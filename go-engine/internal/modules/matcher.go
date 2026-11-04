@@ -124,7 +124,7 @@ func moduleHasCaptureDeclarations(mod *Module) bool {
 	if mod == nil {
 		return false
 	}
-	if mod.Capture != nil && (len(mod.Capture.Files) > 0 || len(mod.Capture.RegistryKeys) > 0) {
+	if mod.Capture.HasCaptureWork() {
 		return true
 	}
 	if mod.Config == nil {
@@ -132,8 +132,7 @@ func moduleHasCaptureDeclarations(mod *Module) bool {
 	}
 	for _, set := range mod.Config.Sets {
 		for _, generation := range set.Generations {
-			capture := generation.Capture
-			if capture != nil && (len(capture.Files) > 0 || len(capture.RegistryKeys) > 0 || len(capture.RegistryValues) > 0) {
+			if generation.Capture.HasCaptureWork() {
 				return true
 			}
 		}

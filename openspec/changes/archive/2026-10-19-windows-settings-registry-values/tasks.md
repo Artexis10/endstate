@@ -51,4 +51,4 @@
 
 ## 9. Contract documentation (PROTECTED — PENDING USER APPROVAL)
 
-- [ ] 9.1 `docs/contracts/restore-safety-contract.md` — add the backup-and-overwrite exception (wording in `design.md`). **NOT edited by this change; awaiting explicit go-ahead.**
+- [x] 9.1 `docs/contracts/restore-safety-contract.md` — add the backup-and-overwrite exception (wording in `design.md`). The contract carries it under "Value-level `registry-set`: backup-and-overwrite".

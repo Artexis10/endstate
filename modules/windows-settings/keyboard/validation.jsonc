@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "windows-settings.keyboard",
+  "moduleRevision": "8d14dbf4f79dc9e9e7fb149b6cee0ea37efabfceebab903860be2cdaa94dd738",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual"
+  }
+}

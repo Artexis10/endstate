@@ -55,8 +55,10 @@
   },
 
   "secrets": {
-    "registryKeys": [
-      "HKCU\\Software\\Binary Fortress Software\\DisplayFusion"
+    // The license is a value directly on the top-level key. The captured
+    // HotKeys and Taskbars subkeys never contain that key's own values.
+    "registryValues": [
+      { "key": "HKCU\\Software\\Binary Fortress Software\\DisplayFusion" }
     ],
     "warning": "The top-level HKCU\\Software\\Binary Fortress Software\\DisplayFusion key holds the DisplayFusion Pro license key as a registry value. The full key is NOT captured to avoid exporting the license blob; only the HotKeys and Taskbars subkeys are captured. Re-enter your license key after restore.",
     "restorer": "warn-only"

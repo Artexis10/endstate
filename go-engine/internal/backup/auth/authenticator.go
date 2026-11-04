@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
@@ -40,8 +39,8 @@ type Authenticator struct {
 }
 
 // NewAuthenticator constructs an Authenticator. The supplied client.Client
-// MUST be configured with a TokenProvider that defers to session — see
-// auth.MakeTokenProvider helper.
+// MUST be configured with a TokenProvider that defers to session (the
+// SessionStore itself implements client.TokenProvider).
 func NewAuthenticator(issuer Issuer, o *oidc.Client, c *client.Client, s *SessionStore) *Authenticator {
 	a := &Authenticator{issuer: issuer, oidc: o, httpc: c, session: s}
 	a.refreshLock = defaultRefreshLockPath()
@@ -98,11 +97,6 @@ func (a *Authenticator) Issuer() Issuer { return a.issuer }
 
 // Session returns the underlying SessionStore.
 func (a *Authenticator) Session() *SessionStore { return a.session }
-
-// MakeTokenProvider returns a client.TokenProvider that draws access and
-// refresh from the supplied SessionStore. Provided here so the wiring in
-// command handlers reads in one place.
-func MakeTokenProvider(s *SessionStore) client.TokenProvider { return s }
 
 // preHandshakeRequest matches the contract §5 step-1 body shape.
 type preHandshakeRequest struct {
@@ -698,30 +692,4 @@ func (a *Authenticator) acceptIssuedTokens(ctx context.Context, userID, email, a
 		return err
 	}
 	return nil
-}
-
-// parseAccessExpiry extracts the `exp` claim from a substrate-issued
-// access token without verifying the signature. We trust the token
-// substrate just handed us over TLS-validated HTTPS; we only need the
-// exp to decide when the cached value is no longer safe to send.
-//
-// Returns time.Time{} for unparseable input (e.g. tests that pass
-// opaque strings like "access-1" or a future substrate that issues
-// non-JWT access tokens). A zero return is the documented
-// "expiry unknown" signal and means SessionStore won't persist the
-// token to the keychain — the pre-F4 best-effort behavior continues.
-func parseAccessExpiry(token string) time.Time {
-	if token == "" {
-		return time.Time{}
-	}
-	parser := jwt.NewParser()
-	tok, _, err := parser.ParseUnverified(token, &Claims{})
-	if err != nil {
-		return time.Time{}
-	}
-	claims, ok := tok.Claims.(*Claims)
-	if !ok || claims.ExpiresAt == nil {
-		return time.Time{}
-	}
-	return claims.ExpiresAt.Time
 }

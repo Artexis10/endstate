@@ -1,7 +1,8 @@
 # nix-home-manager-catalog-capture Specification
 
 ## Purpose
-TBD - created by archiving change nix-home-manager-catalog-capture. Update Purpose after archive.
+Makes capture round-trip the `homeManager.settings` catalog: the settings the user declared are recovered best-effort into the captured manifest, and apply records them in the Provisioning Generation.
+
 ## Requirements
 ### Requirement: Capture records the engine-provisioned home-manager catalog settings
 

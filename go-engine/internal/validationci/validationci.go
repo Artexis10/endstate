@@ -31,9 +31,11 @@ import (
 )
 
 const (
-	SchemaVersion        = 1
-	ShardCount           = 8
-	maxResultSize        = 64 * 1024
+	SchemaVersion = 1
+	ShardCount    = 8
+	// maxResultSize bounds every evidence file read or written. A shard of
+	// 47 worst-case failed rows (370 rows over 8 shards) needs about 62 KiB.
+	maxResultSize        = 96 * 1024
 	maxFailureDetailSize = 184
 )
 

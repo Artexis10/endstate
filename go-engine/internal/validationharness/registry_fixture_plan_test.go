@@ -513,10 +513,10 @@ func TestCompositeFixturePlanAtCompilesSafeRegistryCatalogPlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	validationRoot := filepath.Join(t.TempDir(), "endstate-validation-reusable-fixture")
-	accepted, registryTargets, fileTargets := 0, 0, 0
+	accepted, registryTargets, fileTargets, valueTargets := 0, 0, 0, 0
 	rejected := map[string]*Failure{}
 	for id, mod := range catalog.Modules {
-		if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
+		if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 && len(mod.Capture.RegistryValues) == 0 {
 			continue
 		}
 		var scenario validationmatrix.Scenario
@@ -539,19 +539,19 @@ func TestCompositeFixturePlanAtCompilesSafeRegistryCatalogPlans(t *testing.T) {
 		accepted++
 		registryTargets += len(plan.RegistryTargets)
 		fileTargets += len(plan.Targets)
+		valueTargets += plan.OperationCount() - len(plan.RegistryTargets) - len(plan.Targets)
 	}
-	if accepted != 24 || registryTargets != 31 || fileTargets != 29 {
-		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets; want 24, 31, 29", accepted, registryTargets, fileTargets)
+	if accepted != 33 || registryTargets != 33 || fileTargets != 29 || valueTargets != 11 {
+		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets, %d value targets; want 33, 33, 29, 11", accepted, registryTargets, fileTargets, valueTargets)
 	}
 	wantRejected := map[string]struct {
 		coordinate string
 		detail     string
 	}{
-		"apps.ccleaner":         {coordinate: "capture.registryKeys[0].key", detail: "registry capture contains a declared secret descendant"},
-		"apps.displayfusion":    {coordinate: "capture.registryKeys[0].key", detail: "registry capture is contained by a declared secret ancestor"},
+		"apps.ccleaner":         {coordinate: "capture.registryKeys[0].key", detail: "registry capture overlaps a declared secret"},
 		"apps.kleopatra":        {coordinate: "capture.files[4].dest", detail: "capture destinations collide after the production flattened payload rewrite"},
-		"apps.revo-uninstaller": {coordinate: "capture.registryKeys[0].key", detail: "registry capture contains a declared secret descendant"},
-		"apps.tableplus":        {coordinate: "capture.registryKeys[0].key", detail: "registry capture contains a declared secret descendant"},
+		"apps.revo-uninstaller": {coordinate: "capture.registryKeys[0].key", detail: "registry capture overlaps a declared secret"},
+		"apps.tableplus":        {coordinate: "capture.registryKeys[0].key", detail: "registry capture overlaps a declared secret"},
 	}
 	if len(rejected) != len(wantRejected) {
 		t.Fatalf("rejected registry modules = %+v, want %+v", rejected, wantRejected)

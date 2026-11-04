@@ -38,6 +38,11 @@ func TestRunApplyDryRunExecutesFinalGenerationPlanningAndReturnsConfigFields(t *
 	if err := os.MkdirAll(targetRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// An existing target makes the preview snapshot its prior state, which is
+	// where a preview could report a backup that no longer exists.
+	if err := os.WriteFile(filepath.Join(targetRoot, "settings.json"), []byte(`{"theme":"light"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	digest := strings.Repeat("a", 64)
 	snapshotPath, captureRevision := writeCommandTestModuleSnapshot(t, manifestDir, "apps.example")
 	mf := manifest.Manifest{
@@ -112,8 +117,11 @@ func TestRunApplyDryRunExecutesFinalGenerationPlanningAndReturnsConfigFields(t *
 	if result.RestoreItems[0].CaptureID != "capture-a" || result.RestoreItems[0].SourceGeneration != "g1" {
 		t.Fatalf("restore item = %+v", result.RestoreItems[0])
 	}
-	if _, err := os.Stat(filepath.Join(targetRoot, "settings.json")); !os.IsNotExist(err) {
-		t.Fatalf("dry-run changed target: %v", err)
+	if item := result.RestoreItems[0]; !item.TargetExistedBefore || item.BackupCreated || item.BackupPath != "" {
+		t.Fatalf("preview restore item reports a backup: %+v", item)
+	}
+	if data, err := os.ReadFile(filepath.Join(targetRoot, "settings.json")); err != nil || string(data) != `{"theme":"light"}` {
+		t.Fatalf("dry-run changed target: %q, %v", data, err)
 	}
 }
 

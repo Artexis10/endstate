@@ -23,7 +23,7 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 	// Check source exists.
 	if _, err := boundary.stat("source-stat", source); os.IsNotExist(err) {
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("source not found: %s", source)
+		result.Error = requiredSourceMissingMessage
 		return result, nil
 	}
 

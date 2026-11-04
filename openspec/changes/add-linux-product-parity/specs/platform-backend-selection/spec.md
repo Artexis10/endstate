@@ -16,7 +16,7 @@ Package-reference resolution SHALL prefer the `App.Refs` entry keyed by the host
 - **THEN** the app SHALL be skipped with a stable platform-reference reason
 - **AND** no cross-platform or discovery-source ref SHALL be passed to Nix
 
-#### Scenario: Legacy Windows fallback remains compatible
+#### Scenario: Fallback when no OS-keyed ref exists
 - **WHEN** an existing Windows manifest has no `refs.windows` entry but has a legacy non-empty package ref accepted by the current Windows resolver
 - **THEN** the existing Windows fallback behavior SHALL remain unchanged
 - **AND** this compatibility SHALL NOT authorize fallback on the Nix-realizer path

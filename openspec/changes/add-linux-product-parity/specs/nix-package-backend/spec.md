@@ -3,10 +3,15 @@
 ### Requirement: Nix package references resolve to pinned installables
 The engine SHALL resolve `App.Refs["linux"]`/`App.Refs["darwin"]` through an immutable effective Nixpkgs input on the realizer path. Release defaults SHALL name a revision-locked input rather than a floating registry alias or branch. A bare portable attribute SHALL expand against that input. An explicit flakeref SHALL be resolved before mutation to a canonical locked installable that preserves its requested attribute/output, and that exact locked installable SHALL be passed to Nix. Apps with no Nix reference SHALL be skipped rather than receiving a non-Nix reference.
 
-#### Scenario: Bare attribute uses the immutable release input
+#### Scenario: Bare attribute is pinned
 - **WHEN** a Nix ref is a bare attribute name under release defaults
 - **THEN** it SHALL resolve against the revision-locked Nixpkgs input embedded for that release
 - **AND** the effective input revision SHALL be available to the provisioning record
+
+#### Scenario: Explicit flakeref passes through
+- **WHEN** an explicit installable already names its canonical immutable input and requested target
+- **THEN** the engine SHALL pass that locked installable to `nix profile add` unchanged
+- **AND** it SHALL record the requested installable and immutable input separately
 
 #### Scenario: Explicit flakeref is locked before mutation
 - **WHEN** a Nix ref is an explicit flakeref installable

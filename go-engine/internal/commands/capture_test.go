@@ -145,10 +145,15 @@ func withMockCatalog(catalog map[string]*modules.Module, err error, f func()) {
 	}
 	// Return a non-empty sentinel so the "if repoRoot != """ guard passes.
 	resolveRepoRootFn = func() string { return "/test-repo-root" }
+	// The sentinel root has no modules/ directory, so supply the shipped tiers
+	// that make an --only token such as apps.git a module id.
+	origTiers := captureCatalogTiersFn
+	captureCatalogTiersFn = func() ([]string, error) { return []string{modules.AppsTier, "windows-settings"}, nil }
 	defer func() {
 		loadModuleCatalogFn = origCatalog
 		loadCaptureModuleCatalogFn = origCaptureCatalog
 		resolveRepoRootFn = origRoot
+		captureCatalogTiersFn = origTiers
 	}()
 	f()
 }

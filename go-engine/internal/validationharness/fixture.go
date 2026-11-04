@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -25,10 +26,11 @@ import (
 const fixturePayloadName = "endstate-validation-fixture.txt"
 
 type FixturePlan struct {
-	context         *validationmode.Context
-	registryFixture registryFixture
-	Targets         []FixtureTarget
-	RegistryTargets []RegistryFixtureTarget
+	context           *validationmode.Context
+	registryFixture   registryFixture
+	Targets           []FixtureTarget
+	RegistryTargets   []RegistryFixtureTarget
+	RegistryValueKeys []RegistryValueFixtureKey
 }
 
 type registryFixture interface {
@@ -69,6 +71,33 @@ type RegistryFixtureTarget struct {
 	Restored    validationmode.RegistryState
 }
 
+// RegistryValueFixtureKey is one registry key that holds captured named
+// values. The fixture owns the whole key: the declared values, and one
+// unrelated value that capture must leave out and restore must leave alone.
+type RegistryValueFixtureKey struct {
+	Coordinate string
+	Authored   string
+	Values     []RegistryValueFixture
+	Captured   validationmode.RegistryState
+	Mutated    validationmode.RegistryState
+	Restored   validationmode.RegistryState
+}
+
+// RegistryValueFixture is one captured named value. Its mutated value has a
+// different type, so a restore must write the captured type as well as the
+// captured data.
+type RegistryValueFixture struct {
+	Coordinate string
+	Key        string
+	ValueName  string
+	Target     string
+	Absent     bool
+	Captured   validationmode.RegistryValue
+	Mutated    validationmode.RegistryValue
+	// order is the value's position in capture.registryValues.
+	order int
+}
+
 // FixtureRestoreTarget is the shared, deterministic projection consumed by
 // every production-backed roundtrip assertion. Registry payload text proves
 // only its grammar and scope; typed fixture snapshots prove its content.
@@ -79,6 +108,17 @@ type FixtureRestoreTarget struct {
 	Strategy    string
 	Optional    bool
 	Registry    bool
+	// Value marks a registry-set restore of one captured named value.
+	Value bool
+}
+
+// restoreSource is the source the engine reports for this target. A
+// registry-set writes captured data and has no payload source.
+func (target FixtureRestoreTarget) restoreSource(moduleID string) string {
+	if target.Value {
+		return ""
+	}
+	return v1RestoreSource(moduleID, target.Destination)
 }
 
 type FixtureExcluded struct {
@@ -283,6 +323,9 @@ func compileCompositeFixturePlanWithRegistryDefinitions(context *validationmode.
 	if len(registries.Entries) != 0 && fixture == nil {
 		return nil, fail(CodeIsolationFailure, "fixture", registries.Entries[0].Coordinate, "registry fixture authority is absent")
 	}
+	if len(registries.Values) != 0 && fixture == nil {
+		return nil, fail(CodeIsolationFailure, "fixture", registries.Values[0].Coordinate, "registry fixture authority is absent")
+	}
 	plan.registryFixture = fixture
 	for _, definition := range registries.Entries {
 		captured, mutated, restored, err := registryFixtureStates(mod.ID, scenario.ID, definition.Coordinate, definition.Key)
@@ -295,6 +338,11 @@ func compileCompositeFixturePlanWithRegistryDefinitions(context *validationmode.
 			Captured: captured, Mutated: mutated, Restored: restored,
 		})
 	}
+	valueKeys, err := registryValueFixtureKeys(mod.ID, scenario.ID, registries.Values)
+	if err != nil {
+		return nil, fail(CodeUnsupportedFixture, "fixture", registries.Values[0].Coordinate, "registry value fixture state is invalid")
+	}
+	plan.RegistryValueKeys = valueKeys
 	if failure := plan.bindCoveredRegistryKeyVerifiers(mod); failure != nil {
 		return nil, failure
 	}
@@ -407,6 +455,110 @@ func registryFixtureStates(moduleID, scenarioID, coordinate, key string) (valida
 		return validationmode.RegistryState{}, validationmode.RegistryState{}, validationmode.RegistryState{}, err
 	}
 	return captured, mutated, captured, nil
+}
+
+// registryValueFixtureKeys groups the captured named values by key and builds
+// each key's captured, mutated, and restored states. Declared values alternate
+// between DWORD and string at capture and flip type when mutated.
+func registryValueFixtureKeys(moduleID, scenarioID string, definitions []registryValueDefinition) ([]RegistryValueFixtureKey, error) {
+	var keys []RegistryValueFixtureKey
+	index := map[string]int{}
+	for valueIndex, definition := range definitions {
+		identity := strings.ToLower(definition.Key)
+		position, exists := index[identity]
+		if !exists {
+			position = len(keys)
+			index[identity] = position
+			keys = append(keys, RegistryValueFixtureKey{Coordinate: definition.Coordinate, Authored: definition.Authored})
+		}
+		sentinel := func(state string) string {
+			return fixtureSentinel(moduleID, scenarioID, definition.Coordinate+"/"+definition.ValueName, state)
+		}
+		captured := validationmode.RegistryValue{Name: definition.ValueName, Type: validationmode.RegistryTypeDWORD, Data: registryDWORDBytes(sentinel("captured"))}
+		mutated := validationmode.RegistryValue{Name: definition.ValueName, Type: validationmode.RegistryTypeString, Data: registryStringBytes(sentinel("mutated"))}
+		if valueIndex%2 == 1 {
+			captured = validationmode.RegistryValue{Name: definition.ValueName, Type: validationmode.RegistryTypeString, Data: registryStringBytes(sentinel("captured"))}
+			mutated = validationmode.RegistryValue{Name: definition.ValueName, Type: validationmode.RegistryTypeDWORD, Data: registryDWORDBytes(sentinel("mutated"))}
+		}
+		keys[position].Values = append(keys[position].Values, RegistryValueFixture{
+			Coordinate: definition.Coordinate, Key: definition.Authored, ValueName: definition.ValueName,
+			Target: definition.Target, Absent: definition.Absent, Captured: captured, Mutated: mutated, order: valueIndex,
+		})
+	}
+	for position := range keys {
+		key := &keys[position]
+		unrelated := func(state string) validationmode.RegistryValue {
+			return validationmode.RegistryValue{
+				Name: registryUnrelatedValueName, Type: validationmode.RegistryTypeString,
+				Data: registryStringBytes(fixtureSentinel(moduleID, scenarioID, key.Coordinate+"/unrelated", state)),
+			}
+		}
+		captured := []validationmode.RegistryValue{unrelated("captured")}
+		mutated := []validationmode.RegistryValue{unrelated("mutated")}
+		restored := []validationmode.RegistryValue{unrelated("mutated")}
+		for _, value := range key.Values {
+			if value.Absent {
+				continue
+			}
+			captured = append(captured, value.Captured)
+			mutated = append(mutated, value.Mutated)
+			restored = append(restored, value.Captured)
+		}
+		var err error
+		if key.Captured, err = validationmode.NewRegistryState([]validationmode.RegistryKey{{Values: captured}}); err != nil {
+			return nil, err
+		}
+		if key.Mutated, err = validationmode.NewRegistryState([]validationmode.RegistryKey{{Values: mutated}}); err != nil {
+			return nil, err
+		}
+		if key.Restored, err = validationmode.NewRegistryState([]validationmode.RegistryKey{{Values: restored}}); err != nil {
+			return nil, err
+		}
+	}
+	return keys, nil
+}
+
+// registryValue finds the captured named value that a restore or verifier
+// names.
+func (plan *FixturePlan) registryValue(key, valueName string) (RegistryValueFixture, bool) {
+	if plan == nil {
+		return RegistryValueFixture{}, false
+	}
+	canonical, err := validationmode.NormalizeHKCU(key)
+	if err != nil {
+		return RegistryValueFixture{}, false
+	}
+	for _, fixtureKey := range plan.RegistryValueKeys {
+		for _, value := range fixtureKey.Values {
+			declared, err := validationmode.NormalizeHKCU(value.Key)
+			if err == nil && strings.EqualFold(declared, canonical) && strings.EqualFold(value.ValueName, valueName) {
+				return value, true
+			}
+		}
+	}
+	return RegistryValueFixture{}, false
+}
+
+// registryValues lists every captured named value in declaration order.
+func (plan *FixturePlan) registryValues() []RegistryValueFixture {
+	if plan == nil {
+		return nil
+	}
+	var values []RegistryValueFixture
+	for _, key := range plan.RegistryValueKeys {
+		values = append(values, key.Values...)
+	}
+	sort.SliceStable(values, func(left, right int) bool { return values[left].order < values[right].order })
+	return values
+}
+
+// engineRegistryValue renders a fixture value in the type and data strings
+// that capture records and registry-set restores.
+func engineRegistryValue(value validationmode.RegistryValue) (string, string) {
+	if value.Type == validationmode.RegistryTypeDWORD {
+		return "REG_DWORD", strconv.FormatUint(uint64(binary.LittleEndian.Uint32(value.Data)), 10)
+	}
+	return "REG_SZ", registryFixtureString(value.Data)
 }
 
 func registryStringBytes(value string) []byte {
@@ -617,6 +769,11 @@ func (plan *FixturePlan) MaterializeCaptured() *Failure {
 			return failure
 		}
 	}
+	for _, key := range plan.RegistryValueKeys {
+		if failure := plan.replaceRegistryValueKey(key, key.Captured); failure != nil {
+			return failure
+		}
+	}
 	return nil
 }
 
@@ -631,6 +788,11 @@ func (plan *FixturePlan) MaterializeRestored() *Failure {
 	}
 	for index := range plan.RegistryTargets {
 		if failure := plan.replaceRegistry(&plan.RegistryTargets[index], plan.RegistryTargets[index].Restored); failure != nil {
+			return failure
+		}
+	}
+	for _, key := range plan.RegistryValueKeys {
+		if failure := plan.replaceRegistryValueKey(key, key.Restored); failure != nil {
 			return failure
 		}
 	}
@@ -658,7 +820,8 @@ func (plan *FixturePlan) HasOptionalTargets() bool {
 			return true
 		}
 	}
-	return false
+	// Every captured named value is optional, so each key can be absent.
+	return len(plan.RegistryValueKeys) != 0
 }
 
 func (plan *FixturePlan) MaterializeOptionalAbsent() *Failure {
@@ -678,6 +841,11 @@ func (plan *FixturePlan) MaterializeOptionalAbsent() *Failure {
 			return fail(CodeIsolationFailure, "fixture", target.Coordinate, "registry fixture operation failed")
 		}
 	}
+	for _, key := range plan.RegistryValueKeys {
+		if plan.registryFixture == nil || plan.registryFixture.Remove(key.Authored) != nil || plan.registryFixture.ProveAbsent(key.Authored) != nil {
+			return fail(CodeIsolationFailure, "fixture", key.Coordinate, "registry fixture operation failed")
+		}
+	}
 	return nil
 }
 
@@ -692,14 +860,27 @@ func (plan *FixturePlan) Mutate() *Failure {
 			return failure
 		}
 	}
+	for _, key := range plan.RegistryValueKeys {
+		if failure := plan.replaceRegistryValueKey(key, key.Mutated); failure != nil {
+			return failure
+		}
+	}
 	return nil
 }
 
+// OperationCount counts the restores that a rebuild performs: one per file
+// and registry target, and one per named value present at capture.
 func (plan *FixturePlan) OperationCount() int {
 	if plan == nil {
 		return 0
 	}
-	return len(plan.Targets) + len(plan.RegistryTargets)
+	count := len(plan.Targets) + len(plan.RegistryTargets)
+	for _, value := range plan.registryValues() {
+		if !value.Absent {
+			count++
+		}
+	}
+	return count
 }
 
 func (plan *FixturePlan) RestoreTargets() []FixtureRestoreTarget {
@@ -719,12 +900,27 @@ func (plan *FixturePlan) RestoreTargets() []FixtureRestoreTarget {
 			Strategy: target.Strategy, Optional: target.Optional, Registry: true,
 		})
 	}
+	for _, value := range plan.registryValues() {
+		if value.Absent {
+			continue
+		}
+		targets = append(targets, FixtureRestoreTarget{
+			Coordinate: value.Coordinate, Authored: value.Target, Strategy: "registry-set", Optional: true, Value: true,
+		})
+	}
 	return targets
 }
 
 func (plan *FixturePlan) replaceRegistry(target *RegistryFixtureTarget, state validationmode.RegistryState) *Failure {
 	if plan.registryFixture == nil || plan.registryFixture.Replace(target.Authored, state) != nil {
 		return fail(CodeIsolationFailure, "fixture", target.Coordinate, "registry fixture operation failed")
+	}
+	return nil
+}
+
+func (plan *FixturePlan) replaceRegistryValueKey(key RegistryValueFixtureKey, state validationmode.RegistryState) *Failure {
+	if plan.registryFixture == nil || plan.registryFixture.Replace(key.Authored, state) != nil {
+		return fail(CodeIsolationFailure, "fixture", key.Coordinate, "registry fixture operation failed")
 	}
 	return nil
 }
@@ -810,6 +1006,11 @@ func (plan *FixturePlan) CompareOptionalAbsent() *Failure {
 			}
 		}
 	}
+	for _, key := range plan.RegistryValueKeys {
+		if plan.registryFixture == nil || plan.registryFixture.ProveAbsent(key.Authored) != nil {
+			return fail(CodeIsolationFailure, "fixture", key.Coordinate, "registry fixture operation failed")
+		}
+	}
 	retained := *plan
 	retained.Targets = make([]FixtureTarget, 0, len(plan.Targets))
 	for _, target := range plan.Targets {
@@ -823,6 +1024,7 @@ func (plan *FixturePlan) CompareOptionalAbsent() *Failure {
 			retained.RegistryTargets = append(retained.RegistryTargets, target)
 		}
 	}
+	retained.RegistryValueKeys = nil
 	return retained.CompareCaptureSeed()
 }
 
@@ -865,6 +1067,24 @@ func (plan *FixturePlan) compareRegistry(state string) *Failure {
 		}
 		if !actual.Equal(expected) {
 			return fail(CodeContentMismatch, "fixture", target.Coordinate, "registry fixture state differs from the exact deterministic state")
+		}
+	}
+	for _, key := range plan.RegistryValueKeys {
+		if plan.registryFixture == nil {
+			return fail(CodeIsolationFailure, "fixture", key.Coordinate, "registry fixture authority is absent")
+		}
+		actual, err := plan.registryFixture.Snapshot(key.Authored)
+		if err != nil {
+			return fail(CodeIsolationFailure, "fixture", key.Coordinate, "registry fixture operation failed")
+		}
+		expected := key.Mutated
+		if state == "captured" {
+			expected = key.Captured
+		} else if state == "restored" {
+			expected = key.Restored
+		}
+		if !actual.Equal(expected) {
+			return fail(CodeContentMismatch, "fixture", key.Coordinate, "registry value state differs from the exact deterministic state")
 		}
 	}
 	return nil

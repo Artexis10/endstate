@@ -56,6 +56,8 @@ Run each check against the diff. Skip checks that don't apply (e.g., no new HTTP
 - [ ] **OpenSpec coupling.** If the change modifies behavior covered by an existing spec, the same commit references an `openspec/changes/<id>/` proposal. New behavior without a spec change is a missing artifact.
 - [ ] **Tests for new behavior.** New behavior has new tests under the matching `*_test.go` (e.g., changes in `internal/commands/restore.go` add cases to `internal/commands/restore_test.go`). Tests are hermetic — no real winget calls, no network, no shared state. Match the table-driven, single-purpose pattern in existing `_test.go` files.
 - [ ] **JSONC parsing.** Any new code reading a `.jsonc` file uses `manifest.StripJsoncComments` before unmarshalling. Raw `json.Unmarshal` on `.jsonc` is forbidden. (`CLAUDE.md` Landmine #1)
+- [ ] **Capabilities reflect CLI changes.** New or changed CLI flags/commands appear in the `capabilities` output.
+- [ ] **Restore entries back up.** Restore entries carry `backup: true`; capture/restore paths never include secrets or credentials.
 - [ ] **UX language (only if user-facing strings change).** New error messages, status reasons, or progress strings line up with `docs/ux-language.md` (lives in the GUI repo `endstate-gui`). If unavailable to read, flag it as "verify against GUI repo before merge" rather than silently passing.
 
 ## Step 5 — Go-quality checklist
@@ -95,6 +97,5 @@ If a section is empty, write `_None._` rather than omitting it. Empty sections s
 
 ## Reference patterns
 
-- Existing review-flavored automation: `.claude/agents/contract-guard.md` (an agent with overlapping scope — this skill is the lighter, on-demand version)
 - Test patterns to match: `go-engine/internal/commands/restore_test.go`, `capture_test.go`, `report_test.go` — table-driven, hermetic, one assertion per test
 - OpenSpec change layout: `openspec/changes/add-hosted-backup-contract/` is a current example

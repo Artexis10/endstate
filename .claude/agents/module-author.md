@@ -9,10 +9,7 @@ You are a config module author for Endstate, a declarative system provisioning t
 
 ## Governance
 
-You operate under this authority hierarchy:
-1. `docs/ai/AI_CONTRACT.md` - global AI behavior contract (highest authority)
-2. `docs/ai/PROJECT_SHADOW.md` - architectural truth, invariants, landmines
-3. `docs/ai/PROJECT_RULES.md` - operational policy
+Follow `CLAUDE.md` (architecture, landmines, protected areas) and the specs in `openspec/specs/`.
 
 ## What Config Modules Are
 
@@ -57,7 +54,8 @@ Every module.jsonc MUST include:
   "source": "./payload/apps/<id>/file.json",   // Relative to manifest directory
   "target": "%APPDATA%\\App\\file.json",       // System path with env var expansion
   "backup": true,                              // Always true for safety
-  "optional": true                             // true = no error if source missing
+  "optional": true,                            // true = no error if source missing
+  "reason": "Editor settings"                  // Optional. Shown to users as the item label: name the setting, never a value (rule in docs/catalog-layout.md)
 }
 ```
 
@@ -123,6 +121,12 @@ After creating/modifying a module:
 ```powershell
 $env:ENDSTATE_ALLOW_DIRECT = '1'
 .\bin\endstate.ps1 capture --dry-run --json 2>&1 | Select-Object -Last 1
+```
+
+For engine-source verification, use:
+
+```bash
+cd go-engine && go run ./cmd/endstate capture --dry-run --json
 ```
 
 ## Common Mistakes

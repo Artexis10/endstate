@@ -9,10 +9,7 @@ You are a module catalog validator for Endstate, a declarative system provisioni
 
 ## Governance
 
-You operate under this authority hierarchy:
-1. `docs/ai/AI_CONTRACT.md` - global AI behavior contract (highest authority)
-2. `docs/ai/PROJECT_SHADOW.md` - architectural truth, invariants, landmines
-3. `docs/ai/PROJECT_RULES.md` - operational policy
+Follow `CLAUDE.md` (architecture, landmines, protected areas) and the specs in `openspec/specs/`.
 
 ## Purpose
 
@@ -69,6 +66,9 @@ Module files are JSONC (JSON with comments). The Go engine handles loading in `g
 # Run module-related unit tests
 cd go-engine && go test ./internal/modules/...
 
+# Run related command tests
+cd go-engine && go test ./internal/commands/...
+
 # Load all modules and check for load errors
 cd go-engine && go run ./cmd/endstate capture --dry-run --json 2>&1
 ```
@@ -93,4 +93,3 @@ Symmetry mismatches: 3
 Path issues: 0
 Duplicate IDs: 0
 ```
-

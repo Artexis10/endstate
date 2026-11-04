@@ -3,7 +3,7 @@
 ### Requirement: Apply persists a Provisioning Generation
 After a successful `apply` that advances committed package state or an Endstate-owned generated Home Manager activation, the engine SHALL write a numbered Provisioning Generation for every provisioning backend that committed state. Mixed package-driver runs SHALL write separate backend-scoped generations. A Provisioning Generation SHALL record provisioning identity and effective immutable inputs; it SHALL NOT duplicate direct file/value restore journals, backup payloads, or restore results.
 
-#### Scenario: Successful package apply commits a Provisioning Generation
+#### Scenario: Successful apply commits a Provisioning Generation
 - **WHEN** `apply` completes a non-dry-run that newly installs at least one package
 - **THEN** the engine SHALL write a numbered Provisioning Generation under the resolved state directory
 - **AND** the record SHALL include the committed package set, run identifier, backend name, portable intent, and effective resolution input when applicable
@@ -17,7 +17,7 @@ After a successful `apply` that advances committed package state or an Endstate-
 - **WHEN** one apply installs Winget and Chocolatey packages
 - **THEN** the engine SHALL write backend-scoped generations whose added refs contain only packages installed by the named backend
 
-#### Scenario: Atomic backend writes a generation only on committed success
+#### Scenario: Atomic backend writes a generation only on full success
 - **WHEN** a Nix package or generated Home Manager operation does not advance its backend-native generation
 - **THEN** no Provisioning Generation SHALL be written for that uncommitted operation
 - **AND** the failure SHALL be surfaced through the existing error path
@@ -59,7 +59,7 @@ A Provisioning Generation SHALL be a self-describing, versioned record stored as
 - **THEN** it SHALL write to a temporary file and rename it into place
 - **AND** no partially written record SHALL ever be observable
 
-#### Scenario: Package generation records package facts only
+#### Scenario: Generation records package facts only
 - **WHEN** a Provisioning Generation is written for package provisioning without a generated Home Manager activation
 - **THEN** it SHALL record package identifiers, requested refs, portable intent, effective resolution input, status, and version when exposed by the backend
 - **AND** it SHALL NOT fabricate config-module identity, restore results, or backup state

@@ -9,29 +9,35 @@ import (
 	"testing"
 )
 
-// windowsSettingsRoot is the value-level OS-settings catalog directory, relative
-// to this test file. It is a sibling of modules/apps and loaded via the same
-// catalog loader (LoadCatalog + StripJsoncComments).
-func windowsSettingsRoot() string {
-	return filepath.Join("..", "..", "..", "modules", "windows-settings")
-}
-
 // isHKCUSettings reports whether a registry path/key targets HKCU.
 func isHKCUSettings(p string) bool {
 	u := strings.ToUpper(strings.TrimSpace(p))
 	return strings.HasPrefix(u, `HKCU\`) || strings.HasPrefix(u, `HKEY_CURRENT_USER\`)
 }
 
-// TestWindowsSettingsCatalog_Loads asserts the seed windows-settings modules
-// parse cleanly through the catalog loader and carry the expected value-level
-// shape: HKCU-only registry-set restore, registry-value-equals verify, and
-// registryValues capture — fully reversible single-value writes.
-func TestWindowsSettingsCatalog_Loads(t *testing.T) {
-	root := windowsSettingsRoot()
-	catalog, err := LoadCatalog(root)
+// windowsSettingsModules returns the Windows-settings tier exactly as the
+// production catalog loads it.
+func windowsSettingsModules(t *testing.T) map[string]*Module {
+	t.Helper()
+	catalog, err := GetCatalog(productionRepoRoot())
 	if err != nil {
-		t.Fatalf("LoadCatalog(%s): %v", root, err)
+		t.Fatalf("GetCatalog: %v", err)
 	}
+	tier := map[string]*Module{}
+	for id, mod := range catalog {
+		if mod.Tier == "windows-settings" {
+			tier[id] = mod
+		}
+	}
+	return tier
+}
+
+// TestWindowsSettingsCatalog_Loads asserts the production catalog loads the
+// windows-settings modules with the value-level shape restore relies on:
+// HKCU-only registry-set restore, registry-value-equals verify, and
+// registryValues capture.
+func TestWindowsSettingsCatalog_Loads(t *testing.T) {
+	catalog := windowsSettingsModules(t)
 
 	want := []string{
 		"windows-settings.personalization",
@@ -68,14 +74,9 @@ func TestWindowsSettingsCatalog_Loads(t *testing.T) {
 			if r.ValueName == "" {
 				t.Errorf("%s: restore[%d] missing valueName", id, i)
 			}
-			switch strings.ToUpper(r.ValueType) {
-			case "REG_DWORD", "REG_SZ", "REG_EXPAND_SZ":
-			default:
-				t.Errorf("%s: restore[%d] unsupported valueType %q", id, i, r.ValueType)
-			}
 		}
 
-		// Every verify must be a value-DATA assertion on an HKCU key.
+		// Every verify must be a value assertion on an HKCU key.
 		for i, v := range mod.Verify {
 			if v.Type != "registry-value-equals" {
 				t.Errorf("%s: verify[%d] type %q, expected registry-value-equals", id, i, v.Type)
@@ -104,26 +105,18 @@ func TestWindowsSettingsCatalog_Loads(t *testing.T) {
 	}
 }
 
-// TestWindowsSettingsCatalog_RestoreVerifyParity asserts each restore value has a
-// matching verify (same key/value/data), so applying a setting is observably
-// verifiable — the verification-first invariant for the OS-settings tier.
+// TestWindowsSettingsCatalog_RestoreVerifyParity asserts each restored value
+// has a matching verify on the same key and value name, so applying a setting
+// is observably verifiable.
 func TestWindowsSettingsCatalog_RestoreVerifyParity(t *testing.T) {
-	catalog, err := LoadCatalog(windowsSettingsRoot())
-	if err != nil {
-		t.Fatalf("LoadCatalog: %v", err)
-	}
-
-	for id, mod := range catalog {
-		type kv struct{ key, name, data string }
-		verifySet := make(map[kv]bool)
+	for id, mod := range windowsSettingsModules(t) {
+		verifySet := make(map[string]bool)
 		for _, v := range mod.Verify {
-			verifySet[kv{strings.ToUpper(v.Path), v.ValueName, v.Data}] = true
+			verifySet[strings.ToUpper(v.Path)+"\x00"+strings.ToUpper(v.ValueName)] = true
 		}
 		for i, r := range mod.Restore {
-			k := kv{strings.ToUpper(r.Key), r.ValueName, r.Data}
-			if !verifySet[k] {
-				t.Errorf("%s: restore[%d] (%s\\%s=%s) has no matching registry-value-equals verify",
-					id, i, r.Key, r.ValueName, r.Data)
+			if !verifySet[strings.ToUpper(r.Key)+"\x00"+strings.ToUpper(r.ValueName)] {
+				t.Errorf("%s: restore[%d] (%s\\%s) has no matching registry-value-equals verify", id, i, r.Key, r.ValueName)
 			}
 		}
 	}

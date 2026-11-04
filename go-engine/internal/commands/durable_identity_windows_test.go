@@ -110,6 +110,42 @@ func TestRunCapture_RecordsFingerprintForExactARPBinding(t *testing.T) {
 	}
 }
 
+// TestRunCapture_OneInstallAcrossWingetSourcesIsOneApp catches the counts
+// and manifest disagreeing after two source rows of one installed program
+// collapse: the program counts once in totalFound and included.
+func TestRunCapture_OneInstallAcrossWingetSourcesIsOneApp(t *testing.T) {
+	withCaptureEnumerators(t, map[string]fakeInstalledEnumerator{
+		"winget": {packages: []driver.InstalledPackage{
+			{Ref: "Microsoft.PowerToys", DisplayName: "PowerToys", Source: "winget", InventoryLocalIdentifiers: []string{`ARP\Machine\X64\{1EACF27D}`}, InventoryRelationshipKnown: true},
+			{Ref: "Qobuz.Qobuz", DisplayName: "Qobuz", Source: "winget", InventoryLocalIdentifiers: []string{`ARP\User\X64\Qobuz`}, InventoryRelationshipKnown: true},
+			{Ref: "XP89DCGQ3K6VLD", DisplayName: "PowerToys", Source: "msstore", InventoryLocalIdentifiers: []string{`ARP\Machine\X64\{1EACF27D}`}, InventoryRelationshipKnown: true},
+		}},
+	}, nil)
+	out := filepath.Join(t.TempDir(), "captured.jsonc")
+	withMockARPInventory(t, []arpInventoryFixture{
+		{LocalIdentifier: `ARP\Machine\X64\{1EACF27D}`, Key: "{1EACF27D}", DisplayName: "PowerToys", Publisher: "Microsoft Corporation", Version: "0.98.1"},
+		{LocalIdentifier: `ARP\User\X64\Qobuz`, Key: "Qobuz", DisplayName: "Qobuz", Publisher: "Qobuz", Version: "8.2.0"},
+	}, func() {
+		withMockCatalog(nil, nil, func() {
+			raw, envelopeErr := RunCapture(CaptureFlags{Out: out, Drivers: []string{"winget"}})
+			if envelopeErr != nil {
+				t.Fatalf("RunCapture: %v", envelopeErr)
+			}
+			counts := raw.(*CaptureResult).Counts
+			if counts.TotalFound != 2 || counts.Included != 2 || counts.Skipped != 0 {
+				t.Fatalf("counts = %+v, want PowerToys counted once", counts)
+			}
+		})
+	})
+	var refs []string
+	for _, app := range readManifestApps(t, out) {
+		refs = append(refs, app["refs"].(map[string]interface{})["windows"].(string))
+	}
+	if strings.Join(refs, ",") != "Microsoft.PowerToys,Qobuz.Qobuz" {
+		t.Fatalf("manifest refs = %v, want one PowerToys entry from the community source", refs)
+	}
+}
+
 func TestRunCapture_UsesExactARPIdentifierForEverythingCollision(t *testing.T) {
 	withCaptureEnumerators(t, map[string]fakeInstalledEnumerator{
 		"winget": {packages: []driver.InstalledPackage{{Ref: "Valve.SteamGame", DisplayName: "Everything", InventoryLocalIdentifiers: []string{`ARP\Machine\X64\SteamGame`}, InventoryRelationshipKnown: true}}},

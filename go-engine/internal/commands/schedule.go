@@ -436,7 +436,7 @@ func runScheduleRun(flags ScheduleFlags) (interface{}, *envelope.Error) {
 
 	stateDir := scheduleStateDir(flags.Root)
 
-	runID := "schedule-" + time.Now().UTC().Format("20060102-150405")
+	runID := buildRunID("schedule")
 	ts := schedule.NowUTC()
 
 	lr := &schedule.LastRun{

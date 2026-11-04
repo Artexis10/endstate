@@ -212,8 +212,8 @@ func TestTrackedSchemaV1NonCopyFixturePartition(t *testing.T) {
 			registryFailures++
 		}
 	}
-	if len(mergeIDs) != 13 || mergeTargets != 17 || copyTargets != 15 || registryFailures != 29 {
-		t.Fatalf("non-copy partition = %d modules, %d merge + %d copy targets, %d registry; want 13, 17, 15, 29", len(mergeIDs), mergeTargets, copyTargets, registryFailures)
+	if len(mergeIDs) != 13 || mergeTargets != 17 || copyTargets != 15 || registryFailures != 37 {
+		t.Fatalf("non-copy partition = %d modules, %d merge + %d copy targets, %d registry; want 13, 17, 15, 37", len(mergeIDs), mergeTargets, copyTargets, registryFailures)
 	}
 }
 
@@ -815,16 +815,16 @@ func TestCapturedProjectionRequiresExactRestoreAndVerifierSemantics(t *testing.T
 			Key: restore.Key, ValueName: restore.ValueName, ValueType: restore.ValueType, Data: restore.Data,
 		})
 	}
-	if failure := validateCapturedProjection(runtime, &captured); failure != nil {
+	if failure := validateCapturedProjection(runtime, &captured, false); failure != nil {
 		t.Fatalf("exact projection failed: %+v", failure)
 	}
 	captured.Verify[0].ValueType = "invented"
-	if failure := validateCapturedProjection(runtime, &captured); failure == nil {
+	if failure := validateCapturedProjection(runtime, &captured, false); failure == nil {
 		t.Fatal("corrupted verifier projection passed")
 	}
 	captured.Verify[0].ValueType = runtime.Module.Verify[0].ValueType
 	captured.Restore[0].Reason = "invented"
-	if failure := validateCapturedProjection(runtime, &captured); failure == nil {
+	if failure := validateCapturedProjection(runtime, &captured, false); failure == nil {
 		t.Fatal("corrupted restore projection passed")
 	}
 }

@@ -124,7 +124,8 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 
 	moduleIDs := make([]string, 0, len(moduleCatalog))
 	for id, module := range moduleCatalog {
-		if module == nil {
+		// Desktop tiers have separate capability and acceptance requirements.
+		if module == nil || module.Tier != modules.AppsTier {
 			continue
 		}
 		moduleIDs = append(moduleIDs, id)

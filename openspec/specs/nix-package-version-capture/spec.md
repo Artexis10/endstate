@@ -1,7 +1,8 @@
 # nix-package-version-capture Specification
 
 ## Purpose
-TBD - created by archiving change nix-package-version-capture. Update Purpose after archive.
+Records the installed version of each Nix package, parsed best-effort from its store path, in captured manifests and in Provisioning Generations written by apply.
+
 ## Requirements
 ### Requirement: The Nix realizer capture path records the installed package version
 

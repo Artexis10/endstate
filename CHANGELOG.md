@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.32.1](https://github.com/Artexis10/endstate/compare/v2.32.0...v2.32.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** patch x/crypto and cryptography security advisories ([#241](https://github.com/Artexis10/endstate/issues/241)) ([2c01f46](https://github.com/Artexis10/endstate/commit/2c01f46b36a3835b2ca8cb2c5ebbca1c71770e70))
+
+## [2.32.0](https://github.com/Artexis10/endstate/compare/v2.31.0...v2.32.0) (2026-10-19)
+
+
+### Features
+
+* restore Windows settings and filter module secrets out of registry capture ([#238](https://github.com/Artexis10/endstate/issues/238)) ([2c578e3](https://github.com/Artexis10/endstate/commit/2c578e390663b3175e913c1dcaf239cc75678769)), closes [#234](https://github.com/Artexis10/endstate/issues/234)
+
+
+### Bug Fixes
+
+* **restore:** stop expanding ~user paths as the current user's home ([#230](https://github.com/Artexis10/endstate/issues/230)) ([2b693f2](https://github.com/Artexis10/endstate/commit/2b693f212f2e55110b89991adcf3f5cb1ad226ee))
+
+## [2.31.0](https://github.com/Artexis10/endstate/compare/v2.30.0...v2.31.0) (2026-10-03)
+
+
+### Features
+
+* **cloud:** harden scheduled protection and recovery ([#218](https://github.com/Artexis10/endstate/issues/218)) ([7e1a8df](https://github.com/Artexis10/endstate/commit/7e1a8dfc7e94323fb6eb2f2001e654670cb14656))
+
+
+### Bug Fixes
+
+* **modules:** make capture modules declare a matcher the engine consults ([#212](https://github.com/Artexis10/endstate/issues/212)) ([e0ba52e](https://github.com/Artexis10/endstate/commit/e0ba52e26ee40a1ead35bfb46beb112a88001ef4))
+
 ## [2.30.0](https://github.com/Artexis10/endstate/compare/v2.29.0...v2.30.0) (2026-08-01)
 
 
