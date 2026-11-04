@@ -269,6 +269,20 @@ Finalization records every committed backend generation even when a later stage 
 
 This extends the existing Nix backend and provisioning records. A copied source-flake system would change source metadata and duplicate native locking. Raw derivation addition would lose package priority and identity. The small metadata flake is required to preserve those existing package semantics.
 
+### 19. Platform provenance extends the existing generation pipeline
+
+Schema-v3 generation identity consists of the module, platform, config set, and local generation ID. Local generation IDs and migration endpoints stay unchanged. Captures persist `sourcePlatform`; one formatter supplies qualified history identities without storing a second identity string.
+
+The parser hashes a canonical envelope containing module ID, platform, config-set ID, generation ID, and the selected variant definition. It excludes computed fingerprints and historical acceptance lists. JSON numbers retain their exact values. Legacy fingerprints remain unchanged. Changes to another platform do not invalidate the selected variant. Changes within that variant require explicit historical acceptance.
+
+Executable projections own their mutable declarations. They retain the full authored snapshot and revision for inspection. Generation history reads its legacy schema and writes schema version 2 with an optional platform field. Legacy entries retain their original identities and fingerprints.
+
+Schema-v3 capture records retain the authored schema and require a supported source platform. Snapshot verification checks the recorded module, source variant, config set, generation, and exact recomputed fingerprint. The snapshot supplies source evidence only; the current trusted catalog remains execution authority.
+
+Task 5.4 includes the same-platform guard from task 5.5. The resolver checks source and target platforms before generation or fingerprint acceptance. A different platform returns `platform_mapping_missing`, including when an explicit target instance was selected. Existing legacy sources remain Windows-scoped. Full authored cross-platform mappings remain separate task 5.5 work.
+
+The proof captures a Linux generation and restores it through its compatible Linux variant. The same bundle offered to a Windows variant must leave target bytes unchanged and create no transaction, even if that variant accepts the source fingerprint. The existing resolver, staging engine, and journal provide this behavior; no second restore engine is required.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.
