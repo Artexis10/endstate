@@ -106,7 +106,8 @@ func validateEntry(entry *Entry) error {
 	if len(entry.Aliases) == 0 {
 		return fmt.Errorf("at least one source-qualified alias is required")
 	}
-	for source, refs := range entry.Aliases {
+	for _, source := range aliasSources(entry.Aliases) {
+		refs := entry.Aliases[source]
 		if _, ok := allowedSources[source]; !ok {
 			return fmt.Errorf("alias source %q is not supported", source)
 		}
@@ -159,7 +160,8 @@ func Load(dir string) (*Catalog, error) {
 		if previous := catalog.entries[entry.ID]; previous != nil {
 			return nil, fmt.Errorf("duplicate portable package id %q in %s and %s", entry.ID, previous.FilePath, entry.FilePath)
 		}
-		for source, refs := range entry.Aliases {
+		for _, source := range aliasSources(entry.Aliases) {
+			refs := entry.Aliases[source]
 			for _, ref := range refs {
 				key := aliasKey(source, ref)
 				if previous := catalog.aliases[key]; previous != nil {
@@ -206,6 +208,16 @@ func (catalog *Catalog) Entries() []*Entry {
 		result = append(result, catalog.entries[id])
 	}
 	return result
+}
+
+// Sort authored source names so competing validation errors stay deterministic.
+func aliasSources(aliases map[string][]string) []string {
+	sources := make([]string, 0, len(aliases))
+	for source := range aliases {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources
 }
 
 func aliasKey(source, ref string) string { return source + "\x00" + ref }

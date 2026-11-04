@@ -4,7 +4,11 @@
 package packagecatalog
 
 import (
+	"encoding/json"
+	"fmt"
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -177,5 +181,88 @@ func TestReleaseLinuxCorpusMappings(t *testing.T) {
 		if len(entry.Aliases) == 0 {
 			t.Errorf("%s has no source-qualified aliases", id)
 		}
+	}
+}
+
+// Simultaneous collisions must identify the same source on every catalog load.
+func TestCatalogRejectsAmbiguousDesktopAndExecutableAliases(t *testing.T) {
+	dir := t.TempDir()
+	for _, id := range []string{"alpha", "beta"} {
+		body := fmt.Sprintf(`{"schemaVersion":1,"id":%q,"displayName":%q,"nix":{"attribute":%q},"aliases":{"desktop":["editor.desktop"],"executable":["editor"]}}`, id, id, id)
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for attempt := 0; attempt < 100; attempt++ {
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "duplicate package alias desktop:editor.desktop") {
+			t.Fatalf("ambiguous source diagnostic = %v, want desktop alias before executable alias", err)
+		}
+	}
+}
+
+// The same executable-root lookup serves installed CLI and GUI engine layouts.
+// Run a relocated test executable so neither ENDSTATE_ROOT nor the checkout can
+// accidentally supply the catalog under test.
+func TestInstalledRuntimeCatalogRoundTrip(t *testing.T) {
+	if os.Getenv("ENDSTATE_CATALOG_PROBE") == "1" {
+		root := config.ResolveRepoRoot()
+		catalog, err := Load(filepath.Join(root, "catalog", "packages"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(catalog.Entries())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(os.Getenv("ENDSTATE_CATALOG_RESULT"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, layout := range []string{"lib", filepath.Join("resources", "binaries")} {
+		t.Run(layout, func(t *testing.T) {
+			root := t.TempDir()
+			catalogDir := filepath.Join(root, "catalog", "packages")
+			if err := os.MkdirAll(catalogDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(catalogDir, "ripgrep.jsonc"), []byte(validRipgrep), 0600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(root, layout, filepath.Base(executable))
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, binary, 0700); err != nil {
+				t.Fatal(err)
+			}
+			result := filepath.Join(root, "result.json")
+			cmd := exec.Command(path, "-test.run=^TestInstalledRuntimeCatalogRoundTrip$")
+			cmd.Dir = t.TempDir()
+			cmd.Env = append(os.Environ(), "ENDSTATE_ROOT=", "ENDSTATE_CATALOG_PROBE=1", "ENDSTATE_CATALOG_RESULT="+result)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("installed lookup: %v\n%s", err, output)
+			}
+			data, err := os.ReadFile(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var entries []Entry
+			if err := json.Unmarshal(data, &entries); err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || entries[0].ID != "ripgrep" || entries[0].Nix.Attribute != "ripgrep" || len(entries[0].Aliases["desktop"]) != 1 {
+				t.Fatalf("installed catalog = %s", data)
+			}
+		})
 	}
 }
