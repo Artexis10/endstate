@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +19,68 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
+
+func TestRunCaptureLinux_ConfigPresenceDoesNotAuthorizeCapture(t *testing.T) {
+	root := t.TempDir()
+	catalogDir := filepath.Join(root, "catalog", "packages")
+	if err := os.MkdirAll(catalogDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	executable := "rg"
+	if runtime.GOOS == "windows" {
+		executable += ".cmd"
+	}
+	for id, entry := range map[string]any{
+		"ripgrep": map[string]any{"schemaVersion": 1, "id": "ripgrep", "displayName": "ripgrep", "nix": map[string]string{"attribute": "ripgrep"}, "aliases": map[string][]string{"executable": {executable}}},
+		"editor":  map[string]any{"schemaVersion": 1, "id": "editor", "displayName": "Editor", "nix": map[string]string{"attribute": "editor"}, "aliases": map[string][]string{"config": {"${xdg.config}/editor.json"}}},
+	} {
+		body, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(catalogDir, id+".json"), body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin, configRoot := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, executable), []byte("Never execute this file."), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "editor.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENDSTATE_ROOT", root)
+	t.Setenv("PATH", bin)
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	oldGOOS, oldRealizer, oldDiscovery := captureGOOSFn, newRealizerFn, discoverLinuxFn
+	t.Cleanup(func() { captureGOOSFn, newRealizerFn, discoverLinuxFn = oldGOOS, oldRealizer, oldDiscovery })
+	captureGOOSFn = func() string { return "linux" }
+	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	discoverLinuxFn = func(ctx context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
+		request.SelectedSources = []string{"catalog-executables", "catalog-config-paths"}
+		return discovery.Discover(ctx, request)
+	}
+	out := filepath.Join(t.TempDir(), "selected.endstate")
+	withFakeGenerations(nil, errors.New("no history"), func() {
+		emptyCatalog(func() {
+			_, captureErr := RunCapture(CaptureFlags{Out: out, Only: "ripgrep,editor"})
+			if captureErr == nil || captureErr.Code != envelope.ErrManifestValidationError || !strings.Contains(captureErr.Message, "editor") {
+				t.Fatalf("unsupported selected config must remain visible: %+v", captureErr)
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Fatalf("unsupported selection published a partial artifact: %v", err)
+			}
+			raw, captureErr := RunCapture(CaptureFlags{Out: out})
+			if captureErr != nil {
+				t.Fatalf("capture supported inventory: %+v", captureErr)
+			}
+			result := raw.(*CaptureResult)
+			if len(result.AppsIncluded) != 1 || len(result.Discovery.Settings) != 1 || len(result.Discovery.Settings[0].Actions) != 0 {
+				t.Fatalf("capture lost supported inventory or review-only evidence: %+v", result)
+			}
+		})
+	})
+}
 
 func TestCapturePlatformRegressionMatrix(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "mixed-profile.jsonc")

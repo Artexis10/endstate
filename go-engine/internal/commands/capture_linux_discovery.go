@@ -6,6 +6,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
@@ -86,6 +87,10 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 	flags.linuxSettingsApps = make(map[string]bool)
 	flags.linuxSettingsModules = make(map[string]bool)
 	for _, candidate := range result.Settings {
+		// Presence alone cannot satisfy a requested settings capture.
+		if !slices.Contains(candidate.Actions, discovery.SettingsCapture) {
+			continue
+		}
 		if candidate.PackageID != "" {
 			flags.linuxSettingsApps[candidate.PackageID] = true
 		}
