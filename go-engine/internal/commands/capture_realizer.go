@@ -141,7 +141,10 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	for _, name := range names {
 		el := cur.Elements[name]
 		ref := el.Name // bare attr -> apply's ResolveInstallable expands against the pin
-		ver := nix.StorePathVersion(el.Name, el.StorePaths)
+		ver := el.ObservedVersion
+		if ver == "" {
+			ver = nix.StorePathVersion(el.Name, el.StorePaths)
+		}
 		captured = append(captured, capturedApp{
 			ID:               name,
 			Refs:             map[string]string{goos: ref},

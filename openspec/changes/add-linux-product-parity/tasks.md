@@ -88,8 +88,10 @@ baseline, and a fresh lane-delegate Stage-0 readiness audit.
 
 - [x] 2.1 Prove Linux capture with no callable Nix, no Endstate profile, native package evidence, and live supported config
 - [x] 2.2 Prove schema-v1/v2 flat modules remain Windows-only and inert on Linux
-- [ ] 2.3 Add one regression matrix covering Endstate-profile capture, Home Manager history, Winget/Chocolatey, Darwin Nix/Brew, and explicit platform opt-in
-- [ ] 2.4 Add a fixture-backed inventory of compatibility, CLI, and roadmap claims that exceed current ordinary-machine evidence
+- [x] 2.3 Add one regression matrix covering Endstate-profile capture, Home Manager history, Winget/Chocolatey, Darwin Nix/Brew, and explicit platform opt-in
+  - Reuse the existing platform-specific suites. The new mixed-inventory command check reproduces and repairs lost Nix version evidence while preserving native-source version separation, Home Manager history, and selection.
+- [x] 2.4 Add a fixture-backed inventory of compatibility, CLI, and roadmap claims that exceed current ordinary-machine evidence
+  - `internal/linuxparity/testdata/compatibility-claims.json` records the inspected revision, source, scope, evidence, and remaining gap. Compatibility documentation now states the substrate boundary. The fixture is an evidence snapshot, not another release gate; no test pins Markdown wording.
 
 ## 3. Immutable inputs, package catalog, and provisioning authority
 

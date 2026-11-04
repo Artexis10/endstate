@@ -15,8 +15,62 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
+
+func TestCapturePlatformRegressionMatrix(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "mixed-profile.jsonc")
+	fr := &fakeRealizer{currentSet: nixSetWithVersion("ripgrep", "14.1.0")}
+	fr.currentSet.Elements["fd"] = realizer.Element{Name: "fd"}
+	originalGOOS := captureGOOSFn
+	captureGOOSFn = func() string { return "linux" }
+	t.Cleanup(func() { captureGOOSFn = originalGOOS })
+	const ownerFlake = "github:example/settings#desktop"
+
+	withFakeRealizer(fr, func() {
+		discoverLinuxFn = func(ctx context.Context, request discovery.Request, r realizer.Realizer) (discovery.Result, error) {
+			result, err := discoverTestRealizerOnly(ctx, request, r)
+			if err != nil {
+				return result, err
+			}
+			result.Resolved = append(result.Resolved, discovery.ResolvedIntent{
+				ID: "jq", Installable: "github:NixOS/nixpkgs/1111111111111111111111111111111111111111#jq",
+				Evidence: []discovery.Evidence{{Source: "debian-explicit", Ref: "jq", Version: "1.7-native"}},
+			})
+			return result, nil
+		}
+		withFakeGenerations([]*provision.Generation{hmGen(ownerFlake, 3)}, nil, func() {
+			emptyCatalog(func() {
+				if _, err := RunCapture(CaptureFlags{Out: out, Only: "ripgrep,jq"}); err != nil {
+					t.Fatalf("capture managed and native inventory: %+v", err)
+				}
+			})
+		})
+	})
+
+	mf := readCapturedManifest(t, out)
+	if len(mf.Apps) != 2 {
+		t.Fatalf("selected apps = %+v, want ripgrep and jq without fd", mf.Apps)
+	}
+	for _, app := range mf.Apps {
+		switch app.ID {
+		case "ripgrep":
+			if app.Version != "14.1.0" {
+				t.Errorf("managed Nix version = %q, want observed 14.1.0", app.Version)
+			}
+		case "jq":
+			if app.Version != "" || app.Refs["linux"] != "github:NixOS/nixpkgs/1111111111111111111111111111111111111111#jq" {
+				t.Errorf("native evidence became desired Nix version or lost its ref: %+v", app)
+			}
+		default:
+			t.Errorf("unselected app captured: %s", app.ID)
+		}
+	}
+	if mf.HomeManager == nil || mf.HomeManager.Flake != ownerFlake {
+		t.Fatalf("Home Manager history lost during ordinary discovery: %+v", mf.HomeManager)
+	}
+}
 
 func TestRunCaptureLinux_NoNixCapturesNativeIntentAndLiveSettings(t *testing.T) {
 	dir := t.TempDir()

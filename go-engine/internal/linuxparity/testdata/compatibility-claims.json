@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "basis": {
+    "revision": "d76d3e522f4141ba9750d84f00ef90d70ac20c68",
+    "date": "2026-11-04",
+    "kind": "documentation-and-code-inspection"
+  },
+  "purpose": "Inventory the scope of existing claims. This fixture does not certify a release.",
+  "acceptanceContract": "openspec/changes/add-linux-product-parity/specs/linux-machine-discovery/spec.md",
+  "claims": [
+    {
+      "id": "platform-support-matrix",
+      "source": "docs/COMPATIBILITY.md",
+      "scope": "Managed Nix package and Home Manager substrate",
+      "ordinaryMachineJourney": "unverified",
+      "evidence": ".github/workflows/nix-integration.yml",
+      "gap": "The smoke is non-blocking and does not prove the shipped fresh-machine capture, restore, content verification, revert and rollback journey."
+    },
+    {
+      "id": "discovery-capability",
+      "source": "go-engine/internal/commands/capabilities.go",
+      "scope": "Engine discovery support and release input metadata",
+      "ordinaryMachineJourney": "unverified",
+      "evidence": "go-engine/internal/commands/capture_linux_discovery_test.go",
+      "gap": "Hermetic discovery and capture checks do not certify an installed release or the complete settings lifecycle."
+    },
+    {
+      "id": "completed-platform-arc",
+      "source": "docs/roadmap/roadmap.md",
+      "scope": "The shipped June platform substrate arc",
+      "ordinaryMachineJourney": "unverified",
+      "evidence": "openspec/specs/nix-package-backend/spec.md",
+      "gap": "Completion of the substrate arc does not complete ordinary-machine Linux product parity or packaged GUI acceptance."
+    }
+  ]
+}

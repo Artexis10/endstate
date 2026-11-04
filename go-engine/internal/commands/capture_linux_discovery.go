@@ -120,7 +120,17 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 
 	elements := make(map[string]realizer.Element, len(result.Resolved))
 	for _, intent := range result.Resolved {
-		elements[intent.ID] = realizer.Element{Name: intent.Installable}
+		element := realizer.Element{Name: intent.Installable}
+		for _, evidence := range intent.Evidence {
+			// Only these engine-owned Nix sources describe an observed Nix version.
+			switch evidence.Source {
+			case (discovery.RealizerInventoryAdapter{}).ID(), (discovery.NixUserProfileAdapter{}).ID():
+				if evidence.Ref == intent.Installable && element.ObservedVersion == "" {
+					element.ObservedVersion = evidence.Version
+				}
+			}
+		}
+		elements[intent.ID] = element
 	}
 	raw, captureErr := runCaptureRealizerSelected(
 		flags,

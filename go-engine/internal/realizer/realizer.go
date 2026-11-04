@@ -36,6 +36,9 @@ type Element struct {
 	Name       string
 	AttrPath   string
 	StorePaths []string
+	// ObservedVersion retains a parsed Nix version when an inventory bridge
+	// carries portable references without machine-local store paths.
+	ObservedVersion string
 	// OriginalURL is the flakeref requested when the profile element was added;
 	// URL is Nix's resolved/locked source when present. Capture preserves this
 	// provenance instead of reducing an immutable profile entry to a bare attr.

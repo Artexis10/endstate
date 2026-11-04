@@ -2,6 +2,10 @@
 
 ## Platform Support
 
+The matrix below describes the shipped package and managed-configuration substrate. It does not certify ordinary-machine Linux product parity.
+
+Linux release readiness also requires capture without prior Nix state, target-content verification, settings revert, and packaged GUI acceptance. The current acceptance contract is the [Linux product-parity change](../openspec/changes/add-linux-product-parity/proposal.md).
+
 Endstate provisions all three desktop platforms. Windows uses Winget by default and supports explicit
 Chocolatey package lanes; Linux and macOS use
 the Nix realizer (packages + home-manager configuration), with an additional per-app Homebrew driver
