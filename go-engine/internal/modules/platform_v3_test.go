@@ -3,7 +3,10 @@
 
 package modules
 
-import "testing"
+import (
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"testing"
+)
 
 const validPlatformV3Module = `{
   "moduleSchemaVersion": 3,
@@ -55,5 +58,47 @@ func TestPlatformV3RejectsMixedFlatDeclarationsAndMissingStrategy(t *testing.T) 
 				t.Fatal("invalid schema-v3 module was accepted")
 			}
 		})
+	}
+}
+
+// Projection must retain the catalog tier so OS settings never become apps.
+func TestProjectedSystemSettingsDoNotBecomeApplications(t *testing.T) {
+	mod := &Module{
+		ModuleSchemaVersion: 3, ID: "windows-settings.display", Tier: "windows-settings",
+		Platforms: map[string]PlatformVariant{"windows": {
+			Realization: "endstate-restore", Matches: MatchCriteria{PathExists: []string{"${home}/display.json"}},
+		}},
+	}
+	projected := FilterCatalogForPlatform(map[string]*Module{mod.ID: mod}, "windows")
+	mf := &manifest.Manifest{ConfigModules: []string{mod.ID}}
+	SynthesizeAppsFromModules(mf, projected)
+	if len(mf.Apps) != 0 {
+		t.Fatalf("OS settings became installable applications: %+v", mf.Apps)
+	}
+}
+
+func TestAllLegacyModulesInertOnLinuxAndDarwin(t *testing.T) {
+	catalog, diagnostics, err := GetCatalogWithDiagnostics(productionRepoRoot())
+	if err != nil || len(diagnostics) != 0 {
+		t.Fatalf("catalog: %v, diagnostics: %+v", err, diagnostics)
+	}
+	windows := FilterCatalogForPlatform(catalog, "windows")
+	linux := FilterCatalogForPlatform(catalog, "linux")
+	darwin := FilterCatalogForPlatform(catalog, "darwin")
+	legacy := 0
+	for id, mod := range catalog {
+		if mod.EffectiveSchemaVersion() > 2 {
+			continue
+		}
+		legacy++
+		if windows[id] != mod {
+			t.Errorf("Windows changed legacy module %s", id)
+		}
+		if linux[id] != nil || darwin[id] != nil {
+			t.Errorf("legacy Windows module %s became executable on another platform", id)
+		}
+	}
+	if legacy == 0 {
+		t.Fatal("production catalog contains no legacy modules")
 	}
 }
