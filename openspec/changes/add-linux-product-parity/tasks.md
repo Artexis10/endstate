@@ -120,7 +120,8 @@ not own capture envelopes or platform-module provenance.
 - [x] 3.3 Add strict versioned package-catalog types, deterministic revisions, duplicate-source diagnostics, and safe Nix targets
 - [x] 3.4 Seed reviewed package mappings for the release depth corpus plus high-value browser/editor/desktop applications
 - [ ] 3.5 Require every release/default/explicit flakeref and advanced override to produce the exact locked installable used for mutation, then persist requested intent, platform/config identity, effective inputs, and Home Manager generation in the revised Provisioning Generation contract
-- [ ] 3.6 Complete source-specific desktop/executable ambiguity diagnostics, deterministic serialization, and installed CLI/GUI runtime-layout lookup tests
+- [x] 3.6 Complete source-specific desktop/executable ambiguity diagnostics, deterministic serialization, and installed CLI/GUI runtime-layout lookup tests
+  - Independent review at `00462db` accepts deterministic alias diagnostics and relocated executable lookup for CLI and GUI layouts. Native GUI packaging acceptance remains with section 14.
 - [ ] 3.7 Add required amd64/arm64 evaluation of every advertised Linux Nix mapping against the exact release revision, recording principled architecture unavailability without substitutes
 
 ## 4. Discovery completion
@@ -144,9 +145,11 @@ section 6.
 - [x] 4.3 Implement Endstate/user Nix, Debian, RPM-family, Arch, and Flatpak inventory adapters with dependency/runtime filtering
 - [x] 4.4 Implement deterministic XDG desktop-entry discovery with precedence and visibility filtering
 - [ ] 4.5 Implement Snap behind an experimental/dark capability and promote it only after hermetic plus real-Ubuntu source-contract evidence
-- [ ] 4.6 Implement catalog-declared executable/config-path evidence through bounded engine-owned coordinates
+- [x] 4.6 Implement catalog-declared executable/config-path evidence through bounded engine-owned coordinates
+  - Independent review at `00462db` accepts metadata-only presence checks and their production capture integration. Review-only settings candidates grant no capture action, and explicit unsupported selections cannot silently disappear.
 - [ ] 4.7 Complete malformed/large-output, locale/case, privacy-redaction, cancellation, and retry-budget coverage
-- [ ] 4.8 Add one hermetic multi-source fixture for the same app across native managers, desktop, executable, and config evidence
+- [x] 4.8 Add one hermetic multi-source fixture for the same app across native managers, desktop, executable, and config evidence
+  - The fixture drives Debian, Flatpak, desktop, executable, and config adapters through reconciliation. It retains five source-qualified evidence records for one package and preserves native versions separately. Independent review at `00462db` accepts the result.
 
 ## 5. Platform schema, provenance, and cross-platform mappings
 
