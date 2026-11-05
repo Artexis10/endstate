@@ -240,7 +240,8 @@ After independent review, run the first tranche boundary:
 - [x] 6.1 Route Linux capture through ordinary-machine discovery without Nix bootstrap and reconcile Endstate-profile evidence
 - [x] 6.2 Emit only reviewed resolved intents while preserving unresolved/settings-only state and allowing validated settings-only artifacts
 - [x] 6.3 Expose initial discovery, platform-module, source-adapter, and immutable-input capabilities
-- [ ] 6.4 Implement the normative raw-source versus unique-candidate count model and independently checkable equations
+- [x] 6.4 Implement the normative raw-source versus unique-candidate count model and independently checkable equations
+  - Independent review accepts `9f32b03`: complete inventories, typed candidate identities, overlapping source observations, settings-only partition, and selected-candidate union. Selected/update/share/sanitize workflows preserve unselected inventory and scope private plans. Remaining historical Home Manager and catalog-backed collection guarantees stay with 6.5.
 - [ ] 6.5 Complete `--only`, `--update`, `--sanitize`, and share behavior without leaking unselected path-only settings
 - [ ] 6.6 Add stable discovery source/item events, product-language messages, reason codes, and details-only backend diagnostics
 - [ ] 6.7 Prove repeated identical discovery preserves stable discovery, payload, and bundle structure with safe source provenance
