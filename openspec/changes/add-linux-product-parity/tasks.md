@@ -179,13 +179,15 @@ fingerprints/history, capture provenance, and authored platform mappings.
 
 - [x] 5.1 Add strict schema-v3 `platforms` parsing and reject mixed flat/executable declarations or missing realization strategies
 - [x] 5.2 Treat legacy schema-v1/v2 flat modules as Windows-only without mutating the loaded catalog
-- [ ] 5.3 Prove full-catalog Windows compatibility and Linux/Darwin inertness through host seams and frozen snapshots
+- [x] 5.3 Prove full-catalog Windows compatibility and Linux/Darwin inertness through host seams and frozen snapshots
+  - Independent review accepts `c307a59`. Both command loaders preserve committed declarations and select 367 Windows, one Linux, and zero Darwin modules. The source catalog has 366 legacy modules and one authored platform module. This proves host-seam compatibility; native Windows execution remains separate.
 - [x] 5.4 Qualify generation identity, fingerprints, history, manifest provenance, and validation with non-empty source platform/variant identity
   - Accepted after independent review at `dc4176b`. Ten affected packages and mixed valid/tampered capture-and-restore probes passed. Native Windows execution remains unverified.
   - Decision 19 includes flat schema-v3 normalization through `default/g1`, source-snapshot schema linkage, the same-platform guard from 5.5, required host-coordinate support from 5.6, and the complete event/strict-reader chain. Full authored cross-platform mappings and remaining path tooling stay separate.
 - [ ] 5.5 Implement same-platform default resolution plus explicit source-to-target mappings/migrations and stable `platform_mapping_missing`
   - Decision 20 defines target-owned one-step mappings, pinned target identity, staging and committed validation, and target path policy. The same-platform refusal is part of 5.4; positive mappings require their own accepted implementation and lifecycle proof.
-- [ ] 5.6 Complete coordinate canonicalization, containment, symlink, unsupported-shell, diagnostics, validation-mode, and frozen-fixture tooling
+- [x] 5.6 Complete coordinate canonicalization, containment, symlink, unsupported-shell, diagnostics, validation-mode, and frozen-fixture tooling
+  - Independent review and outcome verification accept `8b7f378`, including original-host guards and whole-instance frozen fixtures. Real Linux capture/restore, all XDG fixture roots, and the existing Studio One fixture pass. The authoring guide documents supported coordinates. Native Windows/Darwin execution and the later Linux matrix remain separate.
 
 ## 6. Linux capture and additive CLI contract
 
