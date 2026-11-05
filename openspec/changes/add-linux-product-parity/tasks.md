@@ -56,10 +56,30 @@ The dependency graph is:
 13 → 14 GUI delivery → Linux publication → macOS follow-on
 ```
 
-Only packets whose dependencies are complete are dispatchable. GNOME, KDE,
+Dispatch each task after the producers that it consumes are complete. Section
+dependencies describe integration boundaries, not a blanket refusal to prepare
+or test independent work against a pinned candidate. Cross-platform mapping
+execution still requires accepted task 5.5; same-platform capture does not use
+that result. Unreviewed changes remain ineligible for delivery. GNOME, KDE,
 systemd-user, real-host, GUI, architecture-promotion, and macOS nodes may remain
 explicitly blocked without preventing independent hermetic engine packets;
 their capabilities and claims remain dark.
+
+### Implementation priority: representative state lifecycle
+
+Use decision 21 to sequence existing tasks; retain every task and release gate.
+
+1. Prove one existing package and declared configuration through capture, preview, apply, content verification, drift, reconciliation, and resource-specific undo.
+2. Complete the capture, ownership, and content-policy tasks that this proof exposes; reuse accepted platform and provisioning foundations.
+3. Extend the journey with one allowlisted desktop preference and the existing drift schedule, preserving unrelated state and prior absence.
+4. Expand adapter cohorts after the representative workflows establish their shared requirements, keeping native promotion evidence explicit.
+
+The first implementation packet covers the needed parts of 6.4–6.8, 7.1,
+7.3, 7.7–7.8, 8.4, 8.10, and the chosen configuration's reviewed policy from
+9.2 or its semantic codec. Complete these tasks only when their full stated
+outcomes pass. The desktop extension uses 10.1–10.5; the timer uses 11.1–11.9.
+KDE, further cohorts, the final matrix, packaging, and GUI remain owned work.
+No new generic resource framework or combined profile schema is required.
 
 ## 1. Plan, baseline, and overlapping-change reconciliation
 
@@ -193,11 +213,14 @@ fingerprints/history, capture provenance, and authored platform mappings.
 
 ## 6. Linux capture and additive CLI contract
 
-**Depends on:** 3, 4, and 5.
+**Depends on:** 3, 4, and the platform producers that the task consumes.
 
 Section 4's discovery implementation and coverage are prerequisites. Its Snap
 promotion remains a separate hold under the discovery specification; Snap stays
-dark while the other capture sources proceed. Section 5.5 still needs acceptance.
+dark while the other capture sources proceed. Same-platform capture uses the
+accepted 5.1–5.4 and 5.6 foundations. Task 5.5 still needs acceptance for
+cross-platform mapping execution and delivery of its changes; it does not
+block independent capture accounting, selection, or event implementation.
 
 **Packet boundary:** owns capture orchestration, discovery counts/actions,
 events, capabilities, selection flags, and bundle determinism. It serializes

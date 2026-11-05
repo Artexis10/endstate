@@ -1,5 +1,24 @@
 ## ADDED Requirements
 
+### Requirement: Representative state lifecycles guide implementation
+The engine SHALL establish representative desired-state lifecycles before prioritizing routine catalogue expansion. The initial journey SHALL cover an existing package and declared file configuration, followed by one allowlisted desktop preference and the existing user-scope drift schedule. Observed state SHALL remain evidence until the user selects the desired state and owned surfaces. Existing content-policy, review, parity, native-runtime, and release requirements SHALL remain in force.
+
+#### Scenario: A managed configuration changes after apply
+- **WHEN** the representative setup has been applied and one managed configuration value changes
+- **THEN** verification SHALL report the content difference even when package and generation identities are unchanged
+- **AND** reconciliation SHALL restore the selected desired value while preserving unrelated state
+- **AND** the existing undo operation SHALL restore the prior owned state
+
+#### Scenario: An optional runtime is unavailable during implementation
+- **WHEN** the representative desktop or schedule lacks its required native runtime evidence
+- **THEN** its capability SHALL remain unpromoted and its real-runtime acceptance SHALL remain open
+- **AND** independent accepted implementation or tests SHALL proceed without claiming that hermetic evidence proves native behavior
+
+#### Scenario: A different resource needs a different inverse
+- **WHEN** the representative journey includes package, file, desktop, and schedule mutations
+- **THEN** each resource SHALL retain its declared ownership, verification, and recovery contract
+- **AND** the engine SHALL report partial outcomes without claiming an atomic transaction across all resources
+
 ### Requirement: Discovery works on an ordinary Linux machine without prior Endstate or Nix state
 The engine SHALL discover supported applications and configuration on Linux without requiring an Endstate-managed Nix profile, an Endstate Provisioning Generation, a prior Endstate capture, or an installed Nix executable. Discovery SHALL remain useful when any or all of those inputs are absent.
 

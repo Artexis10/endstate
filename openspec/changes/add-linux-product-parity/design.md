@@ -426,6 +426,55 @@ target mapping, checks contents, and reverts. Hostile cases cover missing
 acceptance, equal local IDs, ambiguous mappings, transformed forbidden members,
 and failed staging or target validation.
 
+### 21. Prove representative state lifecycles before expanding catalogue breadth
+
+The product manages desired machine state. An observed value is evidence, not
+automatic permission to adopt or maintain it. The user selects the desired
+state and the surfaces that Endstate owns. Keep resource identity, ownership,
+comparison, mutation, verification, and recovery explicit in each existing lane.
+
+Begin with one existing package and its declared file configuration. Reuse the
+package realizer, platform module, capture bundle, planner, verifier, and durable
+restore journal. Prefer the existing Linux ripgrep variant for the first
+workflow. A controlled fixture proves only its declared content; it does not
+authorize arbitrary command-bearing configuration or establish codec safety.
+Apply the existing reviewed content-policy requirements before advertising it.
+
+The outcome check observes source state, selects desired state, previews changes,
+applies to isolated target state, and verifies the package and configuration
+contents. It then changes a managed value, observes drift, reconciles the value,
+verifies the result, and exercises the existing resource-specific undo. Include
+an unrelated value and prove that the workflow preserves it. Reuse existing
+proof where its artifact, runtime, and conditions still match.
+
+Extend the same journey with one allowlisted desktop preference and the existing
+user-scope drift schedule. Desktop acceptance distinguishes an explicit override
+from an inherited default and restores prior absence on revert. Schedule
+acceptance preserves foreign units and modified user files, detects declaration
+drift, and exercises explicit reassertion and ownership-checked disable.
+Use the existing declarations and schedule intent store; this milestone adds
+no combined profile format, generic service manager, or new CLI command.
+
+These surfaces share a lifecycle, not necessarily a transaction or inverse.
+Package rollback, configuration revert, desktop reset, and schedule disable
+retain their own contracts. Report partial failure and recover each owned
+mutation; do not promise atomic rollback across all resources. Extract shared
+interfaces only after the working adapters expose the same invariant.
+
+Prioritize these proofs and the implementation that they require before routine
+cohort expansion. This orders delivery; it does not reduce the applicable
+catalogue parity requirement. Native desktop and systemd evidence remains
+mandatory before their promotion. A hermetic adapter check proves its boundary,
+not a real desktop session. Missing native evidence holds the corresponding
+capability and leaves independent accepted work dispatchable.
+
+Dependencies name consumed results. Same-platform capture and its accounting
+do not consume cross-platform mapping acceptance. They may be prepared and
+tested against a pinned candidate while the separate mapping review remains
+held. Cross-platform execution and delivery of unreviewed changes still wait
+for their exact review. This rule grants no permission to retry or bypass a
+blocked review tool, waive a release gate, or overwrite another lane's work.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.

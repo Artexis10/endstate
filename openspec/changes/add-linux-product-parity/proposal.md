@@ -4,8 +4,16 @@ Endstate can already provision a Nix-managed Linux profile, but a normal Linux m
 
 Linux is release-ready only when somebody who has never used Nix can install Endstate, discover supported existing applications and user settings, capture them, and reproduce them through the CLI and GUI without learning Nix. Nix and Home Manager remain first-class realization substrates; Endstate supplies the missing discovery, capture, safety, provenance, verification, and cross-platform UX above them.
 
+The product goal is managing desired machine state. Applications, configuration,
+desktop preferences, and scheduled checks are distinct state surfaces. Prove
+their representative lifecycles before prioritizing catalogue expansion. The
+first proof uses an existing package and declared configuration; later proofs
+add one desktop preference and the existing drift schedule. Catalogue parity
+and all release acceptance requirements remain part of the complete programme.
+
 ## What Changes
 
+- Prioritize representative desired-state lifecycles: observe, select desired state, preview changes, apply, verify contents, detect drift, reconcile, and undo. Extend existing contracts from those workflows before adding shared abstractions or expanding adapter cohorts.
 - Add read-only discovery for ordinary Linux machines, combining Endstate and user Nix profiles with supported native package inventories, desktop entries, executable evidence, and known configuration paths. Discovery works before Nix is installed.
 - Normalize only verified catalog mappings into portable Endstate application identities and Nix installables. Preserve source evidence, report unresolved items, and never guess that similarly named packages are equivalent.
 - Make configuration modules platform-aware under one portable application identity. Linux and later Darwin variants can declare their own matchers, paths, capture, restore, verification, secret exclusions, and realization strategy without duplicating or weakening the existing Windows catalog.
