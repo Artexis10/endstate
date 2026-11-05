@@ -122,8 +122,8 @@ func splitEngineCoordinate(value string) (coordinate, suffix string, ok bool) {
 }
 
 func coordinateRoot(coordinate string, environment PathEnvironment) (string, error) {
-	home := strings.TrimSpace(environment.Home)
-	if home == "" {
+	home := environment.Home
+	if strings.TrimSpace(home) == "" {
 		return "", fmt.Errorf("user home is unavailable")
 	}
 	env := func(name string) string { return strings.TrimSpace(environment.Env[name]) }

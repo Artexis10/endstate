@@ -104,6 +104,33 @@ func TestDesktopAdapterPreservesSpacesInAbsoluteXDGPaths(t *testing.T) {
 	}
 }
 
+func TestDesktopAdapterPreservesDefaultHomeTombstone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG inventory uses Unix paths")
+	}
+	root := t.TempDir()
+	home := filepath.Join(root, "home ")
+	user := filepath.Join(home, ".local", "share", "applications")
+	system := filepath.Join(root, "system", "applications")
+	for _, directory := range []string{user, system} {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDesktopFixture(t, filepath.Join(user, "editor.desktop"), "Hidden editor", true, false, "Application")
+	writeDesktopFixture(t, filepath.Join(system, "editor.desktop"), "System editor", false, false, "Application")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_DATA_DIRS", filepath.Dir(system))
+	inventory, err := (DesktopAdapter{}).Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Items) != 0 || inventory.Ignored != 2 {
+		t.Fatalf("default home lost the user tombstone: %+v", inventory)
+	}
+}
+
 func TestDesktopAdapterRejectsOversizedAndMalformedEntries(t *testing.T) {
 	for name, content := range map[string][]byte{
 		"oversized": make([]byte, maxDesktopEntrySize+1),
