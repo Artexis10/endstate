@@ -119,7 +119,8 @@ not own capture envelopes or platform-module provenance.
 - [x] 3.2 Route Nix and generated Home Manager release defaults through that manifest while retaining explicit advanced override seams
 - [x] 3.3 Add strict versioned package-catalog types, deterministic revisions, duplicate-source diagnostics, and safe Nix targets
 - [x] 3.4 Seed reviewed package mappings for the release depth corpus plus high-value browser/editor/desktop applications
-- [ ] 3.5 Require every release/default/explicit flakeref and advanced override to produce the exact locked installable used for mutation, then persist requested intent, platform/config identity, effective inputs, and Home Manager generation in the revised Provisioning Generation contract
+- [x] 3.5 Require every release/default/explicit flakeref and advanced override to produce the exact locked installable used for mutation, then persist requested intent, platform/config identity, effective inputs, and Home Manager generation in the revised Provisioning Generation contract
+  - Independent review accepts the stored-state and source-provenance implementation through `28d93d6`, including failed retries and rollback-to-capture recovery. Release checks remain pending.
 - [x] 3.6 Complete source-specific desktop/executable ambiguity diagnostics, deterministic serialization, and installed CLI/GUI runtime-layout lookup tests
   - Independent review at `00462db` accepts deterministic alias diagnostics and relocated executable lookup for CLI and GUI layouts. Native GUI packaging acceptance remains with section 14.
 - [x] 3.7 Add required amd64/arm64 evaluation of every advertised Linux Nix mapping against the exact release revision, recording principled architecture unavailability without substitutes
@@ -179,7 +180,8 @@ fingerprints/history, capture provenance, and authored platform mappings.
 - [x] 5.1 Add strict schema-v3 `platforms` parsing and reject mixed flat/executable declarations or missing realization strategies
 - [x] 5.2 Treat legacy schema-v1/v2 flat modules as Windows-only without mutating the loaded catalog
 - [ ] 5.3 Prove full-catalog Windows compatibility and Linux/Darwin inertness through host seams and frozen snapshots
-- [ ] 5.4 Qualify generation identity, fingerprints, history, manifest provenance, and validation with non-empty source platform/variant identity
+- [x] 5.4 Qualify generation identity, fingerprints, history, manifest provenance, and validation with non-empty source platform/variant identity
+  - Accepted after independent review at `dc4176b`. Ten affected packages and mixed valid/tampered capture-and-restore probes passed. Native Windows execution remains unverified.
   - Decision 19 includes flat schema-v3 normalization through `default/g1`, source-snapshot schema linkage, the same-platform guard from 5.5, required host-coordinate support from 5.6, and the complete event/strict-reader chain. Full authored cross-platform mappings and remaining path tooling stay separate.
 - [ ] 5.5 Implement same-platform default resolution plus explicit source-to-target mappings/migrations and stable `platform_mapping_missing`
   - Decision 20 defines target-owned one-step mappings, pinned target identity, staging and committed validation, and target path policy. The same-platform refusal is part of 5.4; positive mappings require their own accepted implementation and lifecycle proof.
