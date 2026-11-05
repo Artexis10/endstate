@@ -427,3 +427,59 @@ func TestProvisioningReviewRollbackRetryWithoutMatchingHistoryKeepsOnlyObservedI
 		t.Fatalf("unchanged generation acquired the requested rollback source: got %+v, want %+v", gens[0].HomeManager, want)
 	}
 }
+
+func TestProvisioningReviewCaptureUpdateAfterUnknownSourceRollbackOmitsUnprovedDeclaration(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	f.activeHome = "/nix/store/home-output"
+	profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+	if err := os.MkdirAll(filepath.Dir(profile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("home-manager-3-link", profile); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(f.activeHome, profile+"-3-link"); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "nix", HomeManager: &provision.HomeGenRef{
+		Generation: 3, ActivationOutput: f.activeHome, ActivationFailed: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	f.backend.Script = func(path string, args ...string) ([]byte, []byte, int, error) {
+		if path != f.activeHome+"/activate" || len(args) != 0 {
+			t.Fatalf("rollback changed its native snapshot: %s %v", path, args)
+		}
+		if err := os.Remove(profile); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("home-manager-4-link", profile); err != nil {
+			t.Fatal(err)
+		}
+		return nil, nil, 0, nil
+	}
+	if _, failure := runRealizerRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true}, f.backend); failure != nil {
+		t.Fatal(failure)
+	}
+	gens, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := provision.HomeGenRef{Generation: 4, ActivationOutput: f.activeHome}
+	if len(gens) != 2 || gens[0].HomeManager == nil || !reflect.DeepEqual(*gens[0].HomeManager, want) {
+		t.Fatalf("successful snapshot rollback did not retain unknown source identity: %+v", gens)
+	}
+	existing := filepath.Join(t.TempDir(), "existing.jsonc")
+	if err := os.WriteFile(existing, []byte(`{"version":1,"name":"existing","apps":[],"homeManager":{"flake":"github:example/unused-new-input#profile"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "captured.jsonc")
+	raw, failure := runCaptureRealizer(CaptureFlags{Update: true, Manifest: existing, Out: out}, f.backend, noopEmitter())
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	warnings := raw.(*CaptureResult).Warnings
+	if captured := readCapturedManifest(t, out); captured.HomeManager != nil || len(warnings) != 1 || warnings[0].Code != "home_manager_provenance_unavailable" {
+		t.Fatalf("capture update attributed an unused declaration after snapshot rollback: %+v; warnings=%v", captured.HomeManager, warnings)
+	}
+}

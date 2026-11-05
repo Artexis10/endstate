@@ -469,8 +469,8 @@ func realizerCaptureIdentity(driverName, ref, defaultDriver string) string {
 // flakeref in a live install). New history must match the active native output;
 // legacy history retains its most-recent declaration compatibility. The read is
 // best-effort: an error or empty history simply yields nil (the field is
-// omitted; package capture is unaffected). On --update with no flake in history,
-// an existing manifest's homeManager block is preserved rather than dropped.
+// omitted; package capture is unaffected). Without output-backed history,
+// --update preserves an existing manifest's homeManager block.
 func recoverHomeManager(flags CaptureFlags) *manifest.HomeManagerConfig {
 	config, _ := recoverHomeManagerWithWarnings(flags, nil)
 	return config
@@ -533,6 +533,11 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 		if home.Flake != "" {
 			return &manifest.HomeManagerConfig{Flake: home.Flake}, nil
 		}
+	}
+	if outputHistory {
+		// An observed output cannot prove an unrelated --update declaration.
+		// Omit it with a warning rather than export inputs that never activated.
+		return unavailable()
 	}
 	if flags.Update && flags.Manifest != "" {
 		if mf, err := loadManifest(flags.Manifest); err == nil && mf.HomeManager != nil {
