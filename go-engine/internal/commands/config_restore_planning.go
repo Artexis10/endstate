@@ -155,17 +155,27 @@ func applyTargetDetectionFailures(plan *planner.ConfigPlan, failedModules map[st
 		if _, failed := failedModules[set.Source.ModuleID]; !failed {
 			continue
 		}
+		if set.Resolution.Reason != nil {
+			// These fixed resolution reasons do not depend on target discovery.
+			switch *set.Resolution.Reason {
+			case planner.ReasonPlatformMappingMissing, planner.ReasonPayloadIntegrityFailed,
+				planner.ReasonUnsupportedModuleSchema, planner.ReasonCatalogModuleMissing,
+				planner.ReasonConfigSetMissing, planner.ReasonSourceGenerationUnknown,
+				planner.ReasonSourceGenerationDefinitionChanged:
+				continue
+			}
+		}
 		reason := planner.ReasonTargetDetectionFailed
 		set.TargetInstances = []planner.TargetInstance{}
 		set.TargetGenerationDef = nil
 		set.MigrationEdges = nil
-		set.Resolution = planner.ConfigResolution{
-			Resolution:      planner.ResolutionUnknown,
-			Reason:          &reason,
-			MigrationPath:   []string{},
-			ResolvedTargets: []string{},
-			Status:          planner.StatusSkipped,
-		}
+		set.Resolution.Resolution = planner.ResolutionUnknown
+		set.Resolution.Reason = &reason
+		set.Resolution.TargetInstanceID = ""
+		set.Resolution.TargetGeneration = ""
+		set.Resolution.MigrationPath = []string{}
+		set.Resolution.ResolvedTargets = []string{}
+		set.Resolution.Status = planner.StatusSkipped
 		set.Resolution = planner.ProjectConfigResolution(*set)
 	}
 	recomputeConfigPlanSummary(plan)

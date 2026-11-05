@@ -5,6 +5,8 @@ package commands
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -289,4 +291,52 @@ func planningSetByCapture(t *testing.T, plan planner.ConfigPlan, captureID strin
 	}
 	t.Fatalf("capture %q missing from plan %+v", captureID, plan)
 	return planner.PlanSet{}
+}
+
+func TestConfigRestorePlanningProviderFailurePreservesSourceAndPlatformOutcomes(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		platform   string
+		corrupt    bool
+		wantReason planner.ResolutionReason
+		wantStatus planner.TerminalStatus
+	}{
+		{name: "cross-platform source", platform: "linux", wantReason: planner.ReasonPlatformMappingMissing, wantStatus: planner.StatusSkipped},
+		{name: "corrupt source", platform: "linux", corrupt: true, wantReason: planner.ReasonPayloadIntegrityFailed, wantStatus: planner.StatusFailed},
+		{name: "same-platform provider outage", platform: "windows", wantReason: planner.ReasonTargetDetectionFailed, wantStatus: planner.StatusSkipped},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authored, err := modules.ParseModuleJSON([]byte(fmt.Sprintf(`{"moduleSchemaVersion":3,"id":"apps.example","displayName":"Fixture","sensitivity":"low","platforms":{%q:{"realization":"endstate-restore","matches":{},"config":{"instanceDetectors":[{"id":"installed","type":"package"}],"sets":[{"id":"preferences","generations":[{"id":"g1","order":1,"acceptsSourceFingerprints":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}]}]}}}}`, test.platform)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := modules.ProjectModuleForPlatform(authored, test.platform)
+			manifestDir := t.TempDir()
+			capture := commandTestConfigCapture(t, manifestDir, "capture-example", current.ID, "preferences")
+			if test.corrupt {
+				if err := os.WriteFile(filepath.Join(manifestDir, filepath.FromSlash(capture.CaptureModule.SnapshotPath)), []byte("corrupt snapshot"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runtime, envErr := newConfigRestoreRuntimeWithCatalogSnapshot(configRestoreBuildRequest{
+				Manifest: &manifest.Manifest{Version: 2, ConfigCaptures: []manifest.ConfigCapture{capture}}, ManifestPath: filepath.Join(manifestDir, "manifest.jsonc"),
+			}, newConfigCatalogSnapshot(map[string]*modules.Module{current.ID: current}, nil))
+			if envErr != nil {
+				t.Fatalf("verified source preparation: %+v", envErr)
+			}
+			plan := newConfigRestorePlanningSession(runtime).Final(configRestoreDetectionEvidence{FailedModules: map[string]struct{}{current.ID: {}}})
+			if test.platform == "windows" && !test.corrupt {
+				healthy := newConfigRestorePlanningSession(runtime).Final(configRestoreDetectionEvidence{PackagesByModule: map[string][]modules.PackageEvidence{
+					current.ID: {{Backend: "winget", Ref: "Vendor.Fixture", RawVersion: "1.0"}},
+				}})
+				if result := planningSetByCapture(t, healthy, "capture-example").Resolution; result.Reason != nil || result.Resolution != planner.ResolutionDirect {
+					t.Fatalf("ordinary outage fixture is not otherwise compatible: %+v", result)
+				}
+			}
+			resolution := planningSetByCapture(t, plan, "capture-example").Resolution
+			if resolution.Reason == nil || *resolution.Reason != test.wantReason || resolution.Status != test.wantStatus || resolution.SourcePlatform != "windows" || resolution.TargetPlatform != test.platform {
+				t.Fatalf("provider outage replaced a source/platform decision or lost platforms: %+v", resolution)
+			}
+		})
+	}
 }

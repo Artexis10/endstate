@@ -117,17 +117,25 @@ func DiscoverInstances(mod *Module, packages []PackageEvidence, options Discover
 				if err := config.ValidateEnginePath(detector.Glob, mod.Platform); err != nil {
 					return nil, err
 				}
+				coordinate, suffix, _ := config.SplitEnginePath(detector.Glob)
+				suffix = filepath.FromSlash(strings.ReplaceAll(suffix, `\`, "/"))
+				if err := validateDiscoveryGlob("." + suffix); err != nil {
+					return nil, fmt.Errorf("module %q detector %q: %w", mod.ID, detector.ID, err)
+				}
 				resolve := options.ResolveHostPath
 				if resolve == nil {
 					resolve = config.ResolveHostEnginePath
 				}
-				resolved, err := resolve(detector.Glob)
+				root, err := resolve(coordinate)
 				if err != nil {
 					return nil, err
 				}
-				detector.Glob = resolved
+				detector.Glob = filepath.Join(config.QuoteGlobLiteral(filepath.Clean(root)), strings.TrimLeft(suffix, `/\`))
 			} else {
 				detector.Glob = config.ExpandEnvVars(detector.Glob)
+				if err := validateDiscoveryGlob(detector.Glob); err != nil {
+					return nil, fmt.Errorf("module %q detector %q: %w", mod.ID, detector.ID, err)
+				}
 			}
 			instances, err := discoverPathInstances(mod.ID, detector, glob)
 			if err != nil {
@@ -206,9 +214,6 @@ func canonicalPackageRef(backend, ref string) string {
 
 func discoverPathInstances(moduleID string, detector InstanceDetectorDef, glob func(string) ([]string, error)) ([]ConfigInstance, error) {
 	expandedGlob := detector.Glob
-	if err := validateDiscoveryGlob(expandedGlob); err != nil {
-		return nil, fmt.Errorf("module %q detector %q: %w", moduleID, detector.ID, err)
-	}
 
 	var versionPattern *regexp.Regexp
 	if detector.VersionPattern != "" {

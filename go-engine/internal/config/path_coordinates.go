@@ -108,6 +108,27 @@ func IsEngineCoordinatePath(value string) bool {
 	return ok && engineCoordinates[coordinate] != nil
 }
 
+// SplitEnginePath separates an engine-owned coordinate from its authored suffix.
+func SplitEnginePath(value string) (coordinatePath, suffix string, ok bool) {
+	coordinate, suffix, ok := splitEngineCoordinate(value)
+	if !ok || engineCoordinates[coordinate] == nil {
+		return "", "", false
+	}
+	return "${" + coordinate + "}", suffix, true
+}
+
+// QuoteGlobLiteral quotes the fixed filepath.Match metacharacters in a literal
+// host root; only the separately authored suffix can supply glob semantics.
+func QuoteGlobLiteral(value string) string {
+	// Glob treats a Windows volume as literal before matching the remaining path.
+	volume := filepath.VolumeName(value)
+	value = strings.TrimPrefix(value, volume)
+	if runtime.GOOS != "windows" {
+		value = strings.ReplaceAll(value, `\`, `\\`)
+	}
+	return volume + strings.NewReplacer("[", "[[]", "*", "[*]", "?", "[?]").Replace(value)
+}
+
 func isEngineCoordinatePath(value string) bool { return IsEngineCoordinatePath(value) }
 
 func splitEngineCoordinate(value string) (coordinate, suffix string, ok bool) {

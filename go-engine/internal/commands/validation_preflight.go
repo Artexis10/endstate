@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -216,6 +217,9 @@ func validationDetectorPattern(context *validationmode.Context, authored string)
 		return "", "", validationmode.ErrUnsafePath
 	}
 	suffix := strings.TrimLeft(normalized[closing+1:], `\/`)
+	if config.IsEngineCoordinatePath(authored) {
+		root = config.QuoteGlobLiteral(root)
+	}
 	return alias, filepath.Join(root, filepath.FromSlash(strings.ReplaceAll(suffix, `\`, "/"))), nil
 }
 

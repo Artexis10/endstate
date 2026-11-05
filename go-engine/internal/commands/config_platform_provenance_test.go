@@ -23,7 +23,7 @@ func TestLinuxFlatConfigCaptureRestoreRetainsPlatformProvenance(t *testing.T) {
 		t.Skip("Linux host-coordinate workflow")
 	}
 	root := t.TempDir()
-	sourceHome := filepath.Join(root, "source-home")
+	sourceHome := filepath.Join(root, "source[home]")
 	t.Setenv("HOME", sourceHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sourceHome, ".config"))
 	contents := map[string][]byte{".ripgreprc": []byte("--hidden\n--glob=!vendor\n"), ".config/ripgrep/config": []byte("--smart-case\n--line-number\n")}
@@ -76,7 +76,7 @@ func TestLinuxFlatConfigCaptureRestoreRetainsPlatformProvenance(t *testing.T) {
 	if capture.CaptureModule.SchemaVersion != 3 || capture.SourcePlatform != "linux" || capture.ConfigSetID != "default" || capture.SourceGeneration != "g1" {
 		t.Fatalf("authored provenance was lost: %+v", capture)
 	}
-	targetHome := filepath.Join(root, "target-home")
+	targetHome := filepath.Join(root, "target{home}")
 	if err := os.MkdirAll(targetHome, 0700); err != nil {
 		t.Fatal(err)
 	}

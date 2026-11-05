@@ -8,8 +8,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 )
 
 func TestPlatformFingerprintCoversOnlySelectedVariantWithoutLosingNumbers(t *testing.T) {
@@ -104,7 +108,7 @@ func TestGenerationHistoryWritesV2AndRetainsLegacyIdentity(t *testing.T) {
 }
 
 func TestPlatformCoordinateDiscoveryDoesNotReexpandResolvedHome(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "home-$UNTRUSTED-%UNTRUSTED%")
+	root := filepath.Join(t.TempDir(), "home-[set]-{set}-$UNTRUSTED-%UNTRUSTED%")
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -116,4 +120,44 @@ func TestPlatformCoordinateDiscoveryDoesNotReexpandResolvedHome(t *testing.T) {
 	if err != nil || len(instances) != 1 || instances[0].Root != root {
 		t.Fatalf("resolved coordinate was reinterpreted: %+v, %v", instances, err)
 	}
+}
+
+func TestPlatformDetectorKeepsLiteralRootAndAuthoredSuffixGlob(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("question marks and asterisks are not Windows file names")
+	}
+	for _, test := range []struct{ name, root, sibling string }{
+		{name: "wildcard root", root: "user?set", sibling: "user*set"},
+		{name: "Unix backslash root", root: `user\set`, sibling: "userset"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parent := t.TempDir()
+			root := filepath.Join(parent, test.root)
+			sibling := filepath.Join(parent, test.sibling)
+			want := []string{filepath.Join(root, "profiles", "App 1"), filepath.Join(root, "profiles", "App 2")}
+			for _, directory := range append(append([]string(nil), want...), filepath.Join(sibling, "profiles", "App 9")) {
+				if err := os.MkdirAll(directory, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			mod := &Module{ModuleSchemaVersion: 2, SourceSchemaVersion: 3, Platform: runtime.GOOS, ID: "apps.fixture", Config: &ConfigDef{InstanceDetectors: []InstanceDetectorDef{{ID: "profiles", Type: "path", Glob: "${home}/profiles/App ?"}}}}
+			instances, err := DiscoverInstances(mod, nil, DiscoveryOptions{
+				Glob: filepath.Glob,
+				ResolveHostPath: func(authored string) (string, error) {
+					return config.ResolveEnginePath(authored, config.PathEnvironment{GOOS: runtime.GOOS, Home: root})
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, len(instances))
+			for index, instance := range instances {
+				got[index] = instance.Root
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("authored suffix must match only inside the literal root: got %v, want %v", got, want)
+			}
+		})
+	}
+
 }

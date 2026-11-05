@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
@@ -488,15 +489,36 @@ func (context *Context) GlobSandboxPattern(pattern string) ([]string, error) {
 	if err != nil || absolute != filepath.Clean(absolute) {
 		return fail("glob is not canonical absolute")
 	}
-	firstWildcard := strings.IndexAny(absolute, "*?[")
-	anchor := absolute
-	if firstWildcard >= 0 {
-		prefix := absolute[:firstWildcard]
+	// The virtual roots are literal authority; inspect glob syntax only beneath
+	// a matching quoted root, without interpreting punctuation in that root.
+	anchorPattern := absolute
+	literalRoot := ""
+	for _, root := range context.uniqueVirtualRoots() {
+		quoted := config.QuoteGlobLiteral(root)
+		if absolute == quoted {
+			literalRoot, anchorPattern = root, ""
+			break
+		}
+		if strings.HasPrefix(absolute, quoted+string(filepath.Separator)) {
+			literalRoot, anchorPattern = root, strings.TrimPrefix(absolute, quoted+string(filepath.Separator))
+			break
+		}
+	}
+	anchor := anchorPattern
+	if firstWildcard := strings.IndexAny(anchorPattern, "*?["); firstWildcard >= 0 {
+		prefix := anchorPattern[:firstWildcard]
 		separator := strings.LastIndexAny(prefix, `\/`)
 		if separator < 0 {
-			return fail("glob has no contained anchor")
+			if literalRoot == "" {
+				return fail("glob has no contained anchor")
+			}
+			anchor = ""
+		} else {
+			anchor = strings.TrimRight(prefix[:separator], `\/`)
 		}
-		anchor = strings.TrimRight(prefix[:separator], `\/`)
+	}
+	if literalRoot != "" {
+		anchor = filepath.Join(literalRoot, anchor)
 	}
 	if anchor == "" || context.ValidateSandboxPath(filepath.Clean(anchor)) != nil {
 		return fail("glob anchor is outside validation roots")

@@ -43,6 +43,9 @@ func (r *CompatibilityResolver) resolveSourceTargets(
 	targets []TargetInstance,
 	explicitMappings map[string]string,
 ) PlanSet {
+	if source.PayloadIntegrityFailed {
+		return unresolvedSourcePlan(source, targets, ResolutionUnknown, ReasonPayloadIntegrityFailed, StatusFailed)
+	}
 	if r.platformMismatch(source) {
 		return unresolvedSourcePlan(source, targets, ResolutionIncompatible, ReasonPlatformMappingMissing, StatusSkipped)
 	}
