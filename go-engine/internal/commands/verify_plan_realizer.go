@@ -20,7 +20,7 @@ import (
 // runVerifyRealizer is the verify path for a realizer backend (Nix). It reads
 // the current generation once and reports each host package present/missing,
 // preserving the per-item event stream. Verify is read-only (verification-first
-// invariant) and does not touch configs.
+// invariant); captured configurations use the shared read-only comparison.
 func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 	emitter.EmitPhase("verify")
@@ -34,7 +34,6 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 	}
 
 	var results []VerifyItem
-	pass, fail := 0, 0
 	for _, app := range mf.Apps {
 		ref := app.Refs[runtime.GOOS] // strict host ref
 		name := realizerItemName(app)
@@ -44,11 +43,9 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 			if _, present := installedElement(cur, realizer.Installable{ID: app.ID, Ref: ref}); present {
 				item.Status = "pass"
 				emitter.EmitItem(ref, driverName, "present", "", "Verified installed", name)
-				pass++
 			} else {
 				item.Status, item.Reason, item.Message = "fail", "missing", "Missing - not installed"
 				emitter.EmitItem(ref, driverName, "failed", "missing", item.Message, name)
-				fail++
 			}
 			results = append(results, item)
 		case app.Manual != nil && app.Manual.VerifyPath != "":
@@ -60,11 +57,9 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 			if exists {
 				item.Status, item.Message = "pass", fmt.Sprintf("Verified at %s", expanded)
 				emitter.EmitItem(app.ID, "manual", "present", "", item.Message, name)
-				pass++
 			} else {
 				item.Status, item.Reason, item.Message = "fail", "missing", fmt.Sprintf("Missing at %s", expanded)
 				emitter.EmitItem(app.ID, "manual", "failed", "missing", item.Message, name)
-				fail++
 			}
 			results = append(results, item)
 		}
@@ -81,9 +76,6 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 			item := VerifyItem{Type: vr.Type, Status: "fail", Message: vr.Message}
 			if vr.Pass {
 				item.Status = "pass"
-				pass++
-			} else {
-				fail++
 			}
 			results = append(results, item)
 		}
@@ -95,11 +87,6 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 	if mf.HomeManager != nil {
 		if hgr, ok := r.(realizer.HomeGenerationReader); ok {
 			item := checkHomeManagerGeneration(hgr, emitter)
-			if item.Status == "pass" {
-				pass++
-			} else {
-				fail++
-			}
 			results = append(results, item)
 		}
 	}
@@ -109,20 +96,26 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 	// `brew list` passes; missing fails; an advisory version mismatch is surfaced
 	// as version_drift (best-effort, like winget). When brewDrv is nil (non-darwin
 	// host) each brew app is a visible skip rather than silently dropped.
-	brewResults, brewPass, brewFail, brewSkipped := verifyBrewLane(brewApps, brewDrv, emitter)
+	brewResults, _, _, _ := verifyBrewLane(brewApps, brewDrv, emitter)
 	results = append(results, brewResults...)
-	pass += brewPass
-	fail += brewFail
 	unsupportedResults := verifyUnsupportedDrivers(firstAppSlice(unsupportedApps), emitter)
 	results = append(results, unsupportedResults...)
 	results = append(results, notRestored...)
-	skipped := brewSkipped + len(unsupportedResults) + len(notRestored)
 
-	total := pass + fail + skipped
-	emitter.EmitSummary("verify", total, pass, skipped, fail)
+	configManifest := *mf
+	configManifest.Apps = append(append([]manifest.App(nil), mf.Apps...), brewApps...)
+	configManifest.Apps = append(configManifest.Apps, firstAppSlice(unsupportedApps)...)
+	configResults, configErr := verifyCapturedConfigurations(flags, &configManifest, emitter)
+	if configErr != nil {
+		return nil, configErr
+	}
+	results = append(results, configResults...)
+	summary := summarizeVerifyItems(results)
+
+	emitter.EmitSummary("verify", summary.Total, summary.Pass, summary.Skipped, summary.Fail)
 	return &VerifyResult{
 		Manifest: VerifyManifestRef{Path: flags.Manifest, Name: mf.Name},
-		Summary:  VerifySummary{Total: total, Pass: pass, Fail: fail, Skipped: skipped},
+		Summary:  summary,
 		Results:  results,
 	}, nil
 }

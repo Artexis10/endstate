@@ -594,7 +594,7 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 			markConfigRestoreFailure(set, planner.ReasonStagingValidationFailed, planner.StatusFailed)
 			continue
 		}
-		source, ok := session.sourceForCapture(set.Source.CaptureID)
+		source, ok := session.runtime.sourceForCapture(set.Source.CaptureID)
 		if !ok {
 			markConfigRestoreFailure(set, planner.ReasonStagingValidationFailed, planner.StatusFailed)
 			continue
@@ -616,7 +616,7 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 		}
 		materialized, err := materializeConfigRestoreSetFn(ctx, configrestore.Request{
 			Stage: stage, Plan: *set,
-			ProcessPatterns: session.processPatterns(set.Source.ModuleID), ProcessObserver: options.ProcessObserver,
+			ProcessPatterns: session.runtime.processPatterns(set.Source.ModuleID), ProcessObserver: options.ProcessObserver,
 			Boundary: options.HostBoundary,
 		})
 		if err != nil {
@@ -636,22 +636,6 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 	}
 	recomputeConfigPlanSummary(plan)
 	return prepared
-}
-
-func (session *configRestoreExecutionSession) sourceForCapture(captureID string) (configRestoreSource, bool) {
-	for _, source := range session.runtime.inputs.generationSources {
-		if source.source.CaptureID == captureID {
-			return source, true
-		}
-	}
-	return configRestoreSource{}, false
-}
-
-func (session *configRestoreExecutionSession) processPatterns(moduleID string) []string {
-	if session.runtime.catalog.resolver == nil {
-		return []string{}
-	}
-	return session.runtime.catalog.resolver.ProcessPatterns(moduleID)
 }
 
 func selectedConfigRestorePlanSet(set planner.PlanSet) bool {

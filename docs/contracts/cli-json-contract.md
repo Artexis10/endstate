@@ -1161,6 +1161,30 @@ Every app `VerifyItem` includes its resolved `driver`; non-package verification 
 
 `verify.data.warnings` may include the advisory `possible_duplicate` warning described under **Command Warnings**. Both verification results remain present, and the warning does not affect their statuses or summary counts.
 
+Captured generation-aware configuration adds one `VerifyItem` per captured set with `type: "config"` and `id` equal to its `captureId`.
+The item includes `name`, `status`, `message`, and `reason` when applicable; it omits package driver and version fields.
+Verify resolves the current trusted catalog and target instance, verifies payload integrity, and compares the captured desired content against current targets.
+It creates no restore snapshots, backups, journals, or target writes.
+Copy checks compare exact file bytes; directory copies retain the restore overlay and exclusions.
+Merge and append checks materialize against current target state, preserving unrelated current values.
+An optional source absent from the capture does not require target absence.
+
+| Configuration outcome | `status` | `reason` |
+|---|---|---|
+| All supported captured content matches | `pass` | Omitted |
+| Checked target content differs | `fail` | `config_drift` |
+| A target for captured content is absent | `fail` | `missing` |
+| Captured payload is missing or altered | `fail` | `payload_integrity_failed` |
+| A target cannot be read safely or changes during comparison | `fail` | `config_read_failed` |
+| Disposable staging or validation fails | `fail` | `staging_validation_failed` |
+| No checkable content exists, or an operation remains unsupported | `skipped` | `config_content_unchecked` |
+| Compatibility or target selection prevents comparison | `skipped`, or `fail` for a planner failure | Existing planner reason |
+
+A known failure takes precedence over unchecked operations; unchecked operations cannot produce a pass.
+Configuration items contribute to the same result counts and final verify summary event as package and manifest checks.
+Standalone verify preserves ambiguous target selection. Rebuild passes its existing configuration filter and explicit target selection to its fresh post-restore comparison.
+These semantics are additive in schema `1.0`; legacy registry verification retains the scope described below.
+
 A manifest verify entry may carry `fromModule`. Capture sets it on a `registry-value-equals` entry whose expected type and data come from the old PC. Such an entry holds only after the same run restored that value, so verify evaluates it only when the run restored it; `rebuild` passes its restore results to its verify step. Otherwise the result item has `status: "skipped"`, `reason: "not_restored"`, and a plain-language `message`, and `summary.skipped` counts it. A standalone `verify` restores nothing, so it skips every such entry. Additive in schema `1.0`.
 
 ```json

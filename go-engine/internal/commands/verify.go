@@ -67,6 +67,9 @@ type VerifyFlags struct {
 	// restoredRegistryValues holds the registry-set values that the same run
 	// restored. Only rebuild sets it; a standalone verify restored nothing.
 	restoredRegistryValues []registryValueIdentity
+	// Rebuild retains its selected configuration scope for the fresh comparison.
+	restoreFilter  string
+	restoreTargets []string
 }
 
 // VerifyResult is the data payload for the verify command JSON envelope.
@@ -205,9 +208,6 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	}
 
 	var results []VerifyItem
-	passCount := 0
-	failCount := 0
-	skipCount := 0
 
 	for appIndex, app := range mf.Apps {
 		route, ok := routedByIndex[appIndex]
@@ -231,13 +231,11 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 				item.Status = "pass"
 				item.Message = fmt.Sprintf("Verified at %s", expanded)
 				emitter.EmitItem(app.ID, "manual", "present", "", item.Message, app.DisplayName)
-				passCount++
 			} else {
 				item.Status = "fail"
 				item.Reason = driver.ReasonMissing
 				item.Message = fmt.Sprintf("Missing at %s", expanded)
 				emitter.EmitItem(app.ID, "manual", "failed", driver.ReasonMissing, item.Message, app.DisplayName)
-				failCount++
 			}
 			results = append(results, item)
 			continue
@@ -257,7 +255,6 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Reason = driver.ReasonFiltered
 			item.Message = route.err.Error()
 			emitter.EmitItem(ref, route.driverName, driver.StatusSkipped, driver.ReasonFiltered, item.Message, itemName)
-			skipCount++
 			results = append(results, item)
 			continue
 		}
@@ -294,7 +291,6 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Reason = driver.ReasonInstallFailed
 			item.Message = detectErr.Error()
 			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonInstallFailed, item.Message, itemName)
-			failCount++
 		} else if got, want := presence.Version, strings.TrimSpace(app.Version); presence.Present && want != "" && got != "" && got != want {
 			// Installed, but at a version different from the one the manifest
 			// declares: version drift (a failure distinct from "missing"). Only
@@ -305,18 +301,15 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Expected = want
 			item.Message = fmt.Sprintf("installed %s, want %s", got, want)
 			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonVersionDrift, item.Message, itemName)
-			failCount++
 		} else if presence.Present {
 			item.Status = "pass"
 			item.Version = presence.Version
 			emitter.EmitItem(ref, route.driverName, "present", "", "Verified installed", itemName)
-			passCount++
 		} else {
 			item.Status = "fail"
 			item.Reason = driver.ReasonMissing
 			item.Message = "Missing - not installed"
 			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonMissing, item.Message, itemName)
-			failCount++
 		}
 
 		results = append(results, item)
@@ -337,32 +330,28 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			}
 			if vr.Pass {
 				item.Status = "pass"
-				passCount++
-			} else {
-				failCount++
 			}
 			results = append(results, item)
 		}
 	}
-	skipCount += len(notRestored)
 	results = append(results, notRestored...)
 
-	total := passCount + failCount + skipCount
+	configResults, configErr := verifyCapturedConfigurations(flags, mf, emitter)
+	if configErr != nil {
+		return nil, configErr
+	}
+	results = append(results, configResults...)
+	summary := summarizeVerifyItems(results)
 
 	// --- 5. Summary event (last event in stream per event-contract.md) ---
-	emitter.EmitSummary("verify", total, passCount, skipCount, failCount)
+	emitter.EmitSummary("verify", summary.Total, summary.Pass, summary.Skipped, summary.Fail)
 
 	return &VerifyResult{
 		Manifest: VerifyManifestRef{
 			Path: flags.Manifest,
 			Name: mf.Name,
 		},
-		Summary: VerifySummary{
-			Total:   total,
-			Pass:    passCount,
-			Fail:    failCount,
-			Skipped: skipCount,
-		},
+		Summary:  summary,
 		Results:  results,
 		Warnings: warnings,
 	}, nil

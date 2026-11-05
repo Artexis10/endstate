@@ -346,3 +346,19 @@ func cloneConfigModuleJSONValue(value any) any {
 		return value
 	}
 }
+
+func (runtime *configRestoreRuntime) sourceForCapture(captureID string) (configRestoreSource, bool) {
+	for _, source := range runtime.inputs.generationSources {
+		if source.source.CaptureID == captureID {
+			return source, true
+		}
+	}
+	return configRestoreSource{}, false
+}
+
+func (runtime *configRestoreRuntime) processPatterns(moduleID string) []string {
+	if runtime.catalog.resolver == nil {
+		return []string{}
+	}
+	return runtime.catalog.resolver.ProcessPatterns(moduleID)
+}

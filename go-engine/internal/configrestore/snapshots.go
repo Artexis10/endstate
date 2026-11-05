@@ -250,12 +250,9 @@ func prepareSnapshotAction(
 			}
 			result.record.missingParents = append(result.record.missingParents, identity)
 		}
-		prior, err := scanFilesystemState(ctx, ioAction.Target)
+		prior, desired, sourceDigest, err := observeFilesystemAction(ctx, ioAction)
 		if err != nil {
 			return result, err
-		}
-		if (action.Kind == ActionWriteFile || action.Kind == ActionDeleteFile) && prior.Kind == StateDirectory {
-			return result, fmt.Errorf("%s target changed to a directory", action.Kind)
 		}
 		backupPath := ""
 		if prior.Kind != StateAbsent {
@@ -285,28 +282,8 @@ func prepareSnapshotAction(
 		}
 		result.priorFS = prior
 		result.record.prior = stateRecord(prior, backupPath)
-		switch action.Kind {
-		case ActionCopy:
-			source, err := scanFilesystemState(ctx, ioAction.Source)
-			if err != nil {
-				return result, err
-			}
-			if source.Kind == StateAbsent || action.SourceIsDirectory != (source.Kind == StateDirectory) {
-				return result, fmt.Errorf("copy source kind differs from materialized action")
-			}
-			desired, err := desiredCopyState(prior, source, action.Exclude)
-			if err != nil {
-				return result, err
-			}
-			result.record.sourceDigest = source.Digest
-			result.record.desired = stateRecord(desired, "")
-		case ActionWriteFile:
-			desired := desiredWriteState(prior, action.DesiredContent)
-			result.record.desired = stateRecord(desired, "")
-		case ActionDeleteFile:
-			desired := absentFilesystemState()
-			result.record.desired = stateRecord(desired, "")
-		}
+		result.record.sourceDigest = sourceDigest
+		result.record.desired = stateRecord(desired, "")
 		return result, nil
 	case ActionRegistrySet:
 		prior, err := readRegistrySnapshot(ctx, registryReader, action.RegistryValue)

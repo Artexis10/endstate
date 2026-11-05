@@ -207,6 +207,8 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 			Manifest:               manifestPath,
 			Events:                 flags.Events,
 			restoredRegistryValues: restored,
+			restoreFilter:          flags.RestoreFilter,
+			restoreTargets:         append([]string(nil), flags.RestoreTargets...),
 		})
 		if verifyErr != nil {
 			return nil, verifyErr
