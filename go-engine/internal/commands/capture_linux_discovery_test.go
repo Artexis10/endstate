@@ -302,6 +302,100 @@ func TestRunCaptureLinux_NoNixAllowsSelectedSettingsOnlyArtifact(t *testing.T) {
 	}
 }
 
+type captureDiscoveryAdapter struct{ inventory discovery.AdapterInventory }
+
+func (captureDiscoveryAdapter) ID() string { return "fixture" }
+func (a captureDiscoveryAdapter) Inventory(context.Context) (discovery.AdapterInventory, error) {
+	return a.inventory, nil
+}
+
+func TestLinuxCaptureSelectionPreservesInventoryAndScopesPayload(t *testing.T) {
+	for _, mode := range []string{"selected", "update", "share", "sanitize"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			live := filepath.Join(dir, "selected.json")
+			if err := os.WriteFile(live, []byte(`{"theme":"dark"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			inventory := discovery.AdapterInventory{}
+			for _, id := range []string{"selected", "unselected"} {
+				inventory.Resolved = append(inventory.Resolved, discovery.ResolvedIntent{
+					ID: id, DisplayName: id, Attribute: id, Input: "github:example/packages/revision",
+					Installable: "github:example/packages/revision#" + id,
+				})
+				inventory.Settings = append(inventory.Settings, discovery.SettingsCandidate{
+					ID: "settings." + id, PackageID: id, Actions: []discovery.SettingsAction{discovery.SettingsCapture},
+				})
+				source := live
+				if id == "unselected" {
+					// This source must never be opened during a selected capture.
+					source = filepath.Join(dir, "missing-unselected.json")
+				}
+				inventory.SettingsFiles = append(inventory.SettingsFiles, discovery.SettingsFilePlan{
+					CandidateID: "settings." + id, Codec: "bounded-regular-file-v1",
+					Target: "${xdg.config}/" + id + "/settings.json", Source: source,
+				})
+			}
+			oldGOOS, oldRealizer, oldDiscovery := captureGOOSFn, newRealizerFn, discoverLinuxFn
+			t.Cleanup(func() { captureGOOSFn, newRealizerFn, discoverLinuxFn = oldGOOS, oldRealizer, oldDiscovery })
+			captureGOOSFn = func() string { return "linux" }
+			newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+			discoverLinuxFn = func(ctx context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
+				return (discovery.Orchestrator{Adapters: []discovery.Adapter{captureDiscoveryAdapter{inventory: inventory}}}).Discover(ctx, request)
+			}
+			flags := CaptureFlags{Out: filepath.Join(dir, "selection.endstate"), Only: "selected", Share: mode == "share", Sanitize: mode == "sanitize"}
+			if flags.Sanitize {
+				flags.Out = filepath.Join(dir, "selection.jsonc")
+			}
+			if mode == "update" {
+				flags.Update = true
+				flags.Manifest = filepath.Join(dir, "previous.jsonc")
+				if err := os.WriteFile(flags.Manifest, []byte(`{"version":1,"name":"previous","apps":[{"id":"unselected","refs":{"linux":"github:example/packages/revision#unselected"}}]}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			withFakeGenerations(nil, errors.New("no history"), func() {
+				withMockCatalog(map[string]*modules.Module{}, nil, func() {
+					raw, err := RunCapture(flags)
+					if err != nil {
+						t.Fatalf("selected capture read an unselected source or failed: %+v", err)
+					}
+					result := raw.(*CaptureResult)
+					if result.Discovery == nil || len(result.Discovery.Resolved) != 2 || len(result.Discovery.Settings) != 2 || result.Discovery.Counts.Selected != 1 {
+						t.Fatalf("capture hid unselected inventory or miscounted selection: %+v", result.Discovery)
+					}
+				})
+			})
+			mf := readCapturedManifest(t, flags.Out)
+			wantApps := 1
+			if mode == "update" {
+				wantApps = 2
+			}
+			if len(mf.Apps) != wantApps {
+				t.Fatalf("capture apps = %+v, want %d", mf.Apps, wantApps)
+			}
+			if mode == "sanitize" {
+				if mf.HomeManager != nil {
+					t.Fatalf("sanitized capture retained settings: %+v", mf.HomeManager)
+				}
+				return
+			}
+			var settings struct {
+				Files map[string]string `json:"files"`
+			}
+			if mf.HomeManager == nil {
+				t.Fatal("selected configuration was not captured")
+			}
+			if err := json.Unmarshal(mf.HomeManager.Settings, &settings); err != nil {
+				t.Fatal(err)
+			}
+			if len(settings.Files) != 1 || settings.Files["${xdg.config}/selected/settings.json"] == "" {
+				t.Fatalf("capture staged unselected settings: %+v", settings.Files)
+			}
+		})
+	}
+}
+
 func TestRunCaptureLinux_FailsBeforeWritingWhenNothingUsefulWasFound(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "empty.endstate")

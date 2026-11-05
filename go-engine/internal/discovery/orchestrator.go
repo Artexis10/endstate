@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -96,7 +97,6 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 			status.State = SourceSucceeded
 			status.Discovered = len(inventory.Items) + len(inventory.Resolved) + len(inventory.Settings)
 			status.Ignored = inventory.Ignored
-			result.Counts.Discovered += len(inventory.Items) + len(inventory.Resolved) + len(inventory.Settings)
 			result.Counts.Ignored += inventory.Ignored
 			result.Warnings = append(result.Warnings, inventory.Warnings...)
 			for _, candidate := range inventory.Settings {
@@ -143,12 +143,10 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 		}
 	}
 
-	allowedApps, allowedModules := splitOnly(request.Only)
+	only := stringSet(request.Only)
 	resolvedIDs := make([]string, 0, len(resolved))
 	for id := range resolved {
-		if len(allowedApps) == 0 || allowedApps[id] {
-			resolvedIDs = append(resolvedIDs, id)
-		}
+		resolvedIDs = append(resolvedIDs, id)
 	}
 	sort.Strings(resolvedIDs)
 	for _, id := range resolvedIDs {
@@ -187,9 +185,7 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 				settings[id] = candidate
 			}
 		}
-		if len(allowedApps) == 0 && len(allowedModules) == 0 || allowedModules[id] || (candidate.PackageID != "" && allowedApps[candidate.PackageID]) {
-			settingIDs = append(settingIDs, id)
-		}
+		settingIDs = append(settingIDs, id)
 	}
 	sort.Strings(settingIDs)
 	for _, id := range settingIDs {
@@ -197,7 +193,9 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 		candidate.Actions = canonicalActions(candidate.Actions)
 		candidate.Evidence = canonicalEvidence(candidate.Evidence)
 		result.Settings = append(result.Settings, candidate)
-		result.SettingsFiles = append(result.SettingsFiles, settingsFiles[id]...)
+		if slices.Contains(candidate.Actions, SettingsCapture) && settingsCandidateSelected(candidate, only) {
+			result.SettingsFiles = append(result.SettingsFiles, settingsFiles[id]...)
+		}
 	}
 	sort.Slice(result.SettingsFiles, func(i, j int) bool {
 		left, right := result.SettingsFiles[i], result.SettingsFiles[j]
@@ -221,15 +219,68 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 		}
 		return result.Warnings[i].ItemID < result.Warnings[j].ItemID
 	})
-	result.Counts.Resolved = len(result.Resolved)
-	result.Counts.Selected = len(result.Resolved)
-	result.Counts.Unresolved = len(result.Unresolved)
-	for _, candidate := range result.Settings {
-		if len(candidate.Actions) > 0 {
-			result.Counts.Settings++
+	result.Counts = countCandidates(result, only)
+	return result, nil
+}
+
+// Namespaces keep an unassociated settings ID distinct from equal package text.
+// Only the reviewed PackageID association joins settings to a package.
+type candidateIdentity struct {
+	packageID    string
+	settingsID   string
+	unresolvedID string
+}
+
+func countCandidates(result Result, only map[string]bool) Counts {
+	type candidateState struct{ resolved, settings, selected bool }
+	candidates := make(map[candidateIdentity]candidateState)
+	for _, intent := range result.Resolved {
+		identity := candidateIdentity{packageID: intent.ID}
+		candidate := candidates[identity]
+		candidate.resolved = true
+		candidate.selected = len(only) == 0 || only[intent.ID]
+		candidates[identity] = candidate
+	}
+	for _, settings := range result.Settings {
+		identity := candidateIdentity{settingsID: settings.ID}
+		if settings.PackageID != "" {
+			identity = candidateIdentity{packageID: settings.PackageID}
+		}
+		candidate := candidates[identity]
+		candidate.settings = candidate.settings || len(settings.Actions) > 0
+		candidate.selected = candidate.selected || (slices.Contains(settings.Actions, SettingsCapture) && settingsCandidateSelected(settings, only))
+		candidates[identity] = candidate
+	}
+	for _, unresolved := range result.Unresolved {
+		identity := candidateIdentity{unresolvedID: unresolved.ID}
+		if _, exists := candidates[identity]; !exists {
+			candidates[identity] = candidateState{}
 		}
 	}
-	return result, nil
+	counts := Counts{Ignored: result.Counts.Ignored, Discovered: len(candidates)}
+	for _, candidate := range candidates {
+		switch {
+		case candidate.resolved:
+			counts.Resolved++
+		case candidate.settings:
+			counts.SettingsOnly++
+		default:
+			counts.Unresolved++
+		}
+		if candidate.settings {
+			counts.Settings++
+		}
+		if candidate.selected {
+			counts.Selected++
+		}
+	}
+	return counts
+}
+
+func settingsCandidateSelected(candidate SettingsCandidate, only map[string]bool) bool {
+	return len(only) == 0 || only[candidate.ID] ||
+		(candidate.ModuleID != "" && only[candidate.ModuleID]) ||
+		(candidate.PackageID != "" && only[candidate.PackageID])
 }
 
 func mergeResolvedIntent(target map[string]*resolvedAccumulator, intent ResolvedIntent) error {
@@ -407,16 +458,4 @@ func stringSet(values []string) map[string]bool {
 		}
 	}
 	return result
-}
-
-func splitOnly(values []string) (map[string]bool, map[string]bool) {
-	apps, modules := make(map[string]bool), make(map[string]bool)
-	for _, value := range values {
-		if strings.HasPrefix(value, "apps.") {
-			modules[value] = true
-		} else if value != "" {
-			apps[value] = true
-		}
-	}
-	return apps, modules
 }

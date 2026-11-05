@@ -156,12 +156,13 @@ type Warning struct {
 
 // Counts makes filtering and unresolved state visible to CLI and GUI clients.
 type Counts struct {
-	Discovered int `json:"discovered"`
-	Resolved   int `json:"resolved"`
-	Selected   int `json:"selected"`
-	Unresolved int `json:"unresolved"`
-	Ignored    int `json:"ignored"`
-	Settings   int `json:"settings"`
+	Discovered   int `json:"discovered"`
+	Resolved     int `json:"resolved"`
+	Selected     int `json:"selected"`
+	Unresolved   int `json:"unresolved"`
+	Ignored      int `json:"ignored"`
+	Settings     int `json:"settings"`
+	SettingsOnly int `json:"settingsOnly"`
 }
 
 // Result is the deterministic additive discovery object returned by capture.
