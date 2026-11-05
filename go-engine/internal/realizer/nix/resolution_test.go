@@ -120,3 +120,19 @@ func TestNativeStorePathsKeepPOSIXSeparators(t *testing.T) {
 		}
 	}
 }
+
+func TestPreparedHomeRejectsPathsOutsideItsCanonicalStoreChild(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for _, output := range []string{"/nix/store/..", `/nix/store/package\activate`, "/nix/store/package/activate"} {
+		ran := ""
+		b := &Backend{Run: func(args ...string) ([]byte, []byte, int, error) { return nil, nil, 0, nil }, Script: func(script string, args ...string) ([]byte, []byte, int, error) {
+			ran = script
+			return nil, nil, 1, nil
+		}}
+		_, err := b.ActivatePreparedHome(&realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": output}})
+		failure, ok := err.(*realizer.Error)
+		if ran != "" || !ok || failure.Code != realizer.ErrInputProvenanceUnresolved {
+			t.Fatalf("invalid stored output %q reached activation script %q: %v", output, ran, err)
+		}
+	}
+}

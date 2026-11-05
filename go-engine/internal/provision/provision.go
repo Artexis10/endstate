@@ -78,7 +78,8 @@ type HomeGenRef struct {
 	SettingsDigest   string                    `json:"settingsDigest,omitempty"`
 	Resolution       *realizer.InputResolution `json:"resolution,omitempty"`
 	ActivationOutput string                    `json:"activationOutput,omitempty"`
-	// A native profile commit can precede a failing settings activation stage.
+	// A failed settings attempt invalidates completion of its active output,
+	// including retries that do not advance the native profile.
 	ActivationFailed bool `json:"activationFailed,omitempty"`
 
 	Flake string `json:"flake"`

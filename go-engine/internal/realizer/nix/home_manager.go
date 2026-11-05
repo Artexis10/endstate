@@ -201,8 +201,8 @@ func (b *Backend) ActivatePreparedHome(r *realizer.InputResolution) (int, error)
 	return b.activateHomeOutput(output)
 }
 
-// Home Manager writes its profile before installPackages. Observe both sides
-// so a later failure preserves the commit without claiming completed settings.
+// Failed settings attempts invalidate completion even if the intended output
+// was already active. Observe advancement separately from that active identity.
 func (b *Backend) activateHomeOutput(output string) (int, error) {
 	beforeGeneration := b.homeGen()
 	beforeOutput := b.ActiveHomeOutput()
@@ -214,8 +214,11 @@ func (b *Backend) activateHomeOutput(output string) (int, error) {
 			exit = -1
 		}
 		failure := classify(exit, parsePlainLog(stderr), false)
-		if generation > 0 && activeOutput == output && (generation != beforeGeneration || activeOutput != beforeOutput) {
-			failure.Stage = "commit"
+		if generation > 0 && activeOutput == output {
+			failure.Stage = "activation"
+			if generation != beforeGeneration || (beforeOutput != "" && activeOutput != beforeOutput) {
+				failure.Stage = "commit"
+			}
 			return generation, failure
 		}
 		return 0, failure

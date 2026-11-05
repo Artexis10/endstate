@@ -155,27 +155,39 @@ func TestRollbackHome_Spawn_Unavailable(t *testing.T) {
 	}
 }
 
-func TestRollbackHomePreservesACommitFollowedByActivationFailure(t *testing.T) {
-	store := setupHomeLink(t, 3)
-	generation := 0
-	output := ""
-	b := &Backend{homeGenFn: func() int { return generation }, Run: func(args ...string) ([]byte, []byte, int, error) {
-		if args[len(args)-1] != homeProfilePath() {
-			return []byte(store), nil, 0, nil
-		}
-		return []byte(output), nil, 0, nil
-	}}
-	b.runScript = func(path string, args ...string) ([]byte, []byte, int, error) {
-		if path != store+"/activate" {
-			t.Fatalf("wrong snapshot: %s", path)
-		}
-		generation = 9
-		output = store
-		return nil, []byte("installPackages failed after writeBoundary"), 1, nil
-	}
-	newGeneration, err := b.RollbackHome(3)
-	failure := asRealizerErr(t, err)
-	if newGeneration != 9 || failure.Code != envelope.ErrRollbackFailed || failure.Stage != "commit" {
-		t.Fatalf("native commit disappeared after rollback activation failed: %d %+v", newGeneration, failure)
+func TestRollbackHomePreservesActiveIdentityAfterActivationFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		beforeGeneration int
+		beforeOutput     string
+		stage            string
+	}{
+		{name: "new profile", stage: "commit"},
+		{name: "same profile", beforeGeneration: 9, beforeOutput: "/nix/store/snapshot-home-manager-generation", stage: "activation"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := setupHomeLink(t, 3)
+			generation := tc.beforeGeneration
+			output := tc.beforeOutput
+			b := &Backend{homeGenFn: func() int { return generation }, Run: func(args ...string) ([]byte, []byte, int, error) {
+				if args[len(args)-1] != homeProfilePath() {
+					return []byte(store), nil, 0, nil
+				}
+				return []byte(output), nil, 0, nil
+			}}
+			b.runScript = func(path string, args ...string) ([]byte, []byte, int, error) {
+				if path != store+"/activate" {
+					t.Fatalf("wrong snapshot: %s", path)
+				}
+				generation = 9
+				output = store
+				return nil, []byte("settings step failed"), 1, nil
+			}
+			newGeneration, err := b.RollbackHome(3)
+			failure := asRealizerErr(t, err)
+			if newGeneration != 9 || failure.Code != envelope.ErrRollbackFailed || failure.Stage != tc.stage {
+				t.Fatalf("active identity disappeared after rollback activation failed: %d %+v", newGeneration, failure)
+			}
+		})
 	}
 }

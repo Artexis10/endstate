@@ -223,7 +223,7 @@ func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool
 		return nil
 	}
 	if generations, err := listGenerationsFn(); err == nil {
-		if matching, outputHistory := matchingHomeManagerReference(generations, activeOutput); outputHistory {
+		if matching, outputHistory := matchingHomeManagerReference(generations, activeOutput, 0); outputHistory {
 			if matching != nil {
 				return nil
 			}
@@ -493,12 +493,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		}
 
 		if cur, err := r.Current(); err == nil {
+			// Missing inventory provenance must not erase an observed realization.
 			for i := range actions {
-				for _, el := range cur.Elements {
-					if el.ID == actions[i].ID {
-						actions[i].Resolution = el.Resolution
-						break
-					}
+				if el, ok := installedElement(cur, realizer.Installable{ID: actions[i].ID, Ref: derefRef(actions[i].Ref)}); ok && el.Resolution != nil {
+					actions[i].Resolution = el.Resolution
 				}
 			}
 		}
@@ -712,6 +710,9 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				preparationCommitted = true
 				homeRef = homeGenerationReference(flags, mf, preparedHome, hmGen)
 				homeRef.ActivationFailed = aerr != nil
+				if failure, ok := aerr.(*realizer.Error); ok && failure.Stage == "activation" {
+					homeRef = preserveHomeManagerRetryIdentity(homeRef)
+				}
 			}
 			if aerr != nil {
 				rerr, ok := aerr.(*realizer.Error)
@@ -800,8 +801,9 @@ func hasHomeOutputIdentity(home *provision.HomeGenRef) bool {
 }
 
 // New provenance uses the active output. Once it exists, legacy generation-only
-// records cannot grant ownership to an unmatched native output.
-func matchingHomeManagerReference(generations []*provision.Generation, activeOutput string) (*provision.HomeGenRef, bool) {
+// records cannot grant ownership to an unmatched native output. A positive
+// nativeGeneration also selects that exact historical generation for retries.
+func matchingHomeManagerReference(generations []*provision.Generation, activeOutput string, nativeGeneration int) (*provision.HomeGenRef, bool) {
 	outputHistory := false
 	for _, generation := range generations {
 		if generation == nil || generation.HomeManager == nil || !hasHomeOutputIdentity(generation.HomeManager) {
@@ -809,11 +811,27 @@ func matchingHomeManagerReference(generations []*provision.Generation, activeOut
 		}
 		outputHistory = true
 		home := generation.HomeManager
+		if nativeGeneration > 0 && home.Generation != nativeGeneration {
+			continue
+		}
 		if home.ActivationOutput != "" && home.ActivationOutput == activeOutput {
 			return home, true
 		}
 	}
 	return nil, outputHistory
+}
+
+// An unchanged profile keeps its known source identity. A failed retry must not
+// attribute freshly evaluated, unused inputs to that already-active output.
+func preserveHomeManagerRetryIdentity(home *provision.HomeGenRef) *provision.HomeGenRef {
+	if generations, err := listGenerationsFn(); err == nil {
+		if previous, _ := matchingHomeManagerReference(generations, home.ActivationOutput, home.Generation); previous != nil {
+			copyRef := *previous
+			copyRef.ActivationFailed = home.ActivationFailed
+			return &copyRef
+		}
+	}
+	return home
 }
 
 func settingsDigest(settings *manifest.HomeManagerSettings) string {

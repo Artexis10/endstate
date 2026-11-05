@@ -1282,7 +1282,7 @@ The metadata flake preserves per-package priority in one atomic profile addition
 
 Discovery requires a native locked URL or reviewed mapping. An original floating reference or a missing URL remains unresolved. Legacy stored records and Darwin direct capture remain readable.
 
-New `homeManager` records distinguish `kind` (`settings`, `config`, or `flake`) and `generated`. They retain `platform`, `system`, `configIdentity`, `resolution`, `activationOutput`, and the native `generation`. Optional `activationFailed: true` records a native profile commit followed by failed settings activation. That commit establishes native ownership but does not establish completed settings for capture or verification.
+New `homeManager` records distinguish `kind` (`settings`, `config`, or `flake`) and `generated`. They retain `platform`, `system`, `configIdentity`, `resolution`, `activationOutput`, and the native `generation`. Optional `activationFailed: true` records a failed settings attempt against the observed active output. That output may already be active; the flag does not claim native profile advancement. Existing native ownership remains known, but capture and verification cannot claim completed settings. An `activation` error stage identifies failure against an unchanged native profile.
 
 Settings-generated records add `sourceManifest` and `settingsDigest`; they omit the settings payload. Capture reloads that source through the manifest loader, including its includes. It recovers settings only when their digest and active output match. Legacy embedded settings remain readable.
 

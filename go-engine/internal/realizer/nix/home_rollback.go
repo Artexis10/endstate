@@ -63,7 +63,7 @@ func (b *Backend) RollbackHome(generation int) (int, error) {
 	generation, activationErr := b.activateHomeOutput(store)
 	if failure, ok := activationErr.(*realizer.Error); ok && failure.Code == envelope.ErrInstallFailed {
 		failure.Code = envelope.ErrRollbackFailed
-		if failure.Stage != "commit" {
+		if failure.Stage != "commit" && failure.Stage != "activation" {
 			failure.Stage = "rollback"
 		}
 	}

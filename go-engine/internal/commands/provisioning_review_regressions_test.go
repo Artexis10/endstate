@@ -241,3 +241,99 @@ func TestProvisioningReviewFailedSettingsDoNotPassGenerationVerification(t *test
 		t.Fatalf("native generation match hid failed settings activation: %+v", item)
 	}
 }
+
+func TestProvisioningReviewFailedRetryInvalidatesSameActiveHomeOutput(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	mf, flags := freezeManifest(t)
+	mf.Apps = nil
+	if _, err := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "completed-home", nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	gens, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := gens[0].HomeManager
+	// An equivalent freshly evaluated input still produces the already-active output.
+	native := f.backend.Run
+	f.backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+		data, stderr, exit, err := native(args...)
+		if args[0] == "flake" && err == nil && exit == 0 {
+			var metadata map[string]any
+			if err = json.Unmarshal(data, &metadata); err != nil {
+				t.Fatal(err)
+			}
+			metadata["url"] = "path:/equivalent-new-source"
+			data, err = json.Marshal(metadata)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		return data, stderr, exit, err
+	}
+	activate := f.backend.Script
+	f.backend.Script = func(path string, args ...string) ([]byte, []byte, int, error) {
+		_, _, _, err := activate(path, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nil, []byte("settings step failed with the same active profile"), 1, nil
+	}
+	_, failure := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "failed-same-output", nil, nil, nil, nil, nil)
+	if failure == nil {
+		t.Fatal("failed retry was reported as complete")
+	}
+	gens, err = provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gens) != 2 || !gens[0].Partial || gens[0].HomeManager == nil || !gens[0].HomeManager.ActivationFailed || gens[0].HomeManager.Generation != prior.Generation {
+		t.Fatalf("failed retry left completed-settings evidence active: %+v; error=%+v", gens, failure)
+	}
+	current := gens[0].HomeManager
+	if current.Resolution.Source.URL != prior.Resolution.Source.URL || current.ActivationOutput != prior.ActivationOutput {
+		t.Fatalf("unchanged native identity acquired an unused source: prior=%+v current=%+v", prior, current)
+	}
+	details, ok := failure.Detail.(map[string]string)
+	if !ok || details["stage"] != "activation" {
+		t.Fatalf("unchanged profile was reported as a new commit: %+v", failure)
+	}
+	cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend)
+	if cfg != nil || len(warnings) != 1 {
+		t.Fatalf("failed same-output retry remained capturable: %+v %v", cfg, warnings)
+	}
+	if item := checkHomeManagerGeneration(f.backend, noopEmitter()); item.Status != "fail" {
+		t.Fatalf("failed same-output retry remained verified: %+v", item)
+	}
+	if action := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil {
+		t.Fatalf("failed retry lost existing ownership: %+v", action)
+	}
+}
+
+func TestProvisioningReviewRefreshKeepsTheChangedRefResolution(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	oldResolution := &realizer.InputResolution{Derivation: "/nix/store/old-target.drv"}
+	newResolution := &realizer.InputResolution{Derivation: "/nix/store/new-target.drv"}
+	desired := realizer.Installable{ID: "app", Ref: "newAttribute", Resolution: newResolution}
+	// A later inventory can retain an old attributed entry while its new wrapper
+	// row has no resolution yet. It must not erase the observed realization's identity.
+	current := realizer.Set{Generation: 2, Elements: map[string]realizer.Element{
+		"old-native": {ID: "app", RequestedRef: "oldAttribute", Name: "old-native", Resolution: oldResolution},
+		"new-native": {ID: "app", RequestedRef: "newAttribute", Name: "new-native", AttrPath: "packages.x86_64-linux.p1", StorePaths: []string{"/nix/store/new-target"}},
+	}}
+	after := realizer.Set{Generation: 2, Elements: map[string]realizer.Element{
+		"new-native": {ID: "app", RequestedRef: "newAttribute", Name: "new-native", Resolution: newResolution},
+	}}
+	backend := &fakeRealizer{planDiff: realizer.Diff{ToAdd: []realizer.Installable{desired}}, currentSet: current, realizeResult: realizer.Result{Advanced: true, ToGeneration: 2, After: after}}
+	mf := &manifest.Manifest{Apps: []manifest.App{nixApp("app", "newAttribute")}}
+	if _, err := runApplyRealizer(ApplyFlags{}, mf, backend, noopEmitter(), "changed-ref-no-prune", nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	gens, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gens) != 1 || len(gens[0].Items) != 1 || gens[0].Items[0].Resolution == nil || gens[0].Items[0].Resolution.Derivation != newResolution.Derivation {
+		t.Fatalf("old requested target overwrote the installed target's provenance: %+v", gens)
+	}
+}

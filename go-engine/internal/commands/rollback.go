@@ -305,6 +305,11 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 				}
 			}
 			newHomeRef = &copyRef
+			if herr != nil {
+				if detail, ok := herr.Detail.(map[string]string); ok && detail["stage"] == "activation" {
+					newHomeRef = preserveHomeManagerRetryIdentity(newHomeRef)
+				}
+			}
 		}
 		if herr != nil {
 			return nil, herr

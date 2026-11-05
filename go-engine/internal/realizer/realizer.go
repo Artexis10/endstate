@@ -72,8 +72,8 @@ type PreparationFinalizer interface{ FinalizePreparation(committed bool) }
 // HomePreparer freezes and optionally builds activation before package mutation.
 type HomePreparer interface {
 	PrepareHome(flake string, build bool) (*InputResolution, error)
-	// A positive generation with an error records a native commit followed by
-	// failed activation, not completed settings.
+	// A positive generation with an error identifies the active intended output
+	// after failed settings activation. The profile may already have been active.
 	ActivatePreparedHome(*InputResolution) (int, error)
 	ActiveHomeOutput() string
 }
@@ -170,7 +170,7 @@ type Result struct {
 type Error struct {
 	Code    envelope.ErrorCode
 	Subcode string // eval | network | collision | store | permission | daemon | spawn
-	Stage   string // eval | fetch | build | commit | spawn (pipeline stage, informational)
+	Stage   string // eval | fetch | build | commit | activation | spawn (pipeline stage, informational)
 	Raw     string
 }
 

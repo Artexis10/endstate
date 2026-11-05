@@ -488,7 +488,7 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 	if reader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
 		activeOutput = reader.ActiveHomeOutput()
 	}
-	matching, outputHistory := matchingHomeManagerReference(gens, activeOutput)
+	matching, outputHistory := matchingHomeManagerReference(gens, activeOutput, 0)
 	if outputHistory && matching == nil {
 		return unavailable()
 	}
