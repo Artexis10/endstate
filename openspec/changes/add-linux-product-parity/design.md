@@ -273,7 +273,7 @@ This extends the existing Nix backend and provisioning records. A copied source-
 
 Schema-v3 generation identity consists of the module, platform, config set, and local generation ID. Local generation IDs and migration endpoints stay unchanged. Captures persist `sourcePlatform`; one formatter supplies qualified history identities without storing a second identity string.
 
-The parser hashes a canonical envelope containing module ID, platform, config-set ID, generation ID, and the selected variant definition. It excludes computed fingerprints and historical acceptance lists. JSON numbers retain their exact values. Legacy fingerprints remain unchanged. Changes to another platform do not invalidate the selected variant. Changes within that variant require explicit historical acceptance.
+The parser hashes a canonical envelope containing module ID, platform, config-set ID, generation ID, and the selected variant definition. It excludes computed fingerprints, historical acceptance lists, and inbound mappings from decision 20. JSON numbers retain their exact values. Legacy fingerprints remain unchanged. Changes to another platform do not invalidate the selected variant. Changes within that variant require explicit historical acceptance.
 
 Executable projections own their mutable declarations. They retain the full authored snapshot and revision for inspection. Generation history reads its legacy schema and writes schema version 2 with an optional platform field. Legacy entries retain their original identities and fingerprints.
 
@@ -290,6 +290,109 @@ Task 5.4 includes the same-platform guard from task 5.5. The resolver checks sou
 The proof captures a Linux generation and restores it through its compatible Linux variant. The same bundle offered to a Windows variant must leave target bytes unchanged and create no transaction, even if that variant accepts the source fingerprint. The existing resolver, staging engine, and journal provide this behavior; no second restore engine is required.
 
 The matrix represents normalized flat schema-v3 shorthand with the existing `capture-contract` scenario and only `catalog` plus `engine-contract` proof. The adapter must establish the original absence of authored `config` from the selected variant, not from shorthand IDs alone. It preserves exact payload, source snapshot, platform, fingerprint, content, and optional-absence checks. An independent workflow test proves actual capture and restore bytes. Generation and migration scenarios retain their non-zero production-validation requirements; a shorthand with no declared validation receives no config-roundtrip proof credit.
+
+### 20. Target variants own one-step platform mappings
+
+Task 5.5 reuses the existing migration operations, validators, staging engine,
+and configuration transactions. It adds no cross-platform route search.
+
+A target variant may declare `mappings`. Each mapping has a unique `id`, typed
+`from` and `to` endpoints, `acceptsSourceFingerprints`, `operations`, and
+`validate`. Each endpoint names `platform`, `configSetId`, and `generationId`.
+The containing module supplies module identity. The target endpoint must name
+the containing variant; the source must name another platform.
+
+Accepted source fingerprints must be nonempty, unique SHA-256 values. An
+explicit empty `operations` array declares an unchanged payload representation.
+Other operations use the existing migration operation types. Nonempty mapping
+validation is mandatory. Each validation path must resolve through a target
+restore declaration, so the engine can check staging and committed state.
+
+The source snapshot and payload remain integrity evidence. The current target
+catalog supplies mapping authority. A historical source generation need not
+remain executable in the current catalog. Repository history checks bind each
+accepted fingerprint to its declared source identity.
+
+Positive mappings accept genuine schema-v3 sources and implicit Windows
+schema-v2 sources. Existing snapshot verification computes a stricter internal
+link result for schema 2: exact module, set, generation, and recomputed
+fingerprint. Cross-platform acceptance requires that result. Same-platform
+legacy reads keep their current behavior. Repository checks use qualified
+history for schema 3 and implicit Windows history for schema 2. Runtime does
+not reload history or treat it as execution authority.
+
+The planner matches the source endpoint and fingerprint, then selects the
+current target generation through existing version evidence. Exactly one
+mapping must end at that generation. Overlapping source acceptance must identify
+one target set. Duplicate bridges are invalid catalog data. Missing acceptance
+keeps `platform_mapping_missing`; target ambiguity keeps existing generation
+diagnostics. An explicit instance selection cannot bypass mapping authority.
+
+Each mapping supports one source set and one target set, including explicit
+set renaming. Existing `configSetId` remains source identity. Additive
+`targetConfigSetId` identifies the target and defaults to the source for old
+plans. Collision checks use the target set. Split, merge, cross-module, and
+multi-hop mappings remain outside this contract.
+
+The immutable plan pins the mapping, target set, target generation, module
+revision, and target path policies. The staging request carries a separate
+mapping step. Equal local generation IDs and empty operations remain valid
+there; local migration-edge rules remain unchanged. A bridge ends at the
+selected generation without an additional target-side migration route.
+
+Mapping validations run after staging. Materialization appends them to target
+generation validations for committed checks and journal persistence. Each
+mapping check identifies exactly one non-excluded path that the restore
+actually transfers. A valid pre-existing target cannot substitute for that
+transfer.
+
+Target restore declarations control destinations and copy exclusions. Target secret
+declarations and applicable target capture exclusions also govern mapped
+members before backups or writes. Capture exclusions retain their declared
+source-root scope. Reuse existing path and glob matchers; never treat those
+checks as semantic proof that content contains no credentials. A forbidden
+mapped member fails the set before mutation, with the existing safety reason.
+The user can retry after correcting the payload or target declaration.
+
+Materialization checks target policy after resolving source and destination
+pairs, before preparing actions. It inspects only transferred members. A copy
+member maps to its destination plus its relative suffix; merge and append
+operations use their exact destination. Target capture sources resolve through
+the same instance and host boundary. For each applicable source, exclusions
+first check its basename, then any directory-relative member. A sibling source
+stays outside that scope. Existing restore exclusions determine transferred
+members.
+
+The shared secret matcher accepts already-resolved paths and explicit platform
+case rules for this boundary. Existing capture wrappers retain their behavior.
+Linux matching remains case-sensitive, and malformed patterns produce errors.
+The engine never expands resolved paths again or scans unrelated stage files.
+
+The new matching boundary uses `github.com/bmatcuk/doublestar/v4` at version
+`v4.9.1`. The standard matcher lacks recursive glob semantics. The existing
+secret matcher misses combined forms such as `**/token*.json`. One shared
+entry point uses the maintained parser and preserves directory-secret and
+basename policy. Existing capture wrappers retain their compatibility behavior;
+their mixed-wildcard limitation remains explicit debt. The added maintenance
+cost is one pure Go dependency with no transitive module requirements.
+
+The mapped restore proof includes a forbidden `nested/token1.json` member
+matched by a recursive wildcard plus a filename wildcard. It checks the
+integration boundary, not the library's pattern corpus.
+
+Inbound mappings are compatibility authority, separate from generation
+meaning. Exclude `mappings` from generation fingerprints alongside acceptance
+metadata, while retaining the entire mapping in canonical snapshots and module
+revisions. This prevents compatibility edits from changing capture meaning or
+creating reciprocal fingerprint dependencies.
+
+Reports, events, and journals retain the mapping identity, both platforms, and
+the target set. Journal validation distinguishes a platform bridge from a
+local migration. Old journals keep their existing interpretation and remain
+readable. The proof captures a real Linux fixture, restores through an authored
+target mapping, checks contents, and reverts. Hostile cases cover missing
+acceptance, equal local IDs, ambiguous mappings, transformed forbidden members,
+and failed staging or target validation.
 
 ## Risks / Trade-offs
 

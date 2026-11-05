@@ -103,6 +103,33 @@ The engine SHALL classify a live Home Manager activation as externally owned whe
 ### Requirement: Cross-platform restore requires authored compatibility
 A capture SHALL default to restoration through the same platform variant. Restoring to a different platform SHALL require an authored target mapping or migration that names the source and target variants, defines how the payload is interpreted, and validates the target result. Similar filenames, config-set IDs, or generation IDs SHALL NOT imply portability.
 
+The target variant SHALL own each one-step mapping. Its `from` and `to`
+endpoints SHALL name the platform, config set, and generation. The mapping
+SHALL explicitly accept the verified source fingerprint. Its `operations`
+array SHALL reuse existing migration operations; an explicit empty array
+declares an unchanged payload representation. Nonempty `validate` declarations
+SHALL check staging and committed target state through target restore paths.
+The mapping SHALL end at the selected target generation without route search.
+Each mapping validation SHALL identify exactly one non-excluded, transferred
+restore path. A pre-existing target SHALL NOT substitute for transferred state.
+
+The plan SHALL pin the target mapping and target set from the current catalog.
+An explicit target instance SHALL NOT supply mapping authority. Existing
+`configSetId` SHALL retain source identity. Additive `targetConfigSetId` SHALL
+identify a renamed target set. Target collision checks SHALL use target
+identity. Reports, events, and journals SHALL retain both platform identities
+and the mapping identity while preserving old journal interpretation.
+
+Inbound mappings SHALL remain in canonical snapshots and module revisions but
+SHALL NOT affect generation fingerprints. Target secret declarations, scoped
+capture exclusions, and restore exclusions SHALL apply before mutation. A
+mapping SHALL NOT turn source capture success into target safety authority.
+
+A positive mapping from a legacy schema-v2 capture SHALL require exact source
+snapshot linkage for its module, set, generation, and recomputed fingerprint.
+That source remains implicitly Windows-scoped. The engine SHALL NOT apply
+this stronger mapping precondition to existing same-platform legacy reads.
+
 #### Scenario: Same-platform restore resolves normally
 - **WHEN** a Linux capture is applied to a compatible Linux target variant
 - **THEN** normal generation and provenance resolution SHALL apply
@@ -116,6 +143,28 @@ A capture SHALL default to restoration through the same platform variant. Restor
 - **WHEN** a module declares and validates a Linux-to-Darwin mapping for a portable config set
 - **THEN** the engine MAY materialize the target variant through that mapping
 - **AND** it SHALL report both source and target variant identities
+
+#### Scenario: Equal local generation names still use the mapping
+- **WHEN** source and target variants both call their generation `g1`
+- **AND** the current target variant accepts the source through an authored mapping
+- **THEN** the engine SHALL execute and record that mapping
+- **AND** it SHALL NOT treat equal local IDs as same-platform direct restore
+
+#### Scenario: A mapping introduces a target-forbidden member
+- **WHEN** valid source payload or a mapping operation creates a member forbidden by target path policy
+- **THEN** the engine SHALL fail the mapped set before backups or target writes
+- **AND** a capture exclusion SHALL retain its declared source-root scope
+
+#### Scenario: A target excludes a complete capture root
+- **WHEN** a target capture exclusion matches its declared source basename
+- **THEN** the mapping SHALL treat every transferred member under that source as forbidden
+- **AND** the exclusion SHALL NOT apply to a sibling source
+
+#### Scenario: A secret pattern combines recursive and filename wildcards
+- **WHEN** target policy forbids a resolved pattern ending in `app/**/token*.json`
+- **AND** a mapped member targets `app/nested/token1.json`
+- **THEN** the engine SHALL reject that mapped set before mutation
+- **AND** it SHALL NOT treat the filename wildcard as literal text
 
 ### Requirement: Platform variants retain the full secret and safety boundary
 Platform-specific secret exclusions SHALL be validated and applied before payload publication or restore. A shared portable module SHALL NOT weaken a stricter variant's exclusions. Credentials, keys, keyrings, authentication stores, histories, caches, databases, and machine-bound state SHALL be excluded unless a separate governed capability explicitly authorizes them.

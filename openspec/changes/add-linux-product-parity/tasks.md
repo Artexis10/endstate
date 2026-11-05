@@ -182,6 +182,7 @@ fingerprints/history, capture provenance, and authored platform mappings.
 - [ ] 5.4 Qualify generation identity, fingerprints, history, manifest provenance, and validation with non-empty source platform/variant identity
   - Decision 19 includes flat schema-v3 normalization through `default/g1`, source-snapshot schema linkage, the same-platform guard from 5.5, required host-coordinate support from 5.6, and the complete event/strict-reader chain. Full authored cross-platform mappings and remaining path tooling stay separate.
 - [ ] 5.5 Implement same-platform default resolution plus explicit source-to-target mappings/migrations and stable `platform_mapping_missing`
+  - Decision 20 defines target-owned one-step mappings, pinned target identity, staging and committed validation, and target path policy. The same-platform refusal is part of 5.4; positive mappings require their own accepted implementation and lifecycle proof.
 - [ ] 5.6 Complete coordinate canonicalization, containment, symlink, unsupported-shell, diagnostics, validation-mode, and frozen-fixture tooling
 
 ## 6. Linux capture and additive CLI contract
