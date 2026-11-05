@@ -271,3 +271,31 @@ func TestSchemaV3SnapshotBindsCaptureToExactAuthoredSource(t *testing.T) {
 		t.Fatalf("synthetically upgraded source accepted: %v", err)
 	}
 }
+
+func TestLegacySnapshotMappingLinkRequiresExactIdentityWithoutChangingLegacyReads(t *testing.T) {
+	raw := []byte(`{"moduleSchemaVersion":2,"id":"apps.link","displayName":"Link fixture","config":{"instanceDetectors":[{"id":"default","type":"path","glob":"${home}"}],"sets":[{"id":"preferences","generations":[{"id":"g1","order":1}]}]}}`)
+	mod, err := modules.ParseModuleJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	snapshot, err := WriteModuleSnapshot(root, mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := manifest.ConfigCapture{ModuleID: mod.ID, ConfigSetID: "preferences", SourceGeneration: "g1", SourceGenerationFingerprint: mod.Config.Sets[0].Generations[0].Fingerprint, CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 2, SnapshotPath: snapshot.Path, ContentHash: snapshot.ContentHash}}
+	linked, err := VerifyModuleSnapshotLink(root, capture)
+	if err != nil || !linked {
+		t.Fatalf("genuine legacy source linkage: %v, %v", linked, err)
+	}
+	for _, change := range []func(*manifest.ConfigCapture){func(c *manifest.ConfigCapture) { c.ModuleID = "apps.other" }, func(c *manifest.ConfigCapture) { c.ConfigSetID = "other" }, func(c *manifest.ConfigCapture) { c.SourceGeneration = "g2" }, func(c *manifest.ConfigCapture) { c.SourceGenerationFingerprint = strings.Repeat("a", 64) }} {
+		candidate := capture
+		change(&candidate)
+		if linked, err := VerifyModuleSnapshotLink(root, candidate); err != nil || linked {
+			t.Fatalf("mismatched legacy source acquired mapping linkage: %v, %v", linked, err)
+		}
+		if err := VerifyModuleSnapshot(root, candidate); err != nil {
+			t.Fatalf("legacy same-platform behavior strengthened: %v", err)
+		}
+	}
+}

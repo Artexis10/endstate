@@ -96,7 +96,7 @@ func projectPlatformVariant(mod *Module, platform string, variant PlatformVarian
 		ID:                  mod.ID, DisplayName: mod.DisplayName, Sensitivity: mod.Sensitivity,
 		Matches: variant.Matches, Verify: variant.Verify, Restore: variant.Restore,
 		Capture: variant.Capture, Secrets: variant.Secrets, Notes: mod.Notes,
-		Config: variant.Config, Curation: curation,
+		Config: variant.Config, Curation: curation, Mappings: variant.Mappings,
 		FilePath: mod.FilePath, ModuleDir: mod.ModuleDir, Tier: mod.Tier, Revision: mod.Revision,
 		Unversioned: schemaVersion == 1, canonicalSnapshot: mod.CanonicalSnapshot(),
 		SourceSchemaVersion: 3, Platform: platform, Realization: variant.Realization,

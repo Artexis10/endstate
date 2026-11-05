@@ -602,7 +602,7 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 		stage, err := stageConfigRestoreSetFn(ctx, migration.StageRequest{
 			CaptureID: set.Source.CaptureID, PayloadRoot: source.payloadRoot,
 			PayloadManifest: source.payloadManifest, SourceGeneration: set.Source.Generation,
-			TargetGeneration: set.TargetGenerationDef, MigrationEdges: set.MigrationEdges,
+			TargetGeneration: set.TargetGenerationDef, MigrationEdges: set.MigrationEdges, Mapping: set.Mapping,
 			TempParent: stageParent,
 			Observer:   events.NewMigrationStageObserver(options.Emitter, set.Source.ConfigSetID),
 		})
@@ -738,6 +738,8 @@ func configRestoreJournalLineage(runID string, set planner.PlanSet) configrestor
 	return configrestore.JournalLineage{
 		RunID: runID, CaptureID: set.Source.CaptureID, ModuleID: set.Source.ModuleID,
 		ConfigSetID: set.Source.ConfigSetID, TargetInstanceID: set.Resolution.TargetInstanceID,
+		TargetConfigSetID: set.Resolution.TargetConfigSetID, MappingID: set.Resolution.MappingID,
+		SourcePlatform: set.Resolution.SourcePlatform, TargetPlatform: set.Resolution.TargetPlatform,
 		SourceGeneration: set.Source.Generation, TargetGeneration: set.Resolution.TargetGeneration,
 		MigrationPath:               append([]string{}, set.Resolution.MigrationPath...),
 		SourceGenerationFingerprint: set.Source.GenerationFingerprint,

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
@@ -313,8 +314,9 @@ func validateJournalIntentRequest(
 		desired := prepared.Desired()
 		actions[index] = JournalAction{
 			Index: index, Kind: action.Kind, Strategy: action.Strategy, Target: action.Target,
-			MissingParents: prepared.MissingParents(),
-			Prior:          journalActionState(prior), Desired: journalActionState(desired), SourceDigest: prepared.SourceDigest(),
+			TransferredPaths: append([]string(nil), action.transferredPaths...),
+			MissingParents:   prepared.MissingParents(),
+			Prior:            journalActionState(prior), Desired: journalActionState(desired), SourceDigest: prepared.SourceDigest(),
 		}
 		if action.RegistryValue != nil {
 			actions[index].RegistryKey = action.RegistryValue.Key
@@ -409,7 +411,16 @@ func validateJournalLineage(lineage JournalLineage) error {
 			return fmt.Errorf("%s must be a lowercase SHA-256 digest", name)
 		}
 	}
-	if lineage.SourceGeneration == lineage.TargetGeneration {
+	if lineage.MappingID != "" {
+		if !manifest.IsSupportedConfigPlatform(lineage.SourcePlatform) || !manifest.IsSupportedConfigPlatform(lineage.TargetPlatform) || lineage.SourcePlatform == lineage.TargetPlatform || lineage.TargetConfigSetID == "" || lineage.MappingID != strings.TrimSpace(lineage.MappingID) || containsControl(lineage.MappingID) || lineage.TargetConfigSetID != strings.TrimSpace(lineage.TargetConfigSetID) || containsControl(lineage.TargetConfigSetID) {
+			return fmt.Errorf("mapping lineage requires both platforms, mapping ID, and target config set")
+		}
+		if len(lineage.MigrationPath) != 2 || lineage.MigrationPath[0] != lineage.SourceGeneration || lineage.MigrationPath[1] != lineage.TargetGeneration {
+			return fmt.Errorf("mapping lineage must contain exactly its source and target generations")
+		}
+	} else if lineage.SourcePlatform != "" && lineage.TargetPlatform != "" && lineage.SourcePlatform != lineage.TargetPlatform {
+		return fmt.Errorf("cross-platform lineage requires a mapping")
+	} else if lineage.SourceGeneration == lineage.TargetGeneration {
 		if len(lineage.MigrationPath) != 0 {
 			return fmt.Errorf("direct lineage migration path must be empty")
 		}

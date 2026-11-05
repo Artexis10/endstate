@@ -47,3 +47,7 @@ func (boundary configRestoreHostBoundary) ProjectFilesystemIdentity(absolute str
 func (boundary configRestoreHostBoundary) ValidateFilesystemTarget(absolute string) error {
 	return boundary.context.ValidateSandboxPath(filepath.Clean(absolute))
 }
+
+func (boundary configRestoreHostBoundary) ResolveHostPattern(authored string, instance modules.ConfigInstance) (string, error) {
+	return boundary.context.ResolveHostPattern(authored, validationmode.HostPathPolicy{InstanceRoot: instance.Root, AllowRoot: true})
+}

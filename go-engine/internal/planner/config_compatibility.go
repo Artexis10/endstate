@@ -23,6 +23,8 @@ type pinnedCompatibilityModule struct {
 	revision            string
 	sets                map[string]modules.ConfigSetDef
 	instanceDetectors   []modules.InstanceDetectorDef
+	mappings            []modules.PlatformMappingDef
+	secrets             *modules.SecretsDef
 	processPatterns     []string
 }
 
@@ -43,6 +45,8 @@ func NewCompatibilityResolver(catalog map[string]*modules.Module, diagnostics []
 			platform:            current.Platform,
 			revision:            current.Revision,
 			sets:                make(map[string]modules.ConfigSetDef),
+			mappings:            modules.ClonePlatformMappings(current.Mappings),
+			secrets:             cloneSecretsDef(current.Secrets),
 			processPatterns:     sortedUniqueStrings(current.Matches.Exe),
 		}
 		if current.SourceSchemaVersion != 3 {
@@ -189,7 +193,7 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 	plan.Resolution.TargetPlatform = current.platform
 	// Matching local generations never authorize writes across host platforms.
 	if r.platformMismatch(source) {
-		return finishCompatibility(plan, ResolutionIncompatible, ReasonPlatformMappingMissing, StatusSkipped)
+		return resolvePlatformMapping(plan, current, target)
 	}
 	plan.Resolution.RestoreModuleRevision = current.revision
 	if current.schemaVersion != 2 {

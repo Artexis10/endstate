@@ -39,6 +39,10 @@ const (
 // JournalLineage binds one transaction to immutable capture and trusted
 // restore-catalog identities.
 type JournalLineage struct {
+	TargetConfigSetID           string   `json:"targetConfigSetId,omitempty"`
+	MappingID                   string   `json:"mappingId,omitempty"`
+	SourcePlatform              string   `json:"sourcePlatform,omitempty"`
+	TargetPlatform              string   `json:"targetPlatform,omitempty"`
 	RunID                       string   `json:"runId"`
 	CaptureID                   string   `json:"captureId"`
 	ModuleID                    string   `json:"moduleId"`
@@ -75,6 +79,7 @@ type JournalFilesystemEntry struct {
 // JournalAction is one ordered concrete transaction action without staged
 // bytes or a mutable source path.
 type JournalAction struct {
+	TransferredPaths  []string           `json:"transferredPaths,omitempty"`
 	Index             int                `json:"index"`
 	Kind              ActionKind         `json:"kind"`
 	Strategy          string             `json:"strategy"`
@@ -213,6 +218,7 @@ func cloneJournalActions(actions []JournalAction) []JournalAction {
 	result := make([]JournalAction, len(actions))
 	for index, action := range actions {
 		result[index] = action
+		result[index].TransferredPaths = append([]string(nil), action.TransferredPaths...)
 		result[index].MissingParents = append([]string{}, action.MissingParents...)
 		result[index].Prior.Entries = append([]JournalFilesystemEntry{}, action.Prior.Entries...)
 		result[index].Desired.Entries = append([]JournalFilesystemEntry{}, action.Desired.Entries...)

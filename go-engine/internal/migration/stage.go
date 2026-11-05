@@ -32,6 +32,7 @@ type StageRequest struct {
 	SourceGeneration string
 	TargetGeneration *modules.GenerationDef
 	MigrationEdges   []modules.MigrationEdgeDef
+	Mapping          *modules.PlatformMappingDef
 	TempParent       string
 	Observer         StageObserver
 }
@@ -147,6 +148,24 @@ func (e *Engine) Stage(ctx context.Context, request StageRequest) (result *Stage
 		return nil, newStageError(request, CodeInvalidMigrationPath, PhasePathValidation, -1, err)
 	}
 	reporter.complete()
+	if request.Mapping != nil {
+		reporter.start(ProgressEdge, 0, request.Mapping.From.GenerationID, request.Mapping.To.GenerationID)
+		if err := e.checkpoint(ctx, PhaseEdgeOperation, 0); err != nil {
+			return nil, newStageError(request, CodeCanceled, PhaseEdgeOperation, 0, err)
+		}
+		if err := e.Apply(stageRoot, request.Mapping.Operations); err != nil {
+			return nil, operationStageError(request, 0, err)
+		}
+		reporter.complete()
+		reporter.start(ProgressValidation, 0, request.Mapping.From.GenerationID, request.Mapping.To.GenerationID)
+		if err := e.checkpoint(ctx, PhaseEdgeValidation, 0); err != nil {
+			return nil, newStageError(request, CodeCanceled, PhaseEdgeValidation, 0, err)
+		}
+		if err := configvalidate.ValidateStaging(stageRoot, request.Mapping.Validate); err != nil {
+			return nil, validationStageError(request, PhaseEdgeValidation, 0, err)
+		}
+		reporter.complete()
+	}
 	for edgeIndex, edge := range request.MigrationEdges {
 		reporter.start(ProgressEdge, edgeIndex, edge.From, edge.To)
 		if err := e.checkpoint(ctx, PhaseEdgeOperation, edgeIndex); err != nil {
@@ -261,6 +280,13 @@ func validateStageRequestShape(request StageRequest) error {
 }
 
 func validatePinnedEdges(request StageRequest) ([]string, error) {
+	if mapping := request.Mapping; mapping != nil {
+		if mapping.ID == "" || mapping.From.Platform == mapping.To.Platform || mapping.From.GenerationID != request.SourceGeneration || mapping.To.GenerationID != request.TargetGeneration.ID || mapping.Operations == nil || len(mapping.Validate) == 0 || len(request.MigrationEdges) != 0 {
+			return nil, fmt.Errorf("mapping must be one explicit validated platform bridge ending at the pinned generation")
+		}
+		return []string{request.SourceGeneration, request.TargetGeneration.ID}, nil
+	}
+
 	if len(request.MigrationEdges) == 0 {
 		if request.SourceGeneration != request.TargetGeneration.ID {
 			return nil, fmt.Errorf("direct stage source %q does not equal target %q", request.SourceGeneration, request.TargetGeneration.ID)

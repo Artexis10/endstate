@@ -157,7 +157,7 @@ func markTargetInstanceCompetition(plan *ConfigPlan, selected []int) {
 	owners := make(map[string][]int, len(selected))
 	for _, index := range selected {
 		set := &plan.Sets[index]
-		key := set.Source.ModuleID + "\x00" + set.Source.ConfigSetID + "\x00" + set.Resolution.TargetInstanceID
+		key := set.Source.ModuleID + "\x00" + TargetConfigSetID(*set) + "\x00" + set.Resolution.TargetInstanceID
 		owners[key] = append(owners[key], index)
 	}
 	for _, indices := range owners {

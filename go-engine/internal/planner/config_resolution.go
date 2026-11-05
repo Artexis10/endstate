@@ -115,6 +115,8 @@ type SourceCapture struct {
 	// bundle facts used during planning; they are not additional envelope data.
 	CaptureModuleSchemaVersion int  `json:"-"`
 	PayloadIntegrityFailed     bool `json:"-"`
+	SourceSnapshotLinked       bool `json:"-"`
+	SourcePayloadVerified      bool `json:"-"`
 }
 
 // TargetInstance is a current-catalog target candidate for one config set.
@@ -139,6 +141,8 @@ type TargetInstance struct {
 // ConfigResolution is the stable envelope-facing result for one captured
 // config set. Resolution and Status are intentionally independent axes.
 type ConfigResolution struct {
+	TargetConfigSetID           string            `json:"targetConfigSetId,omitempty"`
+	MappingID                   string            `json:"mappingId,omitempty"`
 	CaptureID                   string            `json:"captureId"`
 	ModuleID                    string            `json:"moduleId"`
 	ConfigSetID                 string            `json:"configSetId"`
@@ -241,6 +245,8 @@ type PlanSet struct {
 
 	// TargetGenerationDef and MigrationEdges are pinned declarative data for
 	// later staging. They are internal because modules remain data, not output.
-	TargetGenerationDef *modules.GenerationDef     `json:"-"`
-	MigrationEdges      []modules.MigrationEdgeDef `json:"-"`
+	TargetGenerationDef *modules.GenerationDef      `json:"-"`
+	MigrationEdges      []modules.MigrationEdgeDef  `json:"-"`
+	Mapping             *modules.PlatformMappingDef `json:"-"`
+	TargetSecrets       *modules.SecretsDef         `json:"-"`
 }

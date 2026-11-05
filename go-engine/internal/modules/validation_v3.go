@@ -34,6 +34,9 @@ func validateModuleV3(mod *Module, filePath string) error {
 			return validationError(mod, filePath, DiagnosticUnsafePath, "platform %q: %v", platform, err)
 		}
 		projected := projectPlatformVariant(mod, platform, variant)
+		if err := validatePlatformMappings(mod, platform, projected, filePath); err != nil {
+			return err
+		}
 		if err := validateModule(projected, filePath); err != nil {
 			return validationError(mod, filePath, DiagnosticCode(err), "platform %q: %v", platform, err)
 		}

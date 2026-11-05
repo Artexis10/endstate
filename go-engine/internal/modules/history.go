@@ -204,6 +204,35 @@ func ValidateRepositoryGenerationHistory(catalog map[string]*Module, history *Ge
 		historyByIdentity[entry.Identity()] = entry
 	}
 
+	for _, mod := range catalog {
+		if mod == nil || mod.EffectiveSchemaVersion() != 3 {
+			continue
+		}
+		for _, variant := range mod.Platforms {
+			for _, mapping := range variant.Mappings {
+				identity := GenerationIdentity(mod.ID, mapping.From.Platform, mapping.From.ConfigSetID, mapping.From.GenerationID)
+				entry := historyByIdentity[identity]
+				// Schema-v2 history keeps its established implicit-Windows identity.
+				if entry == nil && mapping.From.Platform == "windows" {
+					entry = historyByIdentity[GenerationIdentity(mod.ID, "", mapping.From.ConfigSetID, mapping.From.GenerationID)]
+				}
+				for _, fingerprint := range mapping.AcceptsSourceFingerprints {
+					recorded := false
+					if entry != nil {
+						for _, known := range entry.Fingerprints {
+							if known == fingerprint {
+								recorded = true
+								break
+							}
+						}
+					}
+					if !recorded {
+						return historyError(HistoryDiagnosticAcceptedFingerprintNotRecorded, identity, "mappings.acceptsSourceFingerprints", "mapping %q accepts an unrecorded source fingerprint", mapping.ID)
+					}
+				}
+			}
+		}
+	}
 	current := collectCurrentGenerations(catalog)
 	for _, declaration := range current {
 		identity := declaration.Identity()

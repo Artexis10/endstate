@@ -114,12 +114,17 @@ func markInvalidConfigCaptureSnapshots(request configRestoreBuildRequest, inputs
 	}
 	bundleRoot := filepath.Dir(request.ManifestPath)
 	invalidCaptureIDs := make(map[string]struct{})
+	linkedCaptureIDs := make(map[string]bool)
 	for _, capture := range request.Manifest.ConfigCaptures {
-		if err := bundle.VerifyModuleSnapshot(bundleRoot, capture); err != nil {
+		linked, err := bundle.VerifyModuleSnapshotLink(bundleRoot, capture)
+		linkedCaptureIDs[capture.CaptureID] = linked
+		if err != nil {
 			invalidCaptureIDs[capture.CaptureID] = struct{}{}
 		}
 	}
 	for index := range inputs.generationSources {
+		inputs.generationSources[index].source.SourceSnapshotLinked = linkedCaptureIDs[inputs.generationSources[index].source.CaptureID]
+		inputs.generationSources[index].source.SourcePayloadVerified = bundle.VerifyPayloadManifest(inputs.generationSources[index].payloadRoot, inputs.generationSources[index].payloadManifest) == nil
 		if _, invalid := invalidCaptureIDs[inputs.generationSources[index].source.CaptureID]; invalid {
 			inputs.generationSources[index].source.PayloadIntegrityFailed = true
 		}
@@ -226,6 +231,7 @@ func cloneConfigModule(value *modules.Module) *modules.Module {
 		cloned.Secrets = &secrets
 	}
 	cloned.Config = cloneConfigModuleConfigDef(value.Config)
+	cloned.Mappings = modules.ClonePlatformMappings(value.Mappings)
 	if value.Curation != nil {
 		curation := *value.Curation
 		curation.SnapshotRoots = cloneConfigSlice(value.Curation.SnapshotRoots)

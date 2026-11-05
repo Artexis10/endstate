@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -582,5 +583,38 @@ func assertStageError(t *testing.T, err error, code ErrorCode, phase StagePhase,
 	}
 	if typed.Phase != phase || typed.EdgeIndex != edgeIndex || typed.IntegrityCode != integrityCode || typed.ValidationCode != validationCode {
 		t.Fatalf("Stage error context = phase %q edge %d integrity %q validation %q", typed.Phase, typed.EdgeIndex, typed.IntegrityCode, typed.ValidationCode)
+	}
+}
+
+func TestStagePlatformBridgeKeepsEqualLocalIDsAndValidatesTransformedPayload(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(fmt.Sprint(invalid), func(t *testing.T) {
+			payload, parent := newStagePayload(t, map[string]string{"settings.json": `{"theme":"dark"}`})
+			mapping := &modules.PlatformMappingDef{ID: "bridge", From: modules.PlatformMappingEndpoint{Platform: "linux", ConfigSetID: "source", GenerationID: "g1"}, To: modules.PlatformMappingEndpoint{Platform: "darwin", ConfigSetID: "renamed", GenerationID: "g1"}, Operations: []modules.MigrationOperationDef{{Type: "file-move", Source: "settings.json", Target: "mapped.json"}}, Validate: []modules.ValidationDef{{Type: "json-path-exists", Path: "mapped.json", JSONPath: "$.theme"}}}
+			if invalid {
+				mapping.Validate[0].JSONPath = "$.missing"
+			}
+			request := StageRequest{CaptureID: "capture", PayloadRoot: payload, PayloadManifest: mustStageManifest(t, payload), SourceGeneration: "g1", TargetGeneration: &modules.GenerationDef{ID: "g1"}, Mapping: mapping, TempParent: parent}
+			staged, err := NewEngine().Stage(context.Background(), request)
+			if invalid {
+				if CodeOf(err) != CodeValidationFailed {
+					t.Fatalf("invalid transformed payload accepted: %v", err)
+				}
+				entries, readErr := os.ReadDir(parent)
+				if readErr != nil || len(entries) != 0 {
+					t.Fatalf("failed mapping retained stage: %v, %v", entries, readErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer staged.Close()
+			assertStageFile(t, staged.Root, "mapped.json", `{"theme":"dark"}`)
+			if !reflect.DeepEqual(staged.MigrationPath, []string{"g1", "g1"}) {
+				t.Fatalf("platform lineage collapsed: %v", staged.MigrationPath)
+			}
+			assertStageFile(t, payload, "settings.json", `{"theme":"dark"}`)
+		})
 	}
 }

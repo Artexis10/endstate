@@ -68,6 +68,16 @@ func Materialize(ctx context.Context, request Request) (*MaterializedSet, error)
 		return nil, err
 	}
 
+	var members []transferredMember
+	if request.Plan.Mapping != nil {
+		members, err = mappedTransferMembers(resolved)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkMappedTargetPolicy(request, instance, members, resolved); err != nil {
+			return nil, err
+		}
+	}
 	actions := make([]Action, 0, len(resolved))
 	for index, entry := range resolved {
 		concrete, err := materializeOne(entry, index)
@@ -76,10 +86,28 @@ func Materialize(ctx context.Context, request Request) (*MaterializedSet, error)
 		}
 		for actionIndex := range concrete {
 			concrete[actionIndex].Label = entry.definition.Reason
+			if request.Plan.Mapping != nil {
+				for _, member := range members {
+					if member.actionIndex == index {
+						relative, err := filepath.Rel(entry.target, member.target)
+						if err != nil {
+							return nil, newError(CodeUnsafePath, index, member.target, err)
+						}
+						concrete[actionIndex].transferredPaths = append(concrete[actionIndex].transferredPaths, filepath.ToSlash(relative))
+					}
+				}
+			}
 		}
 		actions = append(actions, concrete...)
 	}
-	validations, err := resolveValidations(generation.Validate, resolved)
+	definitions := append([]modules.ValidationDef(nil), generation.Validate...)
+	var validations []configvalidate.ResolvedValidation
+	if request.Plan.Mapping != nil {
+		definitions = append(definitions, request.Plan.Mapping.Validate...)
+		validations, err = resolveMappedValidations(definitions, members)
+	} else {
+		validations, err = resolveValidations(definitions, resolved)
+	}
 	if err != nil {
 		return nil, err
 	}

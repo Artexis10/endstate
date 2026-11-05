@@ -10,6 +10,7 @@ godebug (
 )
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.9.1
 	github.com/danieljoos/wincred v1.2.3
 	github.com/gofrs/flock v0.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1

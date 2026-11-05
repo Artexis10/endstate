@@ -61,6 +61,9 @@ type journalIntentDisk struct {
 }
 
 func newJournalIntentDisk(lineage JournalLineage, actions []JournalAction, validations []JournalValidation) (journalIntentDisk, []byte, error) {
+	if err := validateMappedJournalTransfers(lineage, actions, validations); err != nil {
+		return journalIntentDisk{}, nil, err
+	}
 	identity := journalIntentIdentity{
 		Format: journalIntentFormat, Version: journalFormatVersion, State: JournalPending,
 		Lineage: cloneJournalLineage(lineage), Actions: cloneJournalActions(actions),

@@ -260,6 +260,7 @@ func platformGenerationFingerprint(mod *Module, platform, setID, generationID st
 
 func removePlatformFingerprintFields(value any) {
 	variant, _ := value.(map[string]any)
+	delete(variant, "mappings")
 	config, _ := variant["config"].(map[string]any)
 	sets, _ := config["sets"].([]any)
 	for _, item := range sets {

@@ -45,9 +45,10 @@ type Module struct {
 	// of a schema-v3 module. The projected legacy/generation shape lets the
 	// established collectors run while provenance retains the authored schema
 	// and host variant.
-	SourceSchemaVersion int    `json:"-"`
-	Platform            string `json:"-"`
-	Realization         string `json:"-"`
+	SourceSchemaVersion int                  `json:"-"`
+	Platform            string               `json:"-"`
+	Realization         string               `json:"-"`
+	Mappings            []PlatformMappingDef `json:"-"`
 	// canonicalSnapshot pins the parsed declarative module bytes at catalog load.
 	// It is intentionally private so callers cannot mutate the catalog snapshot.
 	canonicalSnapshot []byte
@@ -56,13 +57,14 @@ type Module struct {
 // PlatformVariant owns every executable declaration for one host operating
 // system. Shared identity/presentation stays on Module.
 type PlatformVariant struct {
-	Realization string        `json:"realization"`
-	Matches     MatchCriteria `json:"matches"`
-	Verify      []VerifyDef   `json:"verify,omitempty"`
-	Restore     []RestoreDef  `json:"restore,omitempty"`
-	Capture     *CaptureDef   `json:"capture,omitempty"`
-	Secrets     *SecretsDef   `json:"secrets,omitempty"`
-	Config      *ConfigDef    `json:"config,omitempty"`
+	Mappings    []PlatformMappingDef `json:"mappings,omitempty"`
+	Realization string               `json:"realization"`
+	Matches     MatchCriteria        `json:"matches"`
+	Verify      []VerifyDef          `json:"verify,omitempty"`
+	Restore     []RestoreDef         `json:"restore,omitempty"`
+	Capture     *CaptureDef          `json:"capture,omitempty"`
+	Secrets     *SecretsDef          `json:"secrets,omitempty"`
+	Config      *ConfigDef           `json:"config,omitempty"`
 }
 
 // CurationDef carries repository-maintenance metadata used to reproduce and
@@ -150,6 +152,23 @@ type GenerationDef struct {
 type VersionSelectorDef struct {
 	VersionRange   string `json:"versionRange,omitempty"`
 	VersionPattern string `json:"versionPattern,omitempty"`
+}
+
+// PlatformMappingEndpoint identifies a generation within one platform variant.
+type PlatformMappingEndpoint struct {
+	Platform     string `json:"platform"`
+	ConfigSetID  string `json:"configSetId"`
+	GenerationID string `json:"generationId"`
+}
+
+// PlatformMappingDef is a target-owned, one-step compatibility bridge.
+type PlatformMappingDef struct {
+	ID                        string                  `json:"id"`
+	From                      PlatformMappingEndpoint `json:"from"`
+	To                        PlatformMappingEndpoint `json:"to"`
+	AcceptsSourceFingerprints []string                `json:"acceptsSourceFingerprints"`
+	Operations                []MigrationOperationDef `json:"operations"`
+	Validate                  []ValidationDef         `json:"validate"`
 }
 
 // MigrationEdgeDef declares an explicit forward edge within one config set.

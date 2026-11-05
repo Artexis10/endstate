@@ -109,68 +109,80 @@ func moduleSnapshotIdentity(mod *modules.Module) (ModuleSnapshot, error) {
 // VerifyModuleSnapshot checks the immutable source evidence and its recorded
 // identity. Parsed source declarations never become target execution authority.
 func VerifyModuleSnapshot(bundleRoot string, capture manifest.ConfigCapture) error {
+	_, err := VerifyModuleSnapshotLink(bundleRoot, capture)
+	return err
+}
+
+// VerifyModuleSnapshotLink also reports exact source-generation linkage without
+// strengthening the established schema-v2 same-platform integrity contract.
+func VerifyModuleSnapshotLink(bundleRoot string, capture manifest.ConfigCapture) (bool, error) {
 	recordedPath := capture.CaptureModule.SnapshotPath
 	portablePath, err := normalizePortablePath(recordedPath)
 	if err != nil || portablePath != recordedPath || !strings.HasPrefix(portablePath, "provenance/modules/") {
-		return integrityError(IntegrityUnsafePath, recordedPath, "module snapshot must be a canonical path under provenance/modules/")
+		return false, integrityError(IntegrityUnsafePath, recordedPath, "module snapshot must be a canonical path under provenance/modules/")
 	}
 	hostPath, err := containedHostPath(bundleRoot, portablePath)
 	if err != nil {
-		return integrityPathError(err, recordedPath)
+		return false, integrityPathError(err, recordedPath)
 	}
 	if err := ensureNoLinksInExistingPath(hostPath); err != nil {
 		if os.IsNotExist(err) {
-			return integrityError(IntegritySnapshotMissing, recordedPath, "module snapshot is missing")
+			return false, integrityError(IntegritySnapshotMissing, recordedPath, "module snapshot is missing")
 		}
-		return integrityPathError(err, recordedPath)
+		return false, integrityPathError(err, recordedPath)
 	}
 	info, err := os.Lstat(hostPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return integrityError(IntegritySnapshotMissing, recordedPath, "module snapshot is missing")
+			return false, integrityError(IntegritySnapshotMissing, recordedPath, "module snapshot is missing")
 		}
-		return integrityError(IntegritySnapshotMissing, recordedPath, "inspect module snapshot: %v", err)
+		return false, integrityError(IntegritySnapshotMissing, recordedPath, "inspect module snapshot: %v", err)
 	}
 	if isLinkOrReparse(info) {
-		return integrityError(IntegrityLinkUnsupported, recordedPath, "module snapshot is a link or reparse point")
+		return false, integrityError(IntegrityLinkUnsupported, recordedPath, "module snapshot is a link or reparse point")
 	}
 	if !info.Mode().IsRegular() {
-		return integrityError(IntegrityNotRegular, recordedPath, "module snapshot is not a regular file")
+		return false, integrityError(IntegrityNotRegular, recordedPath, "module snapshot is not a regular file")
 	}
 	// Hash the same regular-file bytes that source provenance parsing consumes.
 	raw, _, err := safepath.ReadRegularFile(hostPath)
 	if err != nil {
-		return integrityError(IntegritySnapshotConflict, recordedPath, "read module snapshot: %v", err)
+		return false, integrityError(IntegritySnapshotConflict, recordedPath, "read module snapshot: %v", err)
 	}
 	if !payloadHashPattern.MatchString(capture.CaptureModule.ContentHash) || hashBytes(raw) != capture.CaptureModule.ContentHash {
-		return integrityError(IntegritySnapshotHashMismatch, recordedPath, "module snapshot SHA-256 does not match captureModule.contentHash")
+		return false, integrityError(IntegritySnapshotHashMismatch, recordedPath, "module snapshot SHA-256 does not match captureModule.contentHash")
 	}
 	source, err := modules.ParseModuleJSON(raw)
 	if err != nil || source.EffectiveSchemaVersion() != capture.CaptureModule.SchemaVersion {
-		return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot schema does not match captureModule.schemaVersion")
+		return false, integrityError(IntegritySnapshotConflict, recordedPath, "snapshot schema does not match captureModule.schemaVersion")
 	}
 	if source.EffectiveSchemaVersion() == 3 {
 		if source.ID != capture.ModuleID || !manifest.IsSupportedConfigPlatform(capture.SourcePlatform) ||
 			(capture.SourceInstance.Evidence != nil && capture.SourceInstance.Evidence.Platform != "" && capture.SourceInstance.Evidence.Platform != capture.SourcePlatform) {
-			return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot module or source platform does not match capture")
+			return false, integrityError(IntegritySnapshotConflict, recordedPath, "snapshot module or source platform does not match capture")
 		}
 		source = modules.ProjectModuleForPlatform(source, capture.SourcePlatform)
 		if source == nil || source.Config == nil {
-			return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot source variant has no config generations")
+			return false, integrityError(IntegritySnapshotConflict, recordedPath, "snapshot source variant has no config generations")
 		}
+	}
+	// Exact legacy linkage authorizes mappings without changing same-platform reads.
+	if source.ID == capture.ModuleID && source.Config != nil {
 		for _, set := range source.Config.Sets {
 			if set.ID != capture.ConfigSetID {
 				continue
 			}
 			for _, generation := range set.Generations {
 				if generation.ID == capture.SourceGeneration && generation.Fingerprint == capture.SourceGenerationFingerprint {
-					return nil
+					return true, nil
 				}
 			}
 		}
-		return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot source generation or fingerprint does not match capture")
 	}
-	return nil
+	if capture.CaptureModule.SchemaVersion == 3 {
+		return false, integrityError(IntegritySnapshotConflict, recordedPath, "snapshot source generation or fingerprint does not match capture")
+	}
+	return false, nil
 }
 
 func safeSnapshotID(moduleID string) string {

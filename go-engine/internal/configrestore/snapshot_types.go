@@ -160,6 +160,7 @@ func formatActionIndex(index int) string { return fmt.Sprintf("%06d", index) }
 func cloneAction(action Action) Action {
 	copy := action
 	copy.Exclude = append([]string(nil), action.Exclude...)
+	copy.transferredPaths = append([]string(nil), action.transferredPaths...)
 	copy.DesiredContent = append([]byte(nil), action.DesiredContent...)
 	if action.RegistryValue != nil {
 		value := *action.RegistryValue

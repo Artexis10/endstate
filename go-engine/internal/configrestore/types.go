@@ -85,6 +85,7 @@ type Action struct {
 	RegistryValue     *RegistryValue
 	SnapshotRequired  bool
 	resolvedSource    string
+	transferredPaths  []string
 	resolvedTarget    string
 }
 

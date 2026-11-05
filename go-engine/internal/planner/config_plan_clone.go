@@ -22,6 +22,8 @@ func clonePlanSet(set PlanSet) PlanSet {
 	cloned.Resolution = cloneConfigResolution(set.Resolution)
 	cloned.TargetGenerationDef = cloneGeneration(set.TargetGenerationDef)
 	cloned.MigrationEdges = cloneMigrationEdges(set.MigrationEdges)
+	cloned.Mapping = clonePlatformMapping(set.Mapping)
+	cloned.TargetSecrets = cloneSecretsDef(set.TargetSecrets)
 	return cloned
 }
 

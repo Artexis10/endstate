@@ -122,6 +122,10 @@ type StoreBackupInspection struct {
 
 // StoreLineageInspection contains only schema-recorded identity facts.
 type StoreLineageInspection struct {
+	TargetConfigSetID           string
+	MappingID                   string
+	SourcePlatform              string
+	TargetPlatform              string
 	RunID                       string
 	CaptureID                   string
 	ModuleID                    string
@@ -1147,6 +1151,7 @@ func inspectionLineage(lineage JournalLineage) StoreLineageInspection {
 	return StoreLineageInspection{
 		RunID: lineage.RunID, CaptureID: lineage.CaptureID, ModuleID: lineage.ModuleID,
 		ConfigSetID: lineage.ConfigSetID, TargetInstanceID: lineage.TargetInstanceID,
+		TargetConfigSetID: lineage.TargetConfigSetID, MappingID: lineage.MappingID, SourcePlatform: lineage.SourcePlatform, TargetPlatform: lineage.TargetPlatform,
 		SourceGeneration: lineage.SourceGeneration, TargetGeneration: lineage.TargetGeneration,
 		SourceGenerationFingerprint: lineage.SourceGenerationFingerprint,
 		CaptureModuleRevision:       lineage.CaptureModuleRevision, RestoreModuleRevision: lineage.RestoreModuleRevision,

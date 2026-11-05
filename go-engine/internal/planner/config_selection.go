@@ -46,7 +46,7 @@ func (r *CompatibilityResolver) resolveSourceTargets(
 	if source.PayloadIntegrityFailed {
 		return unresolvedSourcePlan(source, targets, ResolutionUnknown, ReasonPayloadIntegrityFailed, StatusFailed)
 	}
-	if r.platformMismatch(source) {
+	if r.platformMismatch(source) && !r.hasPlatformMapping(source) {
 		return unresolvedSourcePlan(source, targets, ResolutionIncompatible, ReasonPlatformMappingMissing, StatusSkipped)
 	}
 	candidates := make([]PlanSet, len(targets))
@@ -151,6 +151,10 @@ func clearSelectedTarget(plan *PlanSet) {
 	plan.Resolution.ResolvedTargets = []string{}
 	plan.TargetGenerationDef = nil
 	plan.MigrationEdges = nil
+	plan.Mapping = nil
+	plan.TargetSecrets = nil
+	plan.Resolution.MappingID = ""
+	plan.Resolution.TargetConfigSetID = ""
 }
 
 func isViableCompatibility(resolution ConfigResolution) bool {

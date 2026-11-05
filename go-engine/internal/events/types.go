@@ -85,6 +85,8 @@ type ConfigResolutionEvent struct {
 	SourceInstanceID            string                    `json:"sourceInstanceId,omitempty"`
 	TargetInstanceID            string                    `json:"targetInstanceId,omitempty"`
 	TargetCandidates            []planner.TargetInstance  `json:"targetCandidates"`
+	MappingID                   string                    `json:"mappingId,omitempty"`
+	TargetConfigSetID           string                    `json:"targetConfigSetId,omitempty"`
 	SourcePlatform              string                    `json:"sourcePlatform,omitempty"`
 	TargetPlatform              string                    `json:"targetPlatform,omitempty"`
 	SourceGeneration            string                    `json:"sourceGeneration,omitempty"`

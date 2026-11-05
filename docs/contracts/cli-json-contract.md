@@ -743,7 +743,17 @@ Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with u
 
 Schema-v3 config captures add `sourcePlatform` and retain `captureModule.schemaVersion: 3` for the authored snapshot. Source platform is required and must match instance evidence when present. Legacy schema-v2 captures remain Windows-scoped. Generation IDs remain local; module, platform, config set, and generation qualify their identity.
 
-Generation resolution data and `config-resolution` events add optional `sourcePlatform` and `targetPlatform`. A different target platform returns `platform_mapping_missing` before generation or fingerprint acceptance, including explicit target selection. This skip writes no target configuration. Snapshots supply source evidence; the trusted current catalog supplies executable restore declarations.
+Generation resolution data and `config-resolution` events add optional `sourcePlatform`, `targetPlatform`, `mappingId`, and `targetConfigSetId`.
+`configSetId` retains source identity; `targetConfigSetId` identifies a mapped target set and otherwise defaults to the source set.
+A different target platform requires an authored one-step mapping from the current target catalog, including explicit source-fingerprint acceptance and target validation.
+Explicit target-instance selection supplies no mapping authority.
+Missing acceptance returns `platform_mapping_missing` and writes no target configuration.
+Snapshots supply verified source evidence; the trusted current catalog supplies executable mappings and restore declarations.
+
+Mapped sets report `resolution: "migrate"`, including when both platforms use the same local generation ID.
+Their journals record both platforms, the mapping ID, the target set, and the transferred members that committed validations check.
+Older journals retain their existing meaning and remain readable.
+Target restore exclusions, secrets, and scoped capture exclusions apply before backups or target writes.
 
 Concrete `restoreItems[]` retain all existing fields. Items produced from a generation-aware config set add optional `captureId`, `configSetId`, `targetInstanceId`, `sourceGeneration`, and `targetGeneration` fields so actions remain traceable to the resolution plan.
 
