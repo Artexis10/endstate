@@ -65,11 +65,10 @@ type Generation struct {
 	HomeManager *HomeGenRef `json:"homeManager,omitempty"`
 }
 
-// HomeGenRef records a home-manager configuration the engine activated: the
-// flakeref applied and the resulting home-manager generation number. It is the
-// config analogue of the package Native anchor.
+// HomeGenRef records an observed home-manager generation and its known source.
+// A failed retry can leave the active generation's source unknown.
 type HomeGenRef struct {
-	Kind             string                    `json:"kind,omitempty"` // settings | config | flake; empty for legacy records
+	Kind             string                    `json:"kind,omitempty"` // settings | config | flake; empty for legacy or unknown sources
 	Generated        bool                      `json:"generated,omitempty"`
 	Platform         string                    `json:"platform,omitempty"`
 	System           string                    `json:"system,omitempty"`
@@ -82,7 +81,7 @@ type HomeGenRef struct {
 	// including retries that do not advance the native profile.
 	ActivationFailed bool `json:"activationFailed,omitempty"`
 
-	Flake string `json:"flake"`
+	Flake string `json:"flake,omitempty"`
 	// Config is the user's originally-declared homeManager.config (a path to a
 	// home.nix) when the activated flake was engine-generated from it; empty for a
 	// directly-declared homeManager.flake. Flake records what was actually

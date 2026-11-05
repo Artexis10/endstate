@@ -5,8 +5,10 @@ package commands
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 
@@ -335,5 +337,93 @@ func TestProvisioningReviewRefreshKeepsTheChangedRefResolution(t *testing.T) {
 	}
 	if len(gens) != 1 || len(gens[0].Items) != 1 || gens[0].Items[0].Resolution == nil || gens[0].Items[0].Resolution.Derivation != newResolution.Derivation {
 		t.Fatalf("old requested target overwrote the installed target's provenance: %+v", gens)
+	}
+}
+
+func TestProvisioningReviewMissingRetryHistoryKeepsOnlyObservedIdentity(t *testing.T) {
+	for _, history := range []string{"missing", "unreadable"} {
+		t.Run(history, func(t *testing.T) {
+			f := newNativeFreezeFixture(t)
+			f.activeHome = "/nix/store/home-output"
+			profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+			if err := os.MkdirAll(filepath.Dir(profile), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("home-manager-3-link", profile); err != nil {
+				t.Fatal(err)
+			}
+			f.backend.Script = func(path string, args ...string) ([]byte, []byte, int, error) {
+				return nil, []byte("settings retry failed"), 1, nil
+			}
+			if history == "unreadable" {
+				previous := listGenerationsFn
+				listGenerationsFn = func() ([]*provision.Generation, error) { return nil, fmt.Errorf("history unavailable") }
+				t.Cleanup(func() { listGenerationsFn = previous })
+			}
+			mf := &manifest.Manifest{HomeManager: &manifest.HomeManagerConfig{Flake: "github:example/unused-config#profile"}}
+			_, failure := runApplyRealizer(ApplyFlags{EnableRestore: true}, mf, f.backend, noopEmitter(), "unknown-prior-source", nil, nil, nil, nil, nil)
+			if failure == nil {
+				t.Fatal("failed retry was reported as complete")
+			}
+			gens, err := provision.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(gens) != 1 || !gens[0].Partial || gens[0].HomeManager == nil {
+				t.Fatalf("observed failed attempt was lost: %+v", gens)
+			}
+			want := provision.HomeGenRef{Generation: 3, ActivationOutput: f.activeHome, ActivationFailed: true}
+			if !reflect.DeepEqual(*gens[0].HomeManager, want) {
+				t.Fatalf("unknown historical source acquired prepared identity: got %+v, want %+v", gens[0].HomeManager, want)
+			}
+			encoded, err := json.Marshal(gens[0].HomeManager)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := fields["flake"]; exists {
+				t.Fatalf("unknown historical source was serialized as a declaration: %s", encoded)
+			}
+		})
+	}
+}
+
+func TestProvisioningReviewRollbackRetryWithoutMatchingHistoryKeepsOnlyObservedIdentity(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	f.activeHome = "/nix/store/home-output"
+	profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+	if err := os.MkdirAll(filepath.Dir(profile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("home-manager-3-link", profile); err != nil {
+		t.Fatal(err)
+	}
+	f.backend.Script = func(path string, args ...string) ([]byte, []byte, int, error) {
+		return nil, []byte("settings retry failed"), 1, nil
+	}
+	target := &provision.Generation{Backend: "nix", HomeManager: &provision.HomeGenRef{
+		Kind: "flake", Flake: "github:example/unused-config#profile", Generation: 1, ActivationOutput: f.activeHome,
+		Resolution: &realizer.InputResolution{Derivation: "/nix/store/home.drv", Outputs: []string{"out"}, OutputPaths: map[string]string{"out": f.activeHome}},
+	}}
+	if err := provision.Write(target); err != nil {
+		t.Fatal(err)
+	}
+	_, failure := runRealizerRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true}, f.backend)
+	if failure == nil {
+		t.Fatal("failed rollback retry was reported as complete")
+	}
+	gens, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gens) != 2 || !gens[0].Rollback || !gens[0].Partial || gens[0].HomeManager == nil {
+		t.Fatalf("observed failed rollback attempt was lost: %+v", gens)
+	}
+	want := provision.HomeGenRef{Generation: 3, ActivationOutput: f.activeHome, ActivationFailed: true}
+	if !reflect.DeepEqual(*gens[0].HomeManager, want) {
+		t.Fatalf("unchanged generation acquired the requested rollback source: got %+v, want %+v", gens[0].HomeManager, want)
 	}
 }

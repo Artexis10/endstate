@@ -831,7 +831,13 @@ func preserveHomeManagerRetryIdentity(home *provision.HomeGenRef) *provision.Hom
 			return &copyRef
 		}
 	}
-	return home
+	// Without exact history, only the observed native identity is proved. Losing
+	// source recovery costs a warning; inventing it could restore unused inputs.
+	return &provision.HomeGenRef{
+		Generation:       home.Generation,
+		ActivationOutput: home.ActivationOutput,
+		ActivationFailed: home.ActivationFailed,
+	}
 }
 
 func settingsDigest(settings *manifest.HomeManagerSettings) string {
