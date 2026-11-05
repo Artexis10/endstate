@@ -279,6 +279,11 @@ func pathIsEqualOrAncestor(path, target string) bool {
 }
 
 func authoredAliasSuffix(authored string) (string, string, bool) {
+	alias, suffix, ok := splitAuthoredAlias(authored)
+	return alias, suffix, ok && suffix != ""
+}
+
+func splitAuthoredAlias(authored string) (string, string, bool) {
 	if !strings.HasPrefix(authored, "%") {
 		return "", "", false
 	}
@@ -289,7 +294,7 @@ func authoredAliasSuffix(authored string) (string, string, bool) {
 	closing++
 	alias := authored[1:closing]
 	suffix := strings.TrimLeft(authored[closing+1:], `\/`)
-	if alias == "" || suffix == "" {
+	if alias == "" {
 		return "", "", false
 	}
 	return alias, suffix, true
@@ -336,7 +341,8 @@ func newCLIJourneyExecutor(selected *selection, runtime *scenarioRuntime) *cliJo
 // disposable original roots to the child process.
 func (runtime *scenarioRuntime) fixtureGuardRoot(authored string) (string, string, error) {
 	normalized := validationmode.NormalizeProductionAuthoredPath(authored)
-	alias, suffix, ok := authoredAliasSuffix(normalized)
+	// Whole-instance guards resolve the detector's bare root before its suffix.
+	alias, suffix, ok := splitAuthoredAlias(normalized)
 	if !ok {
 		return "", "", fmt.Errorf("fixture target has no declared alias")
 	}

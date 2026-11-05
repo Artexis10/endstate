@@ -671,3 +671,36 @@ func TestPrepareCoordinateGuardsUseDisposableNativeHome(t *testing.T) {
 		t.Fatal(failure)
 	}
 }
+
+func TestWholeInstanceFixtureGuardsResolveDetectorRoots(t *testing.T) {
+	for _, coordinate := range []string{"${home}", "${xdg.config}", "%APPDATA%"} {
+		t.Run(coordinate, func(t *testing.T) {
+			runtime := fixtureScenarioRuntime(t)
+			context := runtime.Plan.context
+			target, err := context.ResolveHostPath(coordinate+"/Profiles/one", validationmode.HostPathPolicy{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime.Plan = nil
+			runtime.Module.Verify = nil
+			runtime.GuardRoot = t.TempDir()
+			runtime.V2Plan = &V2FixturePlan{
+				context:  context,
+				Compiled: v2CompiledFixture{Detector: modules.InstanceDetectorDef{Type: "path", Glob: coordinate + "/Profiles/*"}},
+				Targets:  []V2FixtureTarget{{Authored: "${instance.root}", Coordinate: "restore[0].target", Resolved: target, Directory: true}},
+			}
+			if err := runtime.prepareGuardsAndTools(); err != nil {
+				t.Fatal(err)
+			}
+			if len(runtime.Guards) != 1 || runtime.assertGuards() != nil {
+				t.Fatalf("whole-instance fixture has no intact original guard: %+v", runtime.Guards)
+			}
+			if err := os.WriteFile(runtime.Guards[0].Path, []byte("unexpected original write"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if runtime.assertGuards() == nil {
+				t.Fatal("whole-instance fixture lost original-write detection")
+			}
+		})
+	}
+}
