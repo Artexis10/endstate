@@ -242,6 +242,11 @@ legacy, and Home Manager files. Planned optional files or blocked ownership
 alone do not establish a successful capture. Sanitized capture requires useful
 selected package state because it deliberately omits settings.
 
+Repeated equivalent captures retain honest timestamps. Acceptance compares
+stable serialized discovery, payload bytes, and bundle structure. It excludes
+only documented capture-time and archive-entry-time fields; all other metadata
+remains part of the comparison. No replay or frozen observation time is implied.
+
 ### 14. Linux artifacts are complete runtime bundles; GUI launches with AppImage plus deb
 
 The ordinary-machine contract cannot depend on a source checkout or ambient `ENDSTATE_ROOT`. Every shipped Linux engine artifact carries a version-matched binary, modules, payload, package catalog, frozen Home Manager registry, and schema identity. Unix bootstrap installs or resolves that complete asset set, and release smoke proves lookup plus no-Nix capture from shipped amd64 and arm64 engine artifacts.

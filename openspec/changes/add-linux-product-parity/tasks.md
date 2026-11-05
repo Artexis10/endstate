@@ -205,7 +205,7 @@ with later contract and GUI-consumer work.
 
 **Red-first tests:** `TestLinuxDiscoveryCountsReconcile`,
 `TestCaptureDiscoveryEmitsSourceAndItemEvents`,
-`TestLinuxCaptureIdenticalDiscoveryProducesByteStableBundle`,
+`TestLinuxCaptureIdenticalDiscoveryPreservesPortableBundle`,
 `TestLinuxCaptureUpdateSanitizeShareNeverStagesUnselectedPathConfig`,
 `TestCaptureAdapterRetriesAreBounded`.
 
@@ -220,7 +220,8 @@ After independent review, run the first tranche boundary:
 - [ ] 6.4 Implement the normative raw-source versus unique-candidate count model and independently checkable equations
 - [ ] 6.5 Complete `--only`, `--update`, `--sanitize`, and share behavior without leaking unselected path-only settings
 - [ ] 6.6 Add stable discovery source/item events, product-language messages, reason codes, and details-only backend diagnostics
-- [ ] 6.7 Prove repeated identical discovery produces byte-stable output/bundles with safe source provenance
+- [ ] 6.7 Prove repeated identical discovery preserves stable discovery, payload, and bundle structure with safe source provenance
+  - Keep honest capture timestamps. Exclude only documented capture-time and archive-entry-time fields from equivalence checks; compare all other metadata and payload bytes. This requires no replay or frozen-time behavior.
 - [ ] 6.8 Implement and test source-specific bounded retry reporting while retaining the zero-useful-state contract
 
 ## 7. Settings realization and ownership
