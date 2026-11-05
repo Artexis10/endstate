@@ -5,9 +5,13 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -72,6 +76,11 @@ func leafAttr(s string) string {
 
 // presentInSet reports whether ref's leaf attribute matches an installed element.
 func presentInSet(set realizer.Set, ref string) bool {
+	for _, element := range set.Elements {
+		if element.ID != "" && element.RequestedRef == ref {
+			return true
+		}
+	}
 	leaf := leafAttr(ref)
 	if leaf == "" {
 		return false
@@ -80,7 +89,7 @@ func presentInSet(set realizer.Set, ref string) bool {
 		return true
 	}
 	for _, e := range set.Elements {
-		if e.Name == leaf || leafAttr(e.AttrPath) == leaf {
+		if e.ID == "" && (e.Name == leaf || leafAttr(e.AttrPath) == leaf) {
 			return true
 		}
 	}
@@ -92,19 +101,25 @@ func presentInSet(set realizer.Set, ref string) bool {
 // attributes (the inverse of presentInSet) so e.g. "nixpkgs#ripgrep" matches an
 // element named "ripgrep".
 func computeDrift(current realizer.Set, desired []realizer.Installable) []string {
-	want := map[string]bool{}
-	for _, d := range desired {
-		if leaf := leafAttr(d.Ref); leaf != "" {
-			want[leaf] = true
-		}
-	}
 	var drift []string
-	for name, el := range current.Elements {
-		if want[leafAttr(name)] || (el.AttrPath != "" && want[leafAttr(el.AttrPath)]) {
-			continue
+	for name, element := range current.Elements {
+		keep := false
+		for _, item := range desired {
+			if element.ID != "" {
+				keep = realizer.Matches(element, item)
+			} else {
+				leaf := leafAttr(item.Ref)
+				keep = leaf != "" && (leafAttr(name) == leaf || leafAttr(element.AttrPath) == leaf)
+			}
+			if keep {
+				break
+			}
 		}
-		drift = append(drift, name)
+		if !keep {
+			drift = append(drift, name)
+		}
 	}
+	sort.Strings(drift)
 	return drift
 }
 
@@ -169,6 +184,7 @@ type preparedHomeManager struct {
 	flake           string
 	generated       bool
 	ownershipAction *HomeManagerOwnershipAction
+	resolution      *realizer.InputResolution
 }
 
 func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer) (*preparedHomeManager, *envelope.Error) {
@@ -179,10 +195,15 @@ func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Real
 	if err != nil || flake == "" {
 		return nil, err
 	}
-	return &preparedHomeManager{
-		flake: flake, generated: generated,
-		ownershipAction: externalHomeManagerAction(r, flake, generated),
-	}, nil
+	home := &preparedHomeManager{flake: flake, generated: generated, ownershipAction: externalHomeManagerAction(r, flake, generated)}
+	if preparer, ok := r.(realizer.HomePreparer); ok && home.ownershipAction == nil {
+		resolution, prepareErr := preparer.PrepareHome(flake, !flags.DryRun)
+		if prepareErr != nil {
+			return nil, inputResolutionError(prepareErr)
+		}
+		home.resolution = resolution
+	}
+	return home, nil
 }
 
 func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool) *HomeManagerOwnershipAction {
@@ -194,12 +215,29 @@ func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool
 		return nil
 	}
 	active := reader.ActiveHomeGeneration()
-	if active <= 0 {
+	hasOutput := false
+	if outputReader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
+		hasOutput = outputReader.ActiveHomeOutput() != ""
+	}
+	if active <= 0 && !hasOutput {
 		return nil
 	}
 	if generations, err := listGenerationsFn(); err == nil {
+		hasOutputHistory := false
 		for _, generation := range generations {
-			if generation != nil && generation.HomeManager != nil && generation.HomeManager.Generation == active {
+			if generation != nil && generation.HomeManager != nil && generation.HomeManager.Kind != "" {
+				hasOutputHistory = true
+				break
+			}
+		}
+		for _, generation := range generations {
+			if generation == nil || generation.HomeManager == nil {
+				continue
+			}
+			if hasOutputHistory && generation.HomeManager.Kind == "" {
+				continue
+			}
+			if homeManagerOwnsActive(r, generation.HomeManager, active) {
 				return nil
 			}
 		}
@@ -223,8 +261,12 @@ func generatedHomeModulePath(flake string) string {
 // stream so the event contract is preserved. Package install ONLY — config and
 // verify stages keep their own concerns. Raw backend text is confined to
 // error.detail.
-func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreScope *restoreModuleScope, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
+func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreScope *restoreModuleScope, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (result interface{}, resultErr *envelope.Error) {
 	driverName := r.Name()
+	preparationCommitted := false
+	if finalizer, ok := r.(realizer.PreparationFinalizer); ok {
+		defer func() { finalizer.FinalizePreparation(preparationCommitted) }()
+	}
 
 	// Brew lane (driver:"brew" apps) runs interleaved INSIDE the realizer's
 	// plan/apply/verify phases — one event stream, one summary per phase. Counts
@@ -258,6 +300,21 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		}
 	}
 
+	if resolver, ok := r.(realizer.InputResolver); ok {
+		var err error
+		desired, err = resolver.Prepare(desired)
+		if err != nil {
+			return nil, inputResolutionError(err)
+		}
+		for i := range entries {
+			for _, item := range desired {
+				if item.ID == entries[i].ins.ID {
+					entries[i].ins = item
+					break
+				}
+			}
+		}
+	}
 	diff, planErr := r.Plan(desired)
 	if planErr != nil {
 		if rerr, ok := planErr.(*realizer.Error); ok && isSystemic(rerr.Code) {
@@ -300,11 +357,12 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			actions = append(actions, a)
 		case e.isNix:
 			ref := e.ins.Ref
-			a := ApplyAction{ID: e.app.ID, Ref: stringPtr(ref), Driver: driverName, Name: e.name}
+			a := ApplyAction{ID: e.app.ID, Ref: stringPtr(ref), Driver: driverName, Name: e.name, Resolution: e.ins.Resolution}
 			if present[e.app.ID] {
 				a.Status, a.Reason = "present", "already_installed"
 				// Best-effort: parse the installed version from the current set.
-				if el, ok := curSet.Elements[e.app.ID]; ok {
+				if el, ok := installedElement(curSet, e.ins); ok {
+					a.Resolution = el.Resolution
 					a.Version = nix.StorePathVersion(el.Name, el.StorePaths)
 				}
 				emitter.EmitItem(ref, driverName, "present", "already_installed", "Already installed", e.name)
@@ -427,13 +485,62 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	// Track whether each mutating phase advanced a generation and to which
 	// number, so the single Provisioning Generation below records the converged
 	// set with the final advancing op's native generation.
-	installAdvanced := false
-	installGen := 0
+	installAdvanced, pruneAdvanced := false, false
+	installGen, pruneGen := 0, 0
+	var removed []string
+	var homeRef *provision.HomeGenRef
+	brewFailed := 0
+	defer func() {
+		native := ""
+		if installAdvanced {
+			native = fmt.Sprint(installGen)
+		}
+		if pruneAdvanced {
+			native = fmt.Sprint(pruneGen)
+		}
+
+		if cur, err := r.Current(); err == nil {
+			for i := range actions {
+				for _, el := range cur.Elements {
+					if el.ID == actions[i].ID {
+						actions[i].Resolution = el.Resolution
+						break
+					}
+				}
+			}
+		}
+		var persistErr error
+		if installAdvanced || pruneAdvanced || homeRef != nil {
+			persistErr = writeProvisioningGeneration(runID, driverName, actions, removed, native, failedCount > 0 || resultErr != nil, homeRef)
+		}
+		if err := writeProvisioningGeneration(runID, "brew", brew.brewActions(), nil, "", brewFailed > 0 || resultErr != nil, nil); err != nil && persistErr == nil {
+			persistErr = err
+		}
+		if persistErr != nil {
+			resultErr = provenanceWriteError(persistErr)
+		}
+	}()
 	if len(diff.ToAdd) > 0 {
 		for _, ins := range diff.ToAdd {
 			emitter.EmitItem(ins.Ref, driverName, "installing", "", fmt.Sprintf("Installing %s", ins.Ref), names[ins.ID])
 		}
-		res, _ := r.Realize(diff.ToAdd)
+		res, realizeErr := r.Realize(diff.ToAdd)
+		if realizeErr != nil {
+			return nil, inputResolutionError(realizeErr)
+		}
+		if res.Advanced {
+			preparationCommitted = true
+			installAdvanced = true
+			installGen = res.ToGeneration
+		}
+		if res.Err != nil && res.Advanced {
+			for _, ins := range diff.ToAdd {
+				if i, ok := idx[ins.ID]; ok {
+					actions[i].Status = "installed"
+				}
+			}
+			return nil, inputResolutionError(res.Err)
+		}
 		if res.Err != nil {
 			if isSystemic(res.Err.Code) {
 				// Whole-run infra failure: top-level error, stream truncates here.
@@ -457,15 +564,12 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				if i, ok := idx[ins.ID]; ok {
 					actions[i].Status, actions[i].Reason = "installed", ""
 					// Best-effort: parse the installed version from the post-realize set.
-					if el, ok := res.After.Elements[ins.ID]; ok {
+					if el, ok := installedElement(res.After, ins); ok {
+						actions[i].Resolution = el.Resolution
 						actions[i].Version = nix.StorePathVersion(el.Name, el.StorePaths)
 					}
 				}
 				successCount++
-			}
-			if res.Advanced {
-				installAdvanced = true
-				installGen = res.ToGeneration
 			}
 		}
 	}
@@ -474,9 +578,6 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	// After install, optionally remove installed-but-undeclared drift from the
 	// engine-managed set. Realizer-only and gated behind --confirm. Element names
 	// removed this run are recorded in the Provisioning Generation below.
-	var removed []string
-	pruneAdvanced := false
-	pruneGen := 0
 	if flags.Prune {
 		pruner, perr := requirePruner(r)
 		if perr != nil {
@@ -491,18 +592,22 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		}
 		cur, _ := r.Current()
 		if drift := computeDrift(cur, desired); len(drift) > 0 {
-			pres, _ := pruner.Remove(drift)
+			pres, removeErr := pruner.Remove(drift)
+			if removeErr != nil {
+				return nil, inputResolutionError(removeErr)
+			}
+			if pres.Advanced {
+				preparationCommitted = true
+				removed = drift
+				pruneAdvanced = true
+				pruneGen = pres.ToGeneration
+			}
 			if pres.Err != nil {
 				if isSystemic(pres.Err.Code) {
 					return nil, realizerEnvelopeError(pres.Err)
 				}
 				return nil, envelope.NewError(envelope.ErrInstallFailed, "Convergence (prune) failed.").
 					WithDetail(map[string]string{"subcode": pres.Err.Subcode, "stage": pres.Err.Stage, "raw": pres.Err.Raw})
-			}
-			removed = drift
-			if pres.Advanced {
-				pruneAdvanced = true
-				pruneGen = pres.ToGeneration
 			}
 		}
 	}
@@ -526,15 +631,8 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		context.Background(), flags, runID, emitter, configSession,
 	)
 	if configErr != nil {
-		if installAdvanced || pruneAdvanced {
-			finalGen := installGen
-			if pruneAdvanced {
-				finalGen = pruneGen
-			}
-			writeProvisioningGeneration(runID, driverName, actions, removed, fmt.Sprintf("%d", finalGen), failedCount > 0, nil)
-		}
+
 		brewActions := brew.brewActions()
-		writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
 		resultActions := append(append([]ApplyAction{}, actions...), brewActions...)
 		resultActions = append(resultActions, unsupportedActions...)
 		return &ApplyResult{
@@ -565,7 +663,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				verifyFail++
 			}
 		case e.isNix:
-			if presentInSet(cur, e.ins.Ref) {
+			if _, present := installedElement(cur, e.ins); present {
 				emitter.EmitItem(e.ins.Ref, driverName, "present", "", "Verified installed", e.name)
 				verifyPass++
 			} else {
@@ -593,10 +691,12 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	// the stage mirrors the prune precedent: a systemic failure becomes a top-level
 	// envelope error, anything else INSTALL_FAILED with raw text confined to
 	// error.detail (the moat).
-	var homeRef *provision.HomeGenRef
 	var homeResult *ApplyHomeManager
 	if activator, ok := r.(realizer.HomeActivator); ok && preparedHome != nil {
 		flake, generated := preparedHome.flake, preparedHome.generated
+		if generated && preparedHome.ownershipAction == nil {
+			preparedHome.ownershipAction = externalHomeManagerAction(r, flake, true)
+		}
 		if preparedHome.ownershipAction != nil {
 			emitter.EmitPhase("config")
 			emitter.EmitItem(flake, driverName, "action_required", "external_home_manager", preparedHome.ownershipAction.Message, "home-manager")
@@ -608,7 +708,13 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		} else {
 			emitter.EmitPhase("config")
 			emitter.EmitItem(flake, driverName, "configuring", "", "Activating home-manager configuration", "home-manager")
-			hmGen, aerr := activator.ActivateHome(flake)
+			var hmGen int
+			var aerr error
+			if preparer, ok := r.(realizer.HomePreparer); ok && preparedHome.resolution != nil {
+				hmGen, aerr = preparer.ActivatePreparedHome(preparedHome.resolution)
+			} else {
+				hmGen, aerr = activator.ActivateHome(flake)
+			}
 			if aerr != nil {
 				rerr, ok := aerr.(*realizer.Error)
 				if !ok || rerr == nil {
@@ -622,51 +728,17 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				return nil, envelope.NewError(envelope.ErrInstallFailed, "Home-manager configuration activation failed.").
 					WithDetail(map[string]string{"subcode": rerr.Subcode, "stage": rerr.Stage, "raw": rerr.Raw})
 			}
-			homeRef = &provision.HomeGenRef{Flake: flake, Generation: hmGen}
-			if generated {
-				// flake is the engine-generated, machine-local wrapper; record the
-				// user's declared input (config path OR catalog settings) so capture
-				// can round-trip it. Exactly one of Config/Settings is set.
-				homeRef.Config = mf.HomeManager.Config
-				homeRef.Settings = mf.HomeManager.Settings
-				// Phase-1 documented-boundary secret REFERENCES compose with the
-				// generated modes; record them (references only, never material) so
-				// capture round-trips them alongside config/settings.
-				homeRef.Secrets = mf.HomeManager.Secrets
-			}
+			preparationCommitted = true
+			homeRef = homeGenerationReference(flags, mf, preparedHome, hmGen)
 			homeResult = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: true}
 			emitter.EmitItem(flake, driverName, "configured", "", fmt.Sprintf("Activated home-manager generation %d", hmGen), "home-manager")
 			emitter.EmitSummary("config", 1, 1, 0, 0)
 		}
 	}
 
-	// Record one Provisioning Generation reflecting the converged set: refs added
-	// this run, refs removed (pruned) this run, and any home-manager config
-	// activated this run. Native = the final advancing package op's generation
-	// (prune's if it advanced, else install's), empty for a config-only apply.
-	// Write when a mutating package phase advanced a generation OR a config was
-	// activated; an idempotent re-run (no install, no prune, no config) records
-	// nothing.
-	if installAdvanced || pruneAdvanced || homeRef != nil {
-		native := ""
-		if installAdvanced || pruneAdvanced {
-			finalGen := installGen
-			if pruneAdvanced {
-				finalGen = pruneGen
-			}
-			native = fmt.Sprintf("%d", finalGen)
-		}
-		// The nix generation records ONLY the realizer actions — brew items are
-		// recorded in their own Backend:"brew" generation below, never merged here.
-		writeProvisioningGeneration(runID, driverName, actions, removed, native, failedCount > 0, homeRef)
-	}
+	// Finalization records backend changes together, including later failures.
 
-	// Brew writes a SEPARATE generation (Backend:"brew") AFTER the nix one. It is
-	// best-effort and append-only; writeProvisioningGeneration no-ops when nothing
-	// was installed (so a no-brew apply records exactly ONE nix generation — the
-	// non-regression guarantee). brewFailed>0 marks it Partial.
 	brewActions := brew.brewActions()
-	writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
 
 	// Append the brew actions to the realizer actions for the result envelope.
 	actions = append(actions, brewActions...)
@@ -684,4 +756,70 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		HomeManager:             homeResult,
 		ConfigResultFields:      configFields,
 	}, nil
+}
+
+func inputResolutionError(err error) *envelope.Error {
+	code := realizer.ErrInputProvenanceUnresolved
+	detail := map[string]string{"raw": err.Error()}
+	if rerr, ok := err.(*realizer.Error); ok {
+		code = rerr.Code
+		detail = map[string]string{"raw": rerr.Raw, "stage": rerr.Stage, "subcode": rerr.Subcode}
+		if rerr.Stage == "commit" {
+			return envelope.NewError(code, "State committed, but its native identity could not be verified.").WithDetail(map[string]interface{}{"committed": true, "raw": rerr.Raw})
+		}
+	}
+	return envelope.NewError(code, "The requested input could not be frozen before mutation.").WithDetail(detail)
+}
+
+func installedElement(set realizer.Set, item realizer.Installable) (realizer.Element, bool) {
+	for _, element := range set.Elements {
+		if realizer.Matches(element, item) {
+			return element, true
+		}
+	}
+	for key, element := range set.Elements {
+		if element.ID == "" && (key == leafAttr(item.Ref) || leafAttr(element.AttrPath) == leafAttr(item.Ref)) {
+			return element, true
+		}
+	}
+	return realizer.Element{}, false
+}
+
+func homeManagerOwnsActive(r interface{}, home *provision.HomeGenRef, active int) bool {
+	if home == nil {
+		return false
+	}
+	if home.Kind == "" {
+		return home.Generation == active
+	}
+	reader, ok := r.(interface{ ActiveHomeOutput() string })
+	return ok && home.ActivationOutput != "" && reader.ActiveHomeOutput() == home.ActivationOutput
+}
+
+func settingsDigest(settings *manifest.HomeManagerSettings) string {
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func homeGenerationReference(flags ApplyFlags, mf *manifest.Manifest, home *preparedHomeManager, generation int) *provision.HomeGenRef {
+	_, name, _ := strings.Cut(home.flake, "#")
+	result := &provision.HomeGenRef{Flake: home.flake, Generation: generation, Generated: home.generated, Platform: runtime.GOOS, System: nix.System(), ConfigIdentity: name, Resolution: home.resolution, Kind: "flake"}
+	if home.resolution != nil && len(home.resolution.Outputs) == 1 {
+		result.ActivationOutput = home.resolution.OutputPaths[home.resolution.Outputs[0]]
+	}
+	if home.generated {
+		result.Kind = "config"
+		result.Config = mf.HomeManager.Config
+		result.Secrets = mf.HomeManager.Secrets
+		if mf.HomeManager.Settings != nil {
+			result.Kind = "settings"
+			result.SourceManifest, _ = filepath.Abs(flags.Manifest)
+			result.SettingsDigest = settingsDigest(mf.HomeManager.Settings)
+		}
+	}
+	return result
 }

@@ -138,15 +138,27 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 
 	goos := captureGOOSFn()
 	captured := make([]capturedApp, 0, len(names))
+	var provenanceWarnings []CommandWarning
 	for _, name := range names {
 		el := cur.Elements[name]
-		ref := el.Name // bare attr -> apply's ResolveInstallable expands against the pin
+		ref := el.Name // Legacy profiles retain their existing compatibility path.
+		id := name
+		if el.ID != "" {
+			id = el.ID
+			ref = realizer.PortableRef(el.Resolution)
+		} else if strings.HasPrefix(el.URL, "path:/nix/store/") || strings.HasPrefix(el.OriginalURL, "path:/nix/store/") {
+			ref = ""
+		}
+		if ref == "" {
+			provenanceWarnings = append(provenanceWarnings, CommandWarning{Code: "input_provenance_unavailable", Message: "Package " + id + " has no portable immutable source; its native runtime reference was omitted."})
+			continue
+		}
 		ver := el.ObservedVersion
 		if ver == "" {
 			ver = nix.StorePathVersion(el.Name, el.StorePaths)
 		}
 		captured = append(captured, capturedApp{
-			ID:               name,
+			ID:               id,
 			Refs:             map[string]string{goos: ref},
 			Name:             name,
 			Version:          ver,
@@ -318,12 +330,14 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		manifestName = flags.Profile
 	}
 
+	homeConfig, homeWarnings := recoverHomeManagerWithWarnings(flags, r)
+	provenanceWarnings = append(provenanceWarnings, homeWarnings...)
 	outManifest := captureManifestOutput{
 		Version:     1,
 		Name:        manifestName,
 		Captured:    time.Now().UTC().Format(time.RFC3339),
 		Apps:        outputApps,
-		HomeManager: recoverHomeManager(flags),
+		HomeManager: homeConfig,
 	}
 
 	// --- 7. Write manifest as pretty-printed JSON (same as the winget path) ---
@@ -403,7 +417,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 
 	// The realizer path collects no package CommandWarnings, so this is the
 	// whole set rather than an append.
-	var warnings []CommandWarning
+	warnings := provenanceWarnings
 	if finalization.CatalogUnavailable {
 		warnings = append(warnings, captureCatalogUnavailableWarning())
 	}
@@ -459,32 +473,61 @@ func realizerCaptureIdentity(driverName, ref, defaultDriver string) string {
 // omitted; package capture is unaffected). On --update with no flake in history,
 // an existing manifest's homeManager block is preserved rather than dropped.
 func recoverHomeManager(flags CaptureFlags) *manifest.HomeManagerConfig {
-	if gens, err := listGenerationsFn(); err == nil {
-		for _, g := range gens {
-			if g.HomeManager == nil {
-				continue
+	config, _ := recoverHomeManagerWithWarnings(flags, nil)
+	return config
+}
+
+func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*manifest.HomeManagerConfig, []CommandWarning) {
+	unavailable := func() (*manifest.HomeManagerConfig, []CommandWarning) {
+		return nil, []CommandWarning{{Code: "home_manager_provenance_unavailable", Message: "The active Home Manager declaration could not be recovered from matching source provenance."}}
+	}
+	gens, err := listGenerationsFn()
+	if err != nil {
+		return unavailable()
+	}
+	for _, g := range gens {
+		if g == nil || g.HomeManager == nil {
+			continue
+		}
+		home := g.HomeManager
+		if home.Kind != "" {
+			if home.Generated {
+				reader, ok := r.(realizer.HomeGenerationReader)
+				if !ok || !homeManagerOwnsActive(r, home, reader.ActiveHomeGeneration()) {
+					return unavailable()
+				}
+				if home.Kind == "settings" {
+					source, err := loadManifest(home.SourceManifest)
+					if err != nil || source.HomeManager == nil || source.HomeManager.Settings == nil || home.SettingsDigest == "" || settingsDigest(source.HomeManager.Settings) != home.SettingsDigest {
+						return unavailable()
+					}
+					return &manifest.HomeManagerConfig{Settings: source.HomeManager.Settings, Secrets: home.Secrets}, nil
+				}
+				if home.Kind == "config" && home.Config != "" {
+					return &manifest.HomeManagerConfig{Config: home.Config, Secrets: home.Secrets}, nil
+				}
+				return unavailable()
 			}
-			// Prefer the user's declared catalog settings, then the declared config
-			// path (a config/settings apply records the machine-local generated flake
-			// in Flake but the portable input in Settings/Config); fall back to a
-			// directly-declared flake. Secrets compose with the generated modes, so
-			// their REFERENCES (path/env/backend — never material) ride along; capture
-			// is reference-only by construction (HomeGenRef.Secrets holds no material).
-			if g.HomeManager.Settings != nil {
-				return &manifest.HomeManagerConfig{Settings: g.HomeManager.Settings, Secrets: g.HomeManager.Secrets}
+			if home.Kind == "flake" && home.Flake != "" {
+				return &manifest.HomeManagerConfig{Flake: home.Flake}, nil
 			}
-			if g.HomeManager.Config != "" {
-				return &manifest.HomeManagerConfig{Config: g.HomeManager.Config, Secrets: g.HomeManager.Secrets}
-			}
-			if g.HomeManager.Flake != "" {
-				return &manifest.HomeManagerConfig{Flake: g.HomeManager.Flake}
-			}
+			return unavailable()
+		}
+		// Existing Windows/Darwin history retains the embedded declaration contract.
+		if home.Settings != nil {
+			return &manifest.HomeManagerConfig{Settings: home.Settings, Secrets: home.Secrets}, nil
+		}
+		if home.Config != "" {
+			return &manifest.HomeManagerConfig{Config: home.Config, Secrets: home.Secrets}, nil
+		}
+		if home.Flake != "" {
+			return &manifest.HomeManagerConfig{Flake: home.Flake}, nil
 		}
 	}
 	if flags.Update && flags.Manifest != "" {
-		if mf, loadErr := loadManifest(flags.Manifest); loadErr == nil && mf.HomeManager != nil {
-			return mf.HomeManager
+		if mf, err := loadManifest(flags.Manifest); err == nil && mf.HomeManager != nil {
+			return mf.HomeManager, nil
 		}
 	}
-	return nil
+	return nil, nil
 }

@@ -69,6 +69,9 @@ func nixSystem() string {
 	return arch + "-" + runtime.GOOS
 }
 
+// System returns the native system used by generated configurations.
+func System() string { return nixSystem() }
+
 // HomeFlakeSpec is the pure input to the home-manager flake generator. The engine
 // fills identity (Username/HomeDir/StateVersion), the host System, and the input
 // pins (NixpkgsPin/HomeManagerPin); the user supplies only their home.nix, copied

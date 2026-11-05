@@ -12,7 +12,10 @@
 package realizer
 
 import (
+	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
@@ -23,19 +26,106 @@ import (
 // re-activating the recorded configuration source instead of failing outright.
 var ErrHomeSnapshotMissing = errors.New("home-manager generation snapshot is unavailable")
 
-// Installable is one resolved package to realize: the manifest App.ID plus the
-// concrete reference passed to the backend (e.g. a pinned nixpkgs flake
-// installable such as "nixpkgs#ripgrep").
+// Installable retains a package's portable ID and requested reference separately
+// from the native resolution prepared for mutation.
 type Installable struct {
-	ID  string
-	Ref string
+	ID         string
+	Ref        string
+	Resolution *InputResolution `json:"resolution,omitempty"`
+}
+
+// ErrInputProvenanceUnresolved refuses an operation whose exact native target
+// cannot be established before user-state mutation.
+const ErrInputProvenanceUnresolved envelope.ErrorCode = "INPUT_PROVENANCE_UNRESOLVED"
+
+// InputResolution separates requested intent from the native evaluation used to
+// mutate state. Source may remain mutable even when Derivation is immutable.
+type InputResolution struct {
+	ExpandedRef string            `json:"expandedRef"`
+	Source      InputSource       `json:"source"`
+	LockGraph   json.RawMessage   `json:"lockGraph"`
+	Derivation  string            `json:"drvPath"`
+	Outputs     []string          `json:"outputs"`
+	OutputPaths map[string]string `json:"outputPaths,omitempty"`
+	Priority    int               `json:"priority"`
+	MutationRef string            `json:"mutationRef"`
+	WrapperURL  string            `json:"wrapperUrl,omitempty"`
+	AttrPath    string            `json:"attrPath,omitempty"`
+}
+
+type InputSource struct {
+	URL      string          `json:"url"`
+	Path     string          `json:"path,omitempty"`
+	Locked   json.RawMessage `json:"locked,omitempty"`
+	Strength string          `json:"strength"` // immutable | mutable | unknown (native source metadata)
+}
+
+// InputResolver preflights every requested package before user-state mutation.
+type InputResolver interface {
+	Prepare([]Installable) ([]Installable, error)
+}
+
+// PreparationFinalizer releases temporary native roots after a non-committing
+// run. Committed roots remain available to provisioning history and rollback.
+type PreparationFinalizer interface{ FinalizePreparation(committed bool) }
+
+// HomePreparer freezes and optionally builds activation before package mutation.
+type HomePreparer interface {
+	PrepareHome(flake string, build bool) (*InputResolution, error)
+	ActivatePreparedHome(*InputResolution) (int, error)
+	ActiveHomeOutput() string
+}
+
+// Matches preserves portable identity without changing native removal keys.
+func Matches(element Element, desired Installable) bool {
+	if element.ID != "" {
+		return element.ID == desired.ID
+	}
+	return false
+}
+
+// ResolutionMatches requires both native identity and observed selected outputs.
+func ResolutionMatches(element Element, resolution *InputResolution) bool {
+	if resolution == nil || resolution.WrapperURL == "" || element.AttrPath != resolution.AttrPath {
+		return false
+	}
+	if element.URL != resolution.WrapperURL && element.OriginalURL != resolution.WrapperURL {
+		return false
+	}
+	expected := make([]string, 0, len(resolution.Outputs))
+	seen := map[string]bool{}
+	for _, output := range resolution.Outputs {
+		path := resolution.OutputPaths[output]
+		if path == "" {
+			return false
+		}
+		if !seen[path] {
+			expected = append(expected, path)
+			seen[path] = true
+		}
+	}
+	actual := append([]string(nil), element.StorePaths...)
+	sort.Strings(expected)
+	sort.Strings(actual)
+	if len(expected) != len(actual) {
+		return false
+	}
+	for i := range actual {
+		if actual[i] != expected[i] {
+			return false
+		}
+	}
+	return len(expected) > 0
 }
 
 // Element is a single entry in the currently-installed set.
 type Element struct {
-	Name       string
-	AttrPath   string
-	StorePaths []string
+	ID           string
+	RequestedRef string
+	Resolution   *InputResolution
+	Name         string
+	AttrPath     string
+	StorePaths   []string
 	// ObservedVersion retains a parsed Nix version when an inventory bridge
 	// carries portable references without machine-local store paths.
 	ObservedVersion string
@@ -160,4 +250,24 @@ type HomeRollbacker interface {
 	// recorded configuration source), or a classified *Error on activation failure
 	// (raw backend text in Error.Raw only).
 	RollbackHome(generation int) (newGen int, err error)
+}
+
+// PortableRef exports the original native target only when its source has
+// immutable provenance. The metadata flake remains machine-local runtime state.
+func PortableRef(resolution *InputResolution) string {
+	if resolution == nil || resolution.Source.Strength != "immutable" {
+		return ""
+	}
+	root := resolution.Source.URL
+	if root == "" || strings.HasPrefix(root, "path:") || strings.HasPrefix(root, "/") {
+		return ""
+	}
+	_, target, ok := strings.Cut(resolution.ExpandedRef, "#")
+	if ok {
+		return root + "#" + target
+	}
+	if i := strings.LastIndexByte(resolution.ExpandedRef, '^'); i >= 0 {
+		return root + resolution.ExpandedRef[i:]
+	}
+	return root
 }

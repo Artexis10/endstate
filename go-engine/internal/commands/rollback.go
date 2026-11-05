@@ -110,7 +110,7 @@ func RunRollback(flags RollbackFlags) (interface{}, *envelope.Error) {
 // runRealizerRollback performs a native, atomic rollback via a realizer that
 // advertises native rollback (Nix). The target is identified by engine
 // generation number and mapped to the backend-native anchor.
-func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{}, *envelope.Error) {
+func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result interface{}, resultErr *envelope.Error) {
 	// Native rollback capability is checked only after history routing decides a
 	// native package lane is selected. Brew-only runs do not require it.
 	rb, hasNativeRollbacker := r.(provision.Rollbacker)
@@ -259,24 +259,48 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 			WithRemediation("Re-run with --confirm, or use --dry-run to preview the target.")
 	}
 
+	rollbackRunID := buildRunID("rollback")
+	nativeCommitted := false
+	var newHomeRef *provision.HomeGenRef
+	defer func() {
+		if !nativeCommitted && newHomeRef == nil {
+			return
+		}
+		cur, readErr := r.Current()
+		native := ""
+		if nativeCommitted && readErr == nil && cur.Generation > 0 {
+			native = strconv.Itoa(cur.Generation)
+		}
+		number, err := appendRollbackGeneration(rollbackRunID, r.Name(), cur, native, newHomeRef, resultErr != nil)
+		if err != nil {
+			resultErr = provenanceWriteError(err)
+			return
+		}
+		if payload, ok := result.(*RollbackResult); ok && number > payload.NewGeneration {
+			payload.NewGeneration = number
+		}
+	}()
+
 	// Packages first (mirrors apply's package-then-config ordering). Skipped for a
 	// config-only target generation, which has no native package anchor.
 	if hasPackageTarget {
 		if err := rb.Rollback(target); err != nil {
 			return nil, rollbackError(err)
 		}
+		nativeCommitted = true
 	}
 
 	// Config (opt-in): re-activate the home-manager config recorded in the target
 	// generation. Mints a new forward home-manager generation (append-only).
 	var homeResult *RollbackHomeResult
-	var newHomeRef *provision.HomeGenRef
 	if flags.EnableRestore && homeRef != nil {
 		newGen, viaFallback, herr := rollbackHomeConfig(r, homeRef)
 		if herr != nil {
 			return nil, herr
 		}
-		newHomeRef = &provision.HomeGenRef{Flake: homeRef.Flake, Config: homeRef.Config, Generation: newGen}
+		copyRef := *homeRef
+		copyRef.Generation = newGen
+		newHomeRef = &copyRef
 		homeResult = &RollbackHomeResult{
 			TargetGeneration: homeRef.Generation,
 			NewGeneration:    newGen,
@@ -296,15 +320,6 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 	if hasPackageTarget {
 		native = strconv.Itoa(cur.Generation)
 	}
-	// Append the native rollback generation only when the native lane actually
-	// rolled back packages or re-activated config. A brew-only rollback (no native
-	// anchor, no config) records ONLY its backend:"brew" generation below, never an
-	// empty backend:"nix" one.
-	rollbackRunID := buildRunID("rollback")
-	newGen := 0
-	if hasPackageTarget || newHomeRef != nil {
-		newGen = appendRollbackGeneration(rollbackRunID, r.Name(), cur, native, newHomeRef)
-	}
 
 	// Brew best-effort uninstall lane, composed with the native rollback. Runs AFTER
 	// the native package + config rollback; per-package and failure-tolerant — a brew
@@ -316,7 +331,7 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		TargetGeneration: targetGen,
 		FromNative:       fromNative,
 		ToNative:         native,
-		NewGeneration:    newGen,
+		NewGeneration:    0,
 		HomeManager:      homeResult,
 	}
 	if len(brewRemoveRefs) > 0 {
@@ -465,6 +480,16 @@ func runBrewRollbackLane(runID string, refs []string) (removed, failed []string,
 // activate the wrong config (non-destructive). The caller has already confirmed r
 // is a HomeRollbacker. viaFallback reports whether the fallback path ran.
 func rollbackHomeConfig(r realizer.Realizer, homeRef *provision.HomeGenRef) (newGen int, viaFallback bool, eerr *envelope.Error) {
+	if homeRef.Kind != "" {
+		if frozen, ok := r.(realizer.HomePreparer); ok && homeRef.Resolution != nil && homeRef.ActivationOutput != "" && len(homeRef.Resolution.Outputs) == 1 && homeRef.Resolution.OutputPaths[homeRef.Resolution.Outputs[0]] == homeRef.ActivationOutput {
+			gen, err := frozen.ActivatePreparedHome(homeRef.Resolution)
+			if err != nil {
+				return 0, false, homeRollbackError(err)
+			}
+			return gen, false, nil
+		}
+		return 0, false, envelope.NewError(envelope.ErrRollbackFailed, "The recorded frozen Home Manager activation is unavailable.")
+	}
 	hr := r.(realizer.HomeRollbacker)
 	gen, herr := hr.RollbackHome(homeRef.Generation)
 	if herr == nil {
@@ -557,14 +582,19 @@ func findGeneration(n int) (*provision.Generation, *envelope.Error) {
 // Separation of concerns: this records package facts plus the engine-owned
 // home-manager config reference — it never touches the config backup directory or
 // the restore revert journal.
-func appendRollbackGeneration(runID, backend string, set realizer.Set, native string, home *provision.HomeGenRef) int {
+func appendRollbackGeneration(runID, backend string, set realizer.Set, native string, home *provision.HomeGenRef, partial bool) (int, error) {
 	items := make([]provision.ProvItem, 0, len(set.Elements))
 	for name, e := range set.Elements {
 		ref := e.AttrPath
 		if ref == "" {
 			ref = name
 		}
-		items = append(items, provision.ProvItem{ID: name, Ref: ref, Status: "present"})
+		id := name
+		if e.ID != "" {
+			id = e.ID
+			ref = e.RequestedRef
+		}
+		items = append(items, provision.ProvItem{ID: id, Ref: ref, Status: "present", Resolution: e.Resolution})
 	}
 	g := &provision.Generation{
 		RunID:       runID,
@@ -574,12 +604,13 @@ func appendRollbackGeneration(runID, backend string, set realizer.Set, native st
 		AddedRefs:   []string{},
 		Native:      native,
 		Rollback:    true,
+		Partial:     partial,
 		HomeManager: home,
 	}
 	if err := provision.Write(g); err != nil {
-		return 0
+		return 0, err
 	}
-	return g.Number
+	return g.Number, nil
 }
 
 type rollbackDriverGroup struct {

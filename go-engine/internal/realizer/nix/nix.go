@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
@@ -38,15 +40,17 @@ type ScriptRunner func(path string, args ...string) (stdout, stderr []byte, exit
 
 // Backend implements realizer.Realizer over the Nix CLI.
 type Backend struct {
+	prepared []realizer.Installable
+	rootDirs []string
+	// Script executes an activation script; nil selects the native process.
+	Script ScriptRunner
 	// Profile is the Endstate-managed nix profile path.
 	Profile string
 	// Pin is the base flakeref a bare attribute is expanded against (e.g.
 	// "nixpkgs" or a rev-pinned "github:NixOS/nixpkgs/<rev>").
 	Pin string
-	// HomePin is the pinned home-manager flakeref the engine runs the
-	// home-manager CLI from (`nix run <HomePin> -- switch`), so the user never
-	// installs home-manager. Overridable via ENDSTATE_HOME_MANAGER_PIN; mirrors
-	// Pin/ENDSTATE_NIXPKGS_PIN.
+	// HomePin exposes the Home Manager input paired with the release's Nixpkgs
+	// input. Generated configurations use ENDSTATE_HOME_MANAGER_PIN when set.
 	HomePin string
 	// Run executes nix; defaults to the real exec runner.
 	Run Runner
@@ -108,11 +112,9 @@ func defaultPin() string {
 	return inputs.Nixpkgs.FlakeRef
 }
 
-// defaultHomePin returns the pinned home-manager flakeref the engine runs the
-// home-manager CLI from, overridable via ENDSTATE_HOME_MANAGER_PIN (mirrors
-// ENDSTATE_NIXPKGS_PIN). The default is the compatible revision-locked pair in
-// the release input manifest. This pin selects the home-manager CLI binary; an
-// Endstate-generated flake also follows the paired release Nixpkgs input.
+// defaultHomePin selects the Home Manager input for generated configurations.
+// The release owns its compatible revision-locked pair; an environment override
+// remains inspectable in the generated configuration's effective resolution.
 func defaultHomePin() string {
 	if p := os.Getenv("ENDSTATE_HOME_MANAGER_PIN"); p != "" {
 		return p
@@ -181,6 +183,9 @@ func defaultRunner(args ...string) ([]byte, []byte, int, error) {
 // same exit/err convention as defaultRunner.
 func defaultScriptRunner(path string, args ...string) ([]byte, []byte, int, error) {
 	cmd := exec.Command(path, args...)
+	// Home Manager's native driver 0 owns its profile at writeBoundary. Preserve
+	// ambient driver hooks and set only its supported backup variable per process.
+	cmd.Env = append(os.Environ(), "HOME_MANAGER_BACKUP_EXT=endstate-backup")
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
@@ -198,6 +203,9 @@ func defaultScriptRunner(path string, args ...string) ([]byte, []byte, int, erro
 // execScript runs a store-path script via runScript when set (tests) else the
 // real exec runner.
 func (b *Backend) execScript(path string, args ...string) ([]byte, []byte, int, error) {
+	if b.Script != nil {
+		return b.Script(path, args...)
+	}
 	if b.runScript != nil {
 		return b.runScript(path, args...)
 	}
@@ -213,10 +221,13 @@ func (b *Backend) ResolveInstallable(ref string) string {
 	if strings.Contains(r, "#") {
 		return r
 	}
-	for _, scheme := range []string{"github:", "git+", "path:", "flake:", "tarball:", "file:", "/", "."} {
-		if strings.HasPrefix(r, scheme) {
-			return r
-		}
+	// The URI parser recognises schemes without maintaining a second Nix
+	// protocol registry. Native Nix still validates the complete installable.
+	if parsed, err := url.Parse(r); err == nil && parsed.Scheme != "" {
+		return r
+	}
+	if strings.HasPrefix(r, "/") || strings.HasPrefix(r, ".") {
+		return r
 	}
 	return b.Pin + "#" + r
 }
@@ -253,6 +264,28 @@ func (b *Backend) Current() (realizer.Set, error) {
 		return empty, nil
 	}
 	set.Generation = b.generation()
+	candidates := append([]realizer.Installable(nil), b.prepared...)
+	if generations, err := provision.List(); err == nil {
+		for _, generation := range generations {
+			if generation.Backend != "nix" {
+				continue
+			}
+			for _, item := range generation.Items {
+				candidates = append(candidates, realizer.Installable{ID: item.ID, Ref: item.Ref, Resolution: item.Resolution})
+			}
+		}
+	}
+	for key, element := range set.Elements {
+		for _, item := range candidates {
+			if realizer.ResolutionMatches(element, item.Resolution) {
+				element.ID = item.ID
+				element.RequestedRef = item.Ref
+				element.Resolution = item.Resolution
+				set.Elements[key] = element
+				break
+			}
+		}
+	}
 	return set, nil
 }
 
@@ -260,13 +293,20 @@ func (b *Backend) Current() (realizer.Set, error) {
 // without mutating state. An installable is considered present when its leaf
 // attribute matches an installed element name or attrPath.
 func (b *Backend) Plan(desired []realizer.Installable) (realizer.Diff, error) {
+	var err error
+	if needsPreparation(desired) {
+		desired, err = b.Prepare(desired)
+		if err != nil {
+			return realizer.Diff{}, err
+		}
+	}
 	cur, err := b.Current()
 	if err != nil {
 		return realizer.Diff{}, err
 	}
 	var d realizer.Diff
 	for _, ins := range desired {
-		if isPresent(cur, ins.Ref) {
+		if installablePresent(cur, ins) {
 			d.Present = append(d.Present, ins)
 		} else {
 			d.ToAdd = append(d.ToAdd, ins)
@@ -281,11 +321,11 @@ func isPresent(set realizer.Set, ref string) bool {
 	if leaf == "" {
 		return false
 	}
-	if _, ok := set.Elements[leaf]; ok {
+	if element, ok := set.Elements[leaf]; ok && element.ID == "" {
 		return true
 	}
 	for _, e := range set.Elements {
-		if e.Name == leaf || attrLeaf(e.AttrPath) == leaf {
+		if e.ID == "" && (e.Name == leaf || attrLeaf(e.AttrPath) == leaf) {
 			return true
 		}
 	}
@@ -305,6 +345,33 @@ func (b *Backend) Realize(toAdd []realizer.Installable) (realizer.Result, error)
 		return res, nil
 	}
 
+	if needsPreparation(toAdd) {
+		defer func() { b.FinalizePreparation(res.Advanced) }()
+		var err error
+		toAdd, err = b.Prepare(toAdd)
+		if err != nil {
+			if rerr, ok := err.(*realizer.Error); ok {
+				res.Err = rerr
+				return res, nil
+			}
+			return res, err
+		}
+	}
+	// Only this backend's native preflight authorizes a profile mutation. A
+	// foreign DTO must be prepared first; otherwise the caller retries explicitly.
+	for _, item := range toAdd {
+		owned := false
+		for _, prepared := range b.prepared {
+			if item.ID == prepared.ID && item.Ref == prepared.Ref && item.Resolution == prepared.Resolution {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			res.Err = unresolved(fmt.Errorf("mutation has no prepared native resolution"))
+			return res, nil
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(b.Profile), 0o755); err != nil {
 		res.Err = &realizer.Error{Code: envelope.ErrInternalError, Subcode: "profile-dir", Stage: "commit", Raw: err.Error()}
 		return res, nil
@@ -315,7 +382,19 @@ func (b *Backend) Realize(toAdd []realizer.Installable) (realizer.Result, error)
 
 	args := []string{"profile", "add", "--profile", b.Profile}
 	for _, ins := range toAdd {
-		args = append(args, b.ResolveInstallable(ins.Ref))
+		r := ins.Resolution
+		source := strings.TrimPrefix(r.WrapperURL, "path:")
+		if !storePath(source) || !strings.HasPrefix(r.AttrPath, "packages."+nixSystem()+".p") || len(r.Outputs) == 0 {
+			res.Err = unresolved(fmt.Errorf("invalid prepared native identity"))
+			return res, nil
+		}
+		_, attr, _ := strings.Cut(r.AttrPath, "packages."+nixSystem()+".")
+		mutation := r.WrapperURL + "#" + attr + "^" + strings.Join(r.Outputs, ",")
+		if mutation != r.MutationRef {
+			res.Err = unresolved(fmt.Errorf("prepared mutation reference changed"))
+			return res, nil
+		}
+		args = append(args, mutation)
 	}
 	args = append(args, "--log-format", "internal-json")
 
@@ -333,7 +412,33 @@ func (b *Backend) Realize(toAdd []realizer.Installable) (realizer.Result, error)
 		res.Err = classify(exit, p, res.Advanced)
 	}
 
+	if res.Advanced {
+		for _, item := range toAdd {
+			if err := b.observeOutputs(item.Resolution); err != nil {
+				res.Err = &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "output-provenance", Stage: "commit", Raw: err.Error()}
+				break
+			}
+		}
+	}
 	cur, _ := b.Current()
 	res.After = cur
 	return res, nil
+}
+
+func needsPreparation(items []realizer.Installable) bool {
+	for _, item := range items {
+		if item.Resolution == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func installablePresent(set realizer.Set, ins realizer.Installable) bool {
+	for _, element := range set.Elements {
+		if realizer.Matches(element, ins) {
+			return true
+		}
+	}
+	return isPresent(set, ins.Ref)
 }

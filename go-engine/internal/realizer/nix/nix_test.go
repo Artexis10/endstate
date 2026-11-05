@@ -5,6 +5,8 @@ package nix
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -31,9 +33,11 @@ func TestNewUsesReleaseOwnedImmutableInputPair(t *testing.T) {
 func TestResolveInstallable(t *testing.T) {
 	b := &Backend{Pin: "nixpkgs"}
 	cases := map[string]string{
-		"ripgrep":                           "nixpkgs#ripgrep",                   // bare attr -> pinned
-		"nixpkgs#jq":                        "nixpkgs#jq",                        // already has '#'
-		"github:NixOS/nixpkgs/abc123#hello": "github:NixOS/nixpkgs/abc123#hello", // flakeref verbatim
+		"ripgrep":                              "nixpkgs#ripgrep", // bare attr -> pinned
+		"gitlab:example/packages":              "gitlab:example/packages",
+		"https://example.test/packages.tar.gz": "https://example.test/packages.tar.gz",
+		"nixpkgs#jq":                           "nixpkgs#jq",                        // already has '#'
+		"github:NixOS/nixpkgs/abc123#hello":    "github:NixOS/nixpkgs/abc123#hello", // flakeref verbatim
 	}
 	for in, want := range cases {
 		if got := b.ResolveInstallable(in); got != want {
@@ -60,6 +64,9 @@ func TestIsPresent(t *testing.T) {
 // fakeRun dispatches on the `profile <sub>` subcommand.
 func fakeRun(addStderr []byte, addExit int, addErr error, listJSON []byte) Runner {
 	return func(args ...string) ([]byte, []byte, int, error) {
+		if out, handled := nativeResolutionFixture(args); handled {
+			return out, nil, 0, nil
+		}
 		sub := ""
 		for i, a := range args {
 			if a == "profile" && i+1 < len(args) {
@@ -78,7 +85,7 @@ func fakeRun(addStderr []byte, addExit int, addErr error, listJSON []byte) Runne
 }
 
 func TestCurrent_InjectedRunner(t *testing.T) {
-	b := &Backend{Profile: "/tmp/endstate-nix-test-nonexistent", Run: fakeRun(nil, 0, nil, []byte(`{"version":3,"elements":{"ripgrep":{"attrPath":"x.ripgrep","storePaths":["/nix/store/a-ripgrep"]}}}`))}
+	b := &Backend{Profile: filepath.Join(t.TempDir(), "profile"), Run: fakeRun(nil, 0, nil, []byte(`{"version":3,"elements":{"ripgrep":{"attrPath":"x.ripgrep","storePaths":["/nix/store/a-ripgrep"]}}}`))}
 	set, err := b.Current()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -89,7 +96,7 @@ func TestCurrent_InjectedRunner(t *testing.T) {
 }
 
 func TestPlan_InjectedRunner(t *testing.T) {
-	b := &Backend{Profile: "/tmp/endstate-nix-test-nonexistent", Pin: "nixpkgs", Run: fakeRun(nil, 0, nil, []byte(`{"version":3,"elements":{"ripgrep":{"attrPath":"x.ripgrep"}}}`))}
+	b := &Backend{Profile: filepath.Join(t.TempDir(), "profile"), Pin: "nixpkgs", Run: fakeRun(nil, 0, nil, []byte(`{"version":3,"elements":{"ripgrep":{"attrPath":"x.ripgrep"}}}`))}
 	diff, err := b.Plan([]realizer.Installable{{ID: "ripgrep", Ref: "ripgrep"}, {ID: "jq", Ref: "jq"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -105,7 +112,7 @@ func TestPlan_InjectedRunner(t *testing.T) {
 func TestRealize_Success(t *testing.T) {
 	gen := 0
 	b := &Backend{
-		Profile: "/tmp/endstate-nix-test-nonexistent",
+		Profile: filepath.Join(t.TempDir(), "profile"),
 		Pin:     "nixpkgs",
 		Run:     fakeRun(nil, 0, nil, []byte(`{"version":3,"elements":{}}`)),
 		genFn:   func() int { v := gen; gen++; return v }, // 0 (before) -> 1 (after) = advanced
@@ -125,7 +132,7 @@ func TestRealize_InstallFailure(t *testing.T) {
 		text  string
 	}{{0, "error: flake 'flake:nixpkgs' does not provide attribute 'bogus'"}}, nil)
 	b := &Backend{
-		Profile: "/tmp/endstate-nix-test-nonexistent",
+		Profile: filepath.Join(t.TempDir(), "profile"),
 		Pin:     "nixpkgs",
 		Run:     fakeRun(evalStderr, 1, nil, []byte(`{"version":3,"elements":{}}`)),
 		genFn:   func() int { return 0 }, // no advance
@@ -141,7 +148,7 @@ func TestRealize_InstallFailure(t *testing.T) {
 
 func TestRealize_Spawn(t *testing.T) {
 	b := &Backend{
-		Profile: "/tmp/endstate-nix-test-nonexistent",
+		Profile: filepath.Join(t.TempDir(), "profile"),
 		Pin:     "nixpkgs",
 		Run:     fakeRun(nil, -1, errors.New("exec: nix not found"), nil),
 		genFn:   func() int { return 0 },
@@ -153,9 +160,29 @@ func TestRealize_Spawn(t *testing.T) {
 }
 
 func TestRealize_EmptyToAdd(t *testing.T) {
-	b := &Backend{Profile: "/tmp/endstate-nix-test-nonexistent", Run: fakeRun(nil, 0, nil, []byte(`{"version":3,"elements":{}}`))}
+	b := &Backend{Profile: filepath.Join(t.TempDir(), "profile"), Run: fakeRun(nil, 0, nil, []byte(`{"version":3,"elements":{}}`))}
 	res, _ := b.Realize(nil)
 	if res.Err != nil {
 		t.Errorf("empty to-add should be a no-op, got %+v", res.Err)
 	}
+}
+
+// nativeResolutionFixture supplies the native boundary preceding profile tests.
+func nativeResolutionFixture(args []string) ([]byte, bool) {
+	switch args[0] {
+	case "flake":
+		return []byte(`{"url":"github:NixOS/nixpkgs/1111111111111111111111111111111111111111","locked":{"type":"github","rev":"1111111111111111111111111111111111111111"}}`), true
+	case "build":
+		for i, arg := range args {
+			if arg == "--output-lock-file" {
+				_ = os.WriteFile(args[i+1], []byte(`{"version":7,"root":"root","nodes":{"root":{}}}`), 0600)
+			}
+		}
+		return []byte(`[{"drvPath":"/nix/store/package.drv","outputs":{"out":"/nix/store/package"}}]`), true
+	case "eval":
+		return []byte(`{"drvPath":"/nix/store/package.drv","priority":5}`), true
+	case "store":
+		return []byte("/nix/store/metadata"), true
+	}
+	return nil, false
 }

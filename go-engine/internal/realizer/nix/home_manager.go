@@ -4,11 +4,14 @@
 package nix
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
@@ -25,39 +28,15 @@ var _ realizer.HomeGenerationReader = (*Backend)(nil)
 // homeGenFn in tests). Returns 0 when no home-manager generation is active.
 func (b *Backend) ActiveHomeGeneration() int { return b.homeGen() }
 
-// ActivateHome activates a declared home-manager configuration as the realizer's
-// config stage of apply. The engine owns the invocation — it runs the
-// home-manager CLI via `nix run <HomePin> -- switch --flake <flake> -b
-// endstate-backup` so the user never installs or learns home-manager (the moat).
-// `-b endstate-backup` makes home-manager move any pre-existing file it would
-// replace to `<file>.endstate-backup` instead of failing (honors
-// backup-before-overwrite — confirmed against real home-manager).
-//
-// On success it returns the resulting home-manager generation number (read from
-// the home-manager profile symlink, the same way the package generation is
-// read). On failure it returns a classified *realizer.Error through the existing
-// anchor path: spawn/daemon → REALIZER_UNAVAILABLE, permission →
-// PERMISSION_DENIED, anything else → INSTALL_FAILED (the config-activation
-// failure class), with raw home-manager/Nix text confined to Error.Raw (destined
-// only for envelope error.detail). home-manager's switch output is plain text
-// (not nix internal-json), so classification anchors against the raw stderr.
-func (b *Backend) ActivateHome(flake string) (int, error) {
-	pin := b.HomePin
-	if pin == "" {
-		pin = defaultHomePin()
+// ActivateHome prepares an exact native activation for direct callers. The
+// command path prepares it before package mutation and reuses that built output.
+func (b *Backend) ActivateHome(flake string) (generation int, resultErr error) {
+	defer func() { b.FinalizePreparation(resultErr == nil) }()
+	r, err := b.PrepareHome(flake, true)
+	if err != nil {
+		return 0, err
 	}
-	// `--` separates nix's args from the home-manager program's args; the runner
-	// inserts the experimental-features flag before it (see nixArgs).
-	args := []string{"run", pin, "--", "switch", "--flake", normalizeHomeFlakeRef(flake), "-b", "endstate-backup"}
-
-	_, stderr, exit, err := b.Run(args...)
-	if err != nil { // spawn failure (nix missing/unrunnable)
-		return 0, classify(-1, parsePlainLog(stderr), false)
-	}
-	if exit != 0 {
-		return 0, classify(exit, parsePlainLog(stderr), false)
-	}
-	return b.homeGen(), nil
+	return b.ActivatePreparedHome(r)
 }
 
 // normalizeHomeFlakeRef makes generated absolute directories explicit path
@@ -159,4 +138,87 @@ func parsePlainLog(stderr []byte) parsedLog {
 	}
 	p.blob = sb.String()
 	return p
+}
+
+// PrepareHome uses native installable selection, then builds only the frozen
+// activation derivation. The out-link retains the output through finalization.
+func (b *Backend) PrepareHome(flake string, build bool) (*realizer.InputResolution, error) {
+	normalized := normalizeHomeFlakeRef(flake)
+	root, name, ok := strings.Cut(normalized, "#")
+	if !ok || name == "" {
+		return nil, unresolved(fmt.Errorf("home configuration name is required"))
+	}
+	target := root + "#homeConfigurations." + name + ".activationPackage"
+	r, err := b.resolve(target)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp(filepath.Dir(b.Profile), "activation-root-")
+	if err == nil {
+		b.rootDirs = append(b.rootDirs, dir)
+	}
+	if err != nil {
+		return nil, unresolved(err)
+	}
+	if build {
+		value, err := b.native("build", "--json", "--out-link", filepath.Join(dir, "activation"), r.MutationRef)
+		if err != nil {
+			return nil, unresolved(err)
+		}
+		var built []struct {
+			DrvPath string            `json:"drvPath"`
+			Outputs map[string]string `json:"outputs"`
+		}
+		if json.Unmarshal(value, &built) != nil || len(built) != 1 || built[0].DrvPath != r.Derivation {
+			return nil, unresolved(fmt.Errorf("frozen activation build changed its derivation"))
+		}
+		for _, name := range r.Outputs {
+			path := built[0].Outputs[name]
+			if !storePath(path) {
+				return nil, unresolved(fmt.Errorf("activation output unavailable"))
+			}
+			r.OutputPaths[name] = path
+		}
+	}
+	return r, nil
+}
+
+func (b *Backend) ActivatePreparedHome(r *realizer.InputResolution) (int, error) {
+	if r == nil || len(r.Outputs) != 1 || r.OutputPaths[r.Outputs[0]] == "" {
+		return 0, unresolved(fmt.Errorf("activation has no single frozen output"))
+	}
+	output := r.OutputPaths[r.Outputs[0]]
+	if !storePath(output) {
+		return 0, unresolved(fmt.Errorf("invalid activation output"))
+	}
+	_, stderr, exit, err := b.execScript(filepath.Join(output, "activate"))
+	if err != nil {
+		return 0, classify(-1, parsePlainLog(stderr), false)
+	}
+	if exit != 0 {
+		return 0, classify(exit, parsePlainLog(stderr), false)
+	}
+	if b.ActiveHomeOutput() != output {
+		return 0, &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "activation-provenance", Stage: "commit", Raw: "activation did not commit the prepared output"}
+	}
+	generation := b.homeGen()
+	if generation <= 0 {
+		return 0, &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "activation-provenance", Stage: "commit", Raw: "active native generation could not be observed"}
+	}
+	return generation, nil
+}
+
+// ActiveHomeOutput checks actual ownership, independently of generation labels.
+func (b *Backend) ActiveHomeOutput() string {
+	// A single native opaque path has one canonical result. Plain path output
+	// avoids the versioned path-info JSON shapes without parsing Nix source.
+	data, err := b.native("path-info", homeProfilePath())
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSpace(string(data))
+	if !storePath(path) {
+		return ""
+	}
+	return path
 }

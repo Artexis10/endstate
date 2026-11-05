@@ -65,6 +65,11 @@ func (adapter NixUserProfileAdapter) Inventory(ctx context.Context) (AdapterInve
 			attribute = profileAttribute(name, element)
 		}
 		installable := profileInstallable(profileAttribute(name, element), element, adapter.DefaultInput)
+		if installable == "" {
+			result.Items = append(result.Items, InventoryItem{Source: adapter.ID(), Kind: EvidencePackage, Ref: id, DisplayName: name, Explicit: true, UserFacing: true})
+			result.Warnings = append(result.Warnings, Warning{Code: "input_provenance_unavailable", Source: adapter.ID(), ItemID: id, Message: "The native runtime entry has no portable immutable source."})
+			continue
+		}
 		input := installable
 		if index := strings.LastIndexByte(input, '#'); index >= 0 {
 			input = input[:index]

@@ -41,7 +41,7 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 		switch {
 		case ref != "":
 			item := VerifyItem{Type: "app", ID: app.ID, Ref: ref, Name: name}
-			if presentInSet(cur, ref) {
+			if _, present := installedElement(cur, realizer.Installable{ID: app.ID, Ref: ref}); present {
 				item.Status = "pass"
 				emitter.EmitItem(ref, driverName, "present", "", "Verified installed", name)
 				pass++
@@ -217,10 +217,14 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 	// config (package-only applies record HomeManager=nil, so skip those).
 	// Mirrors recoverHomeManager in capture_realizer.go.
 	recorded := 0
+	ownershipMatches := true
 	if gens, err := listGenerationsFn(); err == nil {
 		for _, g := range gens {
 			if g.HomeManager != nil {
 				recorded = g.HomeManager.Generation
+				if g.HomeManager.Kind != "" {
+					ownershipMatches = homeManagerOwnsActive(hgr, g.HomeManager, active)
+				}
 				break
 			}
 		}
@@ -232,7 +236,7 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 		item.Reason = driver.ReasonMissing
 		item.Message = "No active home-manager generation — home-manager config was never applied or has been removed"
 		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonMissing, item.Message, "home-manager")
-	case active != recorded:
+	case active != recorded || !ownershipMatches:
 		item.Status = "fail"
 		item.Reason = driver.ReasonConfigDrift
 		item.Version = strconv.Itoa(active)
@@ -252,6 +256,9 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 // runPlanRealizer is the plan (read-only preview) path for a realizer backend.
 // It computes one whole-set diff and reports it as planner actions.
 func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
+	if finalizer, ok := r.(realizer.PreparationFinalizer); ok {
+		defer finalizer.FinalizePreparation(false)
+	}
 	driverName := r.Name()
 	emitter.EmitPhase("plan")
 

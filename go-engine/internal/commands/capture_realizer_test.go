@@ -72,6 +72,7 @@ func nixSet(names ...string) realizer.Set {
 		els[n] = realizer.Element{
 			Name:     n,
 			AttrPath: "legacyPackages.x86_64-linux." + n,
+			URL:      "github:NixOS/nixpkgs/1111111111111111111111111111111111111111",
 			// 32-char base32 hash (all zeros is valid base32) + name + version.
 			StorePaths: []string{"/nix/store/00000000000000000000000000000000-" + n + "-1.0.0"},
 		}
@@ -722,6 +723,7 @@ func nixSetWithVersion(name, version string) realizer.Set {
 			name: {
 				Name:     name,
 				AttrPath: "legacyPackages.x86_64-linux." + name,
+				URL:      "github:NixOS/nixpkgs/1111111111111111111111111111111111111111",
 				StorePaths: []string{
 					"/nix/store/2rwsbbpn5p76jf35rv7cb9qlhpxnp83p-" + name + "-" + version,
 				},
@@ -739,6 +741,7 @@ func nixSetNoStorePaths(name string) realizer.Set {
 			name: {
 				Name:       name,
 				AttrPath:   "legacyPackages.x86_64-linux." + name,
+				URL:        "github:NixOS/nixpkgs/1111111111111111111111111111111111111111",
 				StorePaths: []string{},
 			},
 		},

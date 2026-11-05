@@ -75,3 +75,14 @@ func TestProfileInstallableUsesFullAttributeWhenLockedURLHasNoFragment(t *testin
 		t.Fatalf("profile installable = %q, want %q", got, want)
 	}
 }
+
+func TestRealizerInventoryDoesNotInferAnInputFromOriginalURL(t *testing.T) {
+	adapter := RealizerInventoryAdapter{DefaultInput: "github:NixOS/nixpkgs/1111111111111111111111111111111111111111", Realizer: inventoryRealizer{set: realizer.Set{Elements: map[string]realizer.Element{"app": {Name: "app", AttrPath: "legacyPackages.x86_64-linux.app", OriginalURL: "flake:nixpkgs"}}}}}
+	result, err := adapter.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Resolved) != 0 || len(result.Items) != 1 || len(result.Warnings) != 1 || result.Warnings[0].Code != "input_provenance_unavailable" {
+		t.Fatalf("unknown source was relabelled as a release input: %+v", result)
+	}
+}

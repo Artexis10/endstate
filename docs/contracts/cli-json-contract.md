@@ -920,7 +920,7 @@ When the manifest declares a `homeManager` block and `apply` runs with `--enable
 - `homeManager.config` is a path (resolved relative to the manifest) to a `home.nix` the engine **wraps in a generated flake** before activating it through this same stage — so the user supplies only their configuration, never the flake, inputs, pinning, identity, or activation wiring.
 - `homeManager.settings` is a **declarative, Endstate-native config block** the engine compiles into a `home.nix` (then wrapped exactly like `homeManager.config`) — so the user declares configuration in Endstate's own format and never writes Nix at all. See *Declarative catalog* below.
 - `settings`, `config`, and `flake` are **mutually exclusive** (exactly one home-manager input); a manifest declaring more than one fails to load with a clear validation error.
-- **Engine-owned and gated.** The engine itself runs the activation (`nix run <pinned home-manager> -- switch --flake <ref> -b endstate-backup`); the user does not install or run home-manager. The home-manager version is pinned by the engine (overridable via `ENDSTATE_HOME_MANAGER_PIN`, mirroring `ENDSTATE_NIXPKGS_PIN`). The stage runs **only** when both `--enable-restore` is set and `homeManager.flake` is non-empty; otherwise apply is byte-identical to a package-only apply.
+- **Engine-owned and consented.** The stage requires `--enable-restore` and a declared Home Manager input. The engine freezes its activation derivation before package mutation. A real apply builds that derivation first, then runs its store `activate` script without arguments. The process inherits the native environment and sets `HOME_MANAGER_BACKUP_EXT=endstate-backup`. A dry run resolves the activation without building or activating it.
 - **Backup-on-clobber.** `-b endstate-backup` makes home-manager move any pre-existing file it would replace to `<file>.endstate-backup` instead of failing (honors *backup-before-overwrite*).
 - **Recorded.** A successful activation is recorded in the Provisioning Generation under `homeManager` (the activated flakeref and the resulting home-manager generation number). A config-only apply (no package changed) still records a generation.
 - **Realizer-only.** The winget/driver path never activates home-manager (a declared `homeManager` block is ignored there).
@@ -928,7 +928,7 @@ When the manifest declares a `homeManager` block and `apply` runs with `--enable
 
 #### Generated flake (the `homeManager.config` wrapper)
 
-When the manifest uses `homeManager.config`, the engine generates the surrounding flake itself and feeds the resulting flakeref to the **same** activation (no new activation path, classification, backup, or recording):
+When the manifest uses `homeManager.config`, the engine generates a wrapper flake and prepares its frozen activation through the same native resolution path:
 
 ```jsonc
 {
@@ -1255,7 +1255,34 @@ Lists recorded Provisioning Generations, newest first. Read-only. Additive in sc
 }
 ```
 
-`backend` is the stable backend name (`"nix"`, `"winget"`, `"chocolatey"`, or `"brew"`). `native` is the backend-native generation number (the Nix generation) or empty for non-atomic drivers. `partial` is true when a non-atomic driver committed only a subset of the requested set. Mixed-driver applies write a separate backend-scoped generation per driver and give those generations the same apply `runId`; refs never cross backend records. `addedRefs` lists only refs installed in that run (status `installed`); additive `addedPackages` retains `{ref,source}` coordinates for source-aware WinGet rollback while keeping `addedRefs` for compatibility. Already-present refs appear in `items` but not the added arrays. A generation is recorded when at least one package was installed in the run **or** a home-manager configuration was activated by the config stage. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`. `homeManager` (optional, omitted when absent; additive in schema 1.x) records a home-manager configuration activated by `apply --enable-restore`: `{ "flake": "<flakeref>", "generation": <hm generation number> }`.
+`backend` is the stable backend name (`"nix"`, `"winget"`, `"chocolatey"`, or `"brew"`). `native` is the backend-native generation number (the Nix generation) or empty for non-atomic drivers. `partial` identifies an incomplete apply that committed state. A Nix package batch remains atomic when a later configuration stage fails. Mixed-driver applies write a separate backend-scoped generation per driver and give those generations the same apply `runId`; refs never cross backend records. `addedRefs` lists only refs installed in that run (status `installed`); additive `addedPackages` retains `{ref,source}` coordinates for source-aware WinGet rollback while keeping `addedRefs` for compatibility. Already-present refs appear in `items` but not the added arrays. A generation is recorded when at least one package was installed in the run **or** a home-manager configuration was activated by the config stage. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`. `homeManager` (optional, omitted when absent; additive in schema 1.x) records a home-manager configuration activated by `apply --enable-restore`: `{ "flake": "<flakeref>", "generation": <hm generation number> }`.
+
+
+Provisioning records use schema `2.0`; legacy `1.0` records remain readable. This version is independent of the CLI envelope version.
+
+Nix `items[].ref` retains requested intent. Its optional `resolution` records:
+
+| Field | Meaning |
+|-------|---------|
+| `expandedRef` | The requested reference after bare attribute expansion. |
+| `source` | Native root `url`, optional `path` and `locked` metadata, and source strength: `immutable`, `mutable`, or `unknown`. |
+| `lockGraph` | The effective lock graph emitted by native evaluation. |
+| `drvPath` | The frozen native derivation. |
+| `outputs` | Sorted selected output names. |
+| `outputPaths` | Known or observed paths, keyed by output name. Missing paths remain unknown. |
+| `priority` | The native priority for that selected derivation. |
+| `mutationRef` | The exact immutable reference used for mutation. |
+| `wrapperUrl`, `attrPath` | The native metadata source and attribute that bind an installed entry to its original application identity. |
+
+The metadata flake preserves per-package priority in one atomic profile addition. It is machine-local runtime state and never becomes a portable capture reference. A frozen derivation does not make a mutable source a revision pin. Capture omits unavailable portable provenance and reports a warning.
+
+Discovery requires a native locked URL or reviewed mapping. An original floating reference or a missing URL remains unresolved. Legacy stored records and Darwin direct capture remain readable.
+
+New `homeManager` records distinguish `kind` (`settings`, `config`, or `flake`) and `generated`. They retain `platform`, `system`, `configIdentity`, `resolution`, `activationOutput`, and the native `generation`. Settings-generated records add `sourceManifest` and `settingsDigest`; they omit the settings payload. Capture reloads that source through the manifest loader, including its includes. It recovers settings only when their digest and active output match. Legacy embedded settings remain readable.
+
+Missing or changed declarations produce `home_manager_provenance_unavailable`; independent package and live-settings evidence remains usable.
+
+Apply returns `INPUT_PROVENANCE_UNRESOLVED` before mutation when native evaluation cannot establish an exact target. Committed package state remains recorded when a later configuration stage fails. A provenance write failure returns `PROVENANCE_WRITE_FAILED` with `error.detail.committed: true`; it never reports complete success.
 
 ## Command: `rollback`
 

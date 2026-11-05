@@ -13,19 +13,23 @@
 // enforces the import constraint.
 package provision
 
-import "github.com/Artexis10/endstate/go-engine/internal/manifest"
+import (
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+)
 
 // SchemaVersion is the schema version of the Generation record. It is owned by
 // the provisioning layer and is independent of the manifest and envelope schema
 // versions, so the record format can migrate on its own cadence.
-const SchemaVersion = "1.0"
+const SchemaVersion = "2.0"
 
 // ProvItem is a single package fact within a Generation.
 type ProvItem struct {
-	ID      string `json:"id"`
-	Ref     string `json:"ref"`
-	Status  string `json:"status"`            // "installed" | "present"
-	Version string `json:"version,omitempty"` // best-effort; "" when the backend exposes none
+	Resolution *realizer.InputResolution `json:"resolution,omitempty"`
+	ID         string                    `json:"id"`
+	Ref        string                    `json:"ref"`
+	Status     string                    `json:"status"`            // "installed" | "present"
+	Version    string                    `json:"version,omitempty"` // best-effort; "" when the backend exposes none
 }
 
 // PackageRecord is the source-aware package coordinate retained alongside
@@ -49,7 +53,7 @@ type Generation struct {
 	AddedRefs       []string        `json:"addedRefs"`
 	AddedPackages   []PackageRecord `json:"addedPackages,omitempty"`
 	Native          string          `json:"native,omitempty"`      // backend-native anchor (nix generation number); "" if none
-	Partial         bool            `json:"partial"`               // true when a non-atomic backend committed a partial set
+	Partial         bool            `json:"partial"`               // true when state committed but the apply did not complete
 	Rollback        bool            `json:"rollback,omitempty"`    // true when this generation was produced by a rollback (AddedRefs is empty)
 	RemovedRefs     []string        `json:"removedRefs,omitempty"` // refs uninstalled by a best-effort (winget/brew) rollback; empty for native/apply generations
 	RemovedPackages []PackageRecord `json:"removedPackages,omitempty"`
@@ -65,6 +69,16 @@ type Generation struct {
 // flakeref applied and the resulting home-manager generation number. It is the
 // config analogue of the package Native anchor.
 type HomeGenRef struct {
+	Kind             string                    `json:"kind,omitempty"` // settings | config | flake; empty for legacy records
+	Generated        bool                      `json:"generated,omitempty"`
+	Platform         string                    `json:"platform,omitempty"`
+	System           string                    `json:"system,omitempty"`
+	ConfigIdentity   string                    `json:"configIdentity,omitempty"`
+	SourceManifest   string                    `json:"sourceManifest,omitempty"`
+	SettingsDigest   string                    `json:"settingsDigest,omitempty"`
+	Resolution       *realizer.InputResolution `json:"resolution,omitempty"`
+	ActivationOutput string                    `json:"activationOutput,omitempty"`
+
 	Flake string `json:"flake"`
 	// Config is the user's originally-declared homeManager.config (a path to a
 	// home.nix) when the activated flake was engine-generated from it; empty for a
@@ -72,11 +86,8 @@ type HomeGenRef struct {
 	// activated (the generated, machine-local flakeref in the config case);
 	// Config records what the user declared, so capture can round-trip it.
 	Config string `json:"config,omitempty"`
-	// Settings is the user's declared homeManager.settings catalog when the
-	// activated flake was engine-compiled from it (the catalog tier); nil for a
-	// flake- or config-declared home-manager input. Like Config, it records what
-	// the user declared so capture can round-trip a settings-applied machine back
-	// to its catalog. In practice exactly one of Config/Settings is set.
+	// Settings retains the embedded declaration from legacy records. New
+	// generated records use SourceManifest and SettingsDigest instead.
 	Settings *manifest.HomeManagerSettings `json:"settings,omitempty"`
 	// Secrets is the user's declared Phase-1 documented-boundary secret REFERENCES
 	// (homeManager.secrets) activated by this apply. It carries references only —

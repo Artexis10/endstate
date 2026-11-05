@@ -40,16 +40,27 @@ func (adapter RealizerInventoryAdapter) Inventory(ctx context.Context) (AdapterI
 	}
 	sort.Strings(names)
 	resolved := make([]ResolvedIntent, 0, len(names))
+	var items []InventoryItem
+	var warnings []Warning
 	for _, name := range names {
 		element := set.Elements[name]
+		id := name
+		if element.ID != "" {
+			id = element.ID
+		}
 		attribute := profileAttribute(name, element)
 		installable := profileInstallable(attribute, element, adapter.DefaultInput)
+		if installable == "" {
+			items = append(items, InventoryItem{Source: adapter.ID(), Kind: EvidencePackage, Ref: id, DisplayName: id, Explicit: true, UserFacing: true})
+			warnings = append(warnings, Warning{Code: "input_provenance_unavailable", Source: adapter.ID(), ItemID: id, Message: "The installed native runtime entry has no portable immutable source."})
+			continue
+		}
 		input := installable
 		if index := strings.LastIndexByte(input, '#'); index >= 0 {
 			input = input[:index]
 		}
 		resolved = append(resolved, ResolvedIntent{
-			ID: name, DisplayName: name, Attribute: attribute, Input: input, Installable: installable,
+			ID: id, DisplayName: id, Attribute: attribute, Input: input, Installable: installable,
 			MappingRevision: "endstate-profile-v1",
 			Evidence: []Evidence{{
 				Source: "endstate-profile", Kind: EvidencePackage, Ref: installable,
@@ -57,10 +68,17 @@ func (adapter RealizerInventoryAdapter) Inventory(ctx context.Context) (AdapterI
 			}},
 		})
 	}
-	return AdapterInventory{Resolved: resolved}, nil
+	return AdapterInventory{Resolved: resolved, Items: items, Warnings: warnings}, nil
 }
 
 func profileAttribute(name string, element realizer.Element) string {
+	if element.Resolution != nil {
+		_, target, ok := strings.Cut(element.Resolution.ExpandedRef, "#")
+		if ok {
+			return target
+		}
+		return ""
+	}
 	attribute := strings.TrimSpace(element.AttrPath)
 	if index := strings.LastIndexByte(attribute, '.'); index >= 0 {
 		attribute = attribute[index+1:]
@@ -78,11 +96,17 @@ func profileAttribute(name string, element realizer.Element) string {
 }
 
 func profileInstallable(attribute string, element realizer.Element, defaultInput string) string {
-	for _, candidate := range []string{element.URL, element.OriginalURL} {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || strings.HasPrefix(candidate, "path:") || strings.HasPrefix(candidate, "/") {
-			continue
-		}
+	if element.Resolution != nil {
+		return realizer.PortableRef(element.Resolution)
+	}
+	// Unknown store flakes cannot be exported or relabelled as a release package.
+	if strings.HasPrefix(element.URL, "path:/nix/store/") || strings.HasPrefix(element.OriginalURL, "path:/nix/store/") {
+		return ""
+	}
+	// The native URL is its locked source. OriginalURL alone records requested
+	// intent and cannot prove which source produced the installed outputs.
+	candidate := strings.TrimSpace(element.URL)
+	if candidate != "" && !strings.HasPrefix(candidate, "path:") && !strings.HasPrefix(candidate, "/") && !strings.HasPrefix(candidate, "flake:") && strings.Contains(candidate, ":") {
 		if strings.Contains(candidate, "#") {
 			return candidate
 		}
@@ -92,7 +116,8 @@ func profileInstallable(attribute string, element realizer.Element, defaultInput
 		}
 		return candidate + "#" + refAttribute
 	}
-	return strings.TrimSuffix(defaultInput, "#") + "#" + attribute
+	// A release input does not establish a mapping for an unknown native item.
+	return ""
 }
 
 func realizerNixVersion(element realizer.Element) string {

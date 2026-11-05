@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/state"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -305,7 +306,8 @@ type ApplyAction struct {
 	Manual         *manifest.ManualApp `json:"manual"`
 	// WasPresent distinguishes a version convergence of an existing package from
 	// a newly added package. It is internal generation/rollback provenance only.
-	WasPresent bool `json:"-"`
+	WasPresent bool                      `json:"-"`
+	Resolution *realizer.InputResolution `json:"-"`
 }
 
 // RunApply executes the apply command with the provided flags.
