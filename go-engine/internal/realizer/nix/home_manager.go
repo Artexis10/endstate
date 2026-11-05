@@ -115,12 +115,7 @@ func homeGeneration() int {
 // ~/.local/state/nix/profiles/home-manager), following the same XDG convention
 // as DefaultProfile rather than a hardcoded absolute path.
 func homeProfilePath() string {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(base, "nix", "profiles", "home-manager")
+	return filepath.Join(profileStateHome(), "nix", "profiles", "home-manager")
 }
 
 // parsePlainLog builds a parsedLog from home-manager's PLAIN-TEXT switch stderr

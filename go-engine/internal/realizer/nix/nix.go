@@ -93,12 +93,16 @@ func DefaultProfile() string {
 	if p := os.Getenv("ENDSTATE_NIX_PROFILE"); p != "" {
 		return p
 	}
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".local", "state")
+	return filepath.Join(profileStateHome(), "endstate", "nix-profile")
+}
+
+// Profile locations use native host paths and ignore relative XDG roots.
+func profileStateHome() string {
+	if base := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(base) {
+		return base
 	}
-	return filepath.Join(base, "endstate", "nix-profile")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state")
 }
 
 func defaultPin() string {
