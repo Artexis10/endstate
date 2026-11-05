@@ -73,6 +73,44 @@ The bundle freezes source identity and bytes. The current trusted catalog suppli
 
 Generation-relative `source`, `dest`, and validation paths are portable paths. They must be clean, relative, and contained. Host destinations may use the existing environment-variable allowlist or `${instance.*}` placeholders supported by the engine.
 
+## Platform host coordinates
+
+Schema-v3 modules declare executable settings under `platforms.windows`,
+`platforms.linux`, or `platforms.darwin`. Each variant declares its realization
+strategy and uses engine coordinates for host paths.
+
+| Coordinate | Platforms | Root |
+| --- | --- | --- |
+| `${home}` | Windows, Linux, Darwin | The current user's home directory |
+| `${xdg.config}` | Linux, Darwin | Absolute `XDG_CONFIG_HOME`, otherwise `${home}/.config` |
+| `${xdg.data}` | Linux, Darwin | Absolute `XDG_DATA_HOME`, otherwise `${home}/.local/share` |
+| `${xdg.state}` | Linux, Darwin | Absolute `XDG_STATE_HOME`, otherwise `${home}/.local/state` |
+| `${xdg.cache}` | Linux, Darwin | Absolute `XDG_CACHE_HOME`, otherwise `${home}/.cache` |
+| `${windows.appdata}` | Windows | `APPDATA`, otherwise `${home}/AppData/Roaming` |
+| `${windows.localAppData}` | Windows | `LOCALAPPDATA`, otherwise `${home}/AppData/Local` |
+| `${darwin.applicationSupport}` | Darwin | `${home}/Library/Application Support` |
+
+XDG roots follow POSIX absolute-path rules. The engine ignores relative values
+and preserves spaces in valid roots. These defaults belong to the engine;
+authors do not embed shell fallback expressions.
+
+A host path starts with one coordinate, followed by a separator and its suffix.
+For example, `${xdg.config}/example/preferences.json` names a Linux settings
+file. The coordinate alone is also valid. Path detectors may place supported
+glob syntax in the suffix. Resolved root characters remain literal.
+
+The engine rejects unknown or wrong-platform coordinates, parent traversal,
+nested expansion, command substitution, backticks, and shell fallback syntax.
+Resolution cleans the path beneath its coordinate root. Capture and restore
+then apply their containment, symlink, and secret checks. Portable payload and
+validation paths remain relative; a host coordinate does not relax those rules.
+
+Validation mode redirects these coordinates into disposable roots. It retains
+the original detector coordinate and host roots to detect writes outside the
+sandbox. Frozen generation fixtures bind capture and restore declarations by
+their exact declaration coordinates and content hash. A platform projection
+does not waive generation validation or migration assertions.
+
 ## Instance detectors
 
 Package detection is right when one installed package corresponds to one config root:
