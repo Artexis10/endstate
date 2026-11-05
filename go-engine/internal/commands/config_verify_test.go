@@ -96,6 +96,63 @@ func TestVerifyCapturedContentReportsUnavailableOrUnsafeEvidence(t *testing.T) {
 	}
 }
 
+func TestVerifyCapturedContentIntegrityFailureOutweighsAmbiguousTarget(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("production Linux module workflow")
+	}
+	path, _, home, capture := configVerifyCaptureFixture(t)
+	payload := filepath.Join(filepath.Dir(path), filepath.FromSlash(capture.PayloadRoot), capture.PayloadManifest[0].RelativePath)
+	if err := os.WriteFile(payload, []byte("changed payload\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, _, err := loadConfigRestoreCatalogFn("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog["apps.ripgrep"].Config.InstanceDetectors = []modules.InstanceDetectorDef{{ID: "other", Type: "path", Glob: "${home}/*"}}
+	for _, name := range []string{"one", "two"} {
+		if err := os.Mkdir(filepath.Join(home, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withMockDriver(&mockDriver{}, func() {
+		assertConfigVerify(t, path, capture.CaptureID, "fail", "payload_integrity_failed")
+	})
+}
+
+func TestVerifyCapturedConfigSetWithAllDirectoryMembersExcludedIsSkipped(t *testing.T) {
+	runtime, plan := configRestoreExecutionFixture(t, "capture-excluded")
+	source := runtime.inputs.generationSources[0]
+	sourceDir := filepath.Join(source.payloadRoot, "prefs")
+	if err := os.Mkdir(sourceDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "owned.txt"), []byte("captured"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	source.payloadManifest, err = bundle.BuildPayloadManifest(source.payloadRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := plan.Sets[0]
+	target := filepath.Join(set.TargetInstances[0].Root, "prefs")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "owned.txt"), []byte("different"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	set.TargetGenerationDef.Restore = []modules.RestoreDef{{Type: "copy", Source: "prefs", Target: target, Exclude: []string{"**/owned.txt"}}}
+	item := verifyCapturedConfigSet(context.Background(), VerifyItem{Type: "config", ID: set.Source.CaptureID}, set, source, nil, nil, nil, "")
+	if item.Status != "skipped" || item.Reason != "config_content_unchecked" {
+		t.Fatalf("excluded captured content produced a pass: %+v", item)
+	}
+	if got, err := os.ReadFile(filepath.Join(target, "owned.txt")); err != nil || string(got) != "different" {
+		t.Fatalf("excluded target changed: %q, %v", got, err)
+	}
+}
+
 func TestVerifyCapturedConfigSetFailureOutweighsUncheckedOperations(t *testing.T) {
 	runtime, plan := configRestoreExecutionFixture(t, "capture-preferences")
 	source := runtime.inputs.generationSources[0]

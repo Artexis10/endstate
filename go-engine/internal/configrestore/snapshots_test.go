@@ -257,7 +257,7 @@ func TestDesiredDirectoryCopyUsesCommitRootModeRatherThanSourceRootMode(t *testi
 	}
 	source.Digest = digestFilesystemState(source)
 
-	desired, err := desiredCopyState(absentFilesystemState(), source, nil)
+	desired, _, err := desiredCopyState(absentFilesystemState(), source, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

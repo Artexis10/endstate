@@ -125,7 +125,8 @@ func markInvalidConfigCaptureSnapshots(request configRestoreBuildRequest, inputs
 	for index := range inputs.generationSources {
 		inputs.generationSources[index].source.SourceSnapshotLinked = linkedCaptureIDs[inputs.generationSources[index].source.CaptureID]
 		inputs.generationSources[index].source.SourcePayloadVerified = bundle.VerifyPayloadManifest(inputs.generationSources[index].payloadRoot, inputs.generationSources[index].payloadManifest) == nil
-		if _, invalid := invalidCaptureIDs[inputs.generationSources[index].source.CaptureID]; invalid {
+		_, invalidSnapshot := invalidCaptureIDs[inputs.generationSources[index].source.CaptureID]
+		if invalidSnapshot || !inputs.generationSources[index].source.SourcePayloadVerified {
 			inputs.generationSources[index].source.PayloadIntegrityFailed = true
 		}
 	}

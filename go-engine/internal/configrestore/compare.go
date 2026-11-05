@@ -8,8 +8,8 @@ import (
 	"fmt"
 )
 
-// Comparison reports checked filesystem operations separately from operations
-// that this read-only comparison cannot verify.
+// Comparison counts participating filesystem assertions separately from
+// operations that this read-only comparison cannot verify.
 type Comparison struct {
 	Checked     int
 	Unsupported int
@@ -37,7 +37,7 @@ func CompareMaterialized(ctx context.Context, set *MaterializedSet) (Comparison,
 		if err != nil {
 			return result, err
 		}
-		current, desired, sourceDigest, err := observeFilesystemAction(ctx, ioAction)
+		current, desired, sourceDigest, checked, err := observeFilesystemAction(ctx, ioAction)
 		if err != nil {
 			return result, err
 		}
@@ -57,7 +57,10 @@ func CompareMaterialized(ctx context.Context, set *MaterializedSet) (Comparison,
 				return result, fmt.Errorf("copy source changed during comparison")
 			}
 		}
-		result.Checked++
+		if checked == 0 {
+			continue
+		}
+		result.Checked += checked
 		if !statesEqual(current, desired) {
 			result.Drifted = true
 			result.Missing = result.Missing || current.Kind == StateAbsent
@@ -68,7 +71,7 @@ func CompareMaterialized(ctx context.Context, set *MaterializedSet) (Comparison,
 
 // observeFilesystemAction is shared by comparison and snapshot preparation;
 // only snapshot preparation publishes backups of the observed state.
-func observeFilesystemAction(ctx context.Context, action Action) (prior, desired filesystemState, sourceDigest string, err error) {
+func observeFilesystemAction(ctx context.Context, action Action) (prior, desired filesystemState, sourceDigest string, checked int, err error) {
 	prior, err = scanFilesystemState(ctx, action.Target)
 	if err != nil {
 		return
@@ -89,10 +92,12 @@ func observeFilesystemAction(ctx context.Context, action Action) (prior, desired
 			return
 		}
 		sourceDigest = source.Digest
-		desired, err = desiredCopyState(prior, source, action.Exclude)
+		desired, checked, err = desiredCopyState(prior, source, action.Exclude)
 	case ActionWriteFile:
+		checked = 1
 		desired = desiredWriteState(prior, action.DesiredContent)
 	case ActionDeleteFile:
+		checked = 1
 		desired = absentFilesystemState()
 	default:
 		err = fmt.Errorf("unsupported filesystem action kind %q", action.Kind)

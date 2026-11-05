@@ -250,7 +250,7 @@ func prepareSnapshotAction(
 			}
 			result.record.missingParents = append(result.record.missingParents, identity)
 		}
-		prior, desired, sourceDigest, err := observeFilesystemAction(ctx, ioAction)
+		prior, desired, sourceDigest, _, err := observeFilesystemAction(ctx, ioAction)
 		if err != nil {
 			return result, err
 		}

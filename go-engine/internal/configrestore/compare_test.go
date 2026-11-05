@@ -43,6 +43,35 @@ func TestCompareMaterializedCopyChecksExactBytesAndDirectoryOverlay(t *testing.T
 	assertTestFile(t, filepath.Join(target, "prefs", "unrelated.txt"), "local only")
 }
 
+func TestCompareMaterializedEmptyRegularFileStillParticipates(t *testing.T) {
+	for _, test := range []struct{ name, source, member string }{
+		{"file", "empty.txt", "empty.txt"},
+		{"directory", "prefs", "prefs/empty.txt"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stage, target := t.TempDir(), t.TempDir()
+			writeTestFile(t, filepath.Join(stage, test.member), "")
+			writeTestFile(t, filepath.Join(target, test.member), "changed")
+			generation := modules.GenerationDef{ID: "g2", Restore: []modules.RestoreDef{{Type: "copy", Source: test.source, Target: instancePath(test.source)}}}
+			materialized, err := Materialize(context.Background(), Request{
+				Stage: &migration.StageResult{Root: stage, TargetGeneration: "g2"}, Plan: testPlan(target, generation),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			comparison, err := CompareMaterialized(context.Background(), materialized)
+			if err != nil || comparison.Checked != 1 || !comparison.Drifted {
+				t.Fatalf("empty captured file was unchecked: %+v, %v", comparison, err)
+			}
+			writeTestFile(t, filepath.Join(target, test.member), "")
+			comparison, err = CompareMaterialized(context.Background(), materialized)
+			if err != nil || comparison.Checked != 1 || comparison.Drifted {
+				t.Fatalf("matching empty file comparison = %+v, %v", comparison, err)
+			}
+		})
+	}
+}
+
 func TestCompareMaterializedMergeAndAppendKeepCurrentUnrelatedValues(t *testing.T) {
 	for _, test := range []struct{ strategy, source, current, changed string }{
 		{"merge-json", `{"owned":"desired"}`, "{\n  \"owned\": \"desired\",\n  \"user\": \"first\"\n}\n", "{\n  \"owned\": \"desired\",\n  \"user\": \"second\"\n}\n"},

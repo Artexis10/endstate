@@ -386,7 +386,7 @@ func copySnapshotFile(ctx context.Context, source, destination string, mode os.F
 	return os.Chmod(destination, mode.Perm())
 }
 
-func desiredCopyState(prior, source filesystemState, exclude []string) (filesystemState, error) {
+func desiredCopyState(prior, source filesystemState, exclude []string) (filesystemState, int, error) {
 	switch source.Kind {
 	case StateFile:
 		entry := source.Entries["."]
@@ -395,7 +395,7 @@ func desiredCopyState(prior, source filesystemState, exclude []string) (filesyst
 		}
 		state := filesystemState{Kind: StateFile, Mode: entry.Mode, Entries: map[string]filesystemEntry{".": entry}}
 		state.Digest = digestFilesystemState(state)
-		return state, nil
+		return state, 1, nil
 	case StateDirectory:
 		entries := cloneFilesystemEntries(prior.Entries)
 		if prior.Kind == StateAbsent || prior.Kind == StateFile {
@@ -403,6 +403,7 @@ func desiredCopyState(prior, source filesystemState, exclude []string) (filesyst
 				".": {Path: ".", Kind: StateDirectory, Mode: defaultCreatedDirectoryMode()},
 			}
 		}
+		checkedFiles := 0
 		paths := sortedFilesystemPaths(source.Entries)
 		excludedDirectories := make([]string, 0)
 		for _, path := range paths {
@@ -427,6 +428,7 @@ func desiredCopyState(prior, source filesystemState, exclude []string) (filesyst
 					entries[path] = entry
 				}
 			case StateFile:
+				checkedFiles++
 				if exists && existing.Kind == StateDirectory {
 					for candidate := range entries {
 						if candidate == path || strings.HasPrefix(candidate, path+"/") {
@@ -440,15 +442,15 @@ func desiredCopyState(prior, source filesystemState, exclude []string) (filesyst
 				}
 				entries[path] = entry
 			default:
-				return filesystemState{}, fmt.Errorf("unsupported source entry kind %q", entry.Kind)
+				return filesystemState{}, 0, fmt.Errorf("unsupported source entry kind %q", entry.Kind)
 			}
 		}
 		root := entries["."]
 		state := filesystemState{Kind: StateDirectory, Mode: root.Mode, Entries: entries}
 		state.Digest = digestFilesystemState(state)
-		return state, nil
+		return state, checkedFiles, nil
 	default:
-		return filesystemState{}, fmt.Errorf("copy source is absent or unsupported")
+		return filesystemState{}, 0, fmt.Errorf("copy source is absent or unsupported")
 	}
 }
 
