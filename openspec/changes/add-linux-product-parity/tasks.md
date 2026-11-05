@@ -147,9 +147,11 @@ section 6.
 - [x] 4.3 Implement Endstate/user Nix, Debian, RPM-family, Arch, and Flatpak inventory adapters with dependency/runtime filtering
 - [x] 4.4 Implement deterministic XDG desktop-entry discovery with precedence and visibility filtering
 - [ ] 4.5 Implement Snap behind an experimental/dark capability and promote it only after hermetic plus real-Ubuntu source-contract evidence
+  - The dark adapter and hermetic contract are accepted at `f38461a`. Real-Ubuntu promotion remains open; it does not block other discovery sources.
 - [x] 4.6 Implement catalog-declared executable/config-path evidence through bounded engine-owned coordinates
   - Independent review at `00462db` accepts metadata-only presence checks and their production capture integration. Review-only settings candidates grant no capture action, and explicit unsupported selections cannot silently disappear.
-- [ ] 4.7 Complete malformed/large-output, locale/case, privacy-redaction, cancellation, and retry-budget coverage
+- [x] 4.7 Complete malformed/large-output, locale/case, privacy-redaction, cancellation, and retry-budget coverage
+  - Independent assessment at `dd4af93` accepts the existing malformed-row, subprocess-output-bound, exact-case, privacy, cancellation, and bounded RPM fallback checks. Native Debian inventory agrees under C and en_US.utf8. Other native providers and release environments remain separate acceptance work.
 - [x] 4.8 Add one hermetic multi-source fixture for the same app across native managers, desktop, executable, and config evidence
   - The fixture drives Debian, Flatpak, desktop, executable, and config adapters through reconciliation. It retains five source-qualified evidence records for one package and preserves native versions separately. Independent review at `00462db` accepts the result.
 
@@ -192,6 +194,10 @@ fingerprints/history, capture provenance, and authored platform mappings.
 ## 6. Linux capture and additive CLI contract
 
 **Depends on:** 3, 4, and 5.
+
+Section 4's discovery implementation and coverage are prerequisites. Its Snap
+promotion remains a separate hold under the discovery specification; Snap stays
+dark while the other capture sources proceed. Section 5.5 still needs acceptance.
 
 **Packet boundary:** owns capture orchestration, discovery counts/actions,
 events, capabilities, selection flags, and bundle determinism. It serializes

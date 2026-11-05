@@ -215,6 +215,31 @@ Per-source `sourceDiscovered` counts describe raw normalized observations and ma
 
 This gives the CLI, GUI, fixtures, and release evidence one independently checkable accounting model without hiding source overlap or double-counting apps with both package and settings state.
 
+Discovery retains complete public inventories when a caller selects a subset.
+A resolved package uses its portable ID as candidate identity. Settings use
+their reviewed package ID when present, otherwise their settings ID. Unmapped
+inventory retains its source-qualified identity. Settings row IDs remain the
+keys for private file plans. Multiple settings rows can describe one candidate.
+Presence-only settings remain visible but grant no action; without a resolved
+package, their candidate belongs to the unresolved partition.
+
+The existing command selection validator owns CLI namespaces and unknown-ID
+errors. Capture selects execution plans through exact settings, module, or
+package IDs. Public inventory and raw source counts remain complete. The
+selected count uses the union of selected package and supported settings
+candidates. Sanitization omits settings execution.
+
+An update preserves existing manifest apps while it scopes live config
+collection to this run's selected apps and modules. Retained unselected apps
+do not authorize additional collection. Historical Home Manager declarations
+remain subject to selection, sanitization, and share boundaries.
+
+Settings-only success requires useful payload from actual collection. The
+bundle collector checks that result before publication, including generation,
+legacy, and Home Manager files. Planned optional files or blocked ownership
+alone do not establish a successful capture. Sanitized capture requires useful
+selected package state because it deliberately omits settings.
+
 ### 14. Linux artifacts are complete runtime bundles; GUI launches with AppImage plus deb
 
 The ordinary-machine contract cannot depend on a source checkout or ambient `ENDSTATE_ROOT`. Every shipped Linux engine artifact carries a version-matched binary, modules, payload, package catalog, frozen Home Manager registry, and schema identity. Unix bootstrap installs or resolves that complete asset set, and release smoke proves lookup plus no-Nix capture from shipped amd64 and arm64 engine artifacts.
