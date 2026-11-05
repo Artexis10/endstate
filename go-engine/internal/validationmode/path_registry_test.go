@@ -208,7 +208,6 @@ func TestResolveHostPathRejectsUnsafeAuthoredPaths(t *testing.T) {
 		`\\.\PhysicalDrive0`, `%APPDATA%\file.txt:stream`, `%APPDATA%\..\escape`,
 		`%APPDATA%\\empty`, `%APPDATA%\.\dot`, `%UNKNOWN%\settings`,
 		`$APPDATA/settings`, `${APPDATA}/settings`,
-		`${xdg.config}/tool/settings`, `${darwin.applicationSupport}/Tool/settings`,
 		`${instance.root}\settings`, `%APPDATA%\${instance.root}`,
 		`%APPDATA%\%TEMP%\mixed`, `%APPDATA%\<instance>\settings`,
 	}

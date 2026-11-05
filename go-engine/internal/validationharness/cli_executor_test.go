@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -615,5 +616,58 @@ func assertDirectoryVerifier(t *testing.T, runtime *scenarioRuntime, verifier, w
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		t.Fatalf("directory verifier = %v, %v; want directory", info, err)
+	}
+}
+
+func TestPrepareCoordinateGuardsUseDisposableNativeHome(t *testing.T) {
+	runtime := fixtureScenarioRuntime(t)
+	runtime.GuardRoot = t.TempDir()
+	runtime.Plan.Targets = []FixtureTarget{
+		{Coordinate: "home", Authored: "${home}/native.json"},
+		{Coordinate: "legacy", Authored: "%USERPROFILE%/legacy.json"},
+		{Coordinate: "darwin", Authored: "${darwin.applicationSupport}/editor/settings.json"},
+		{Coordinate: "xdg", Authored: "${xdg.config}/editor/settings.json"},
+	}
+	if err := runtime.prepareGuardsAndTools(); err != nil {
+		t.Fatal(err)
+	}
+	home := runtime.OriginalEnvironment["HOME"]
+	if goruntime.GOOS == "windows" {
+		home = runtime.OriginalEnvironment["USERPROFILE"]
+	}
+	for _, expected := range []string{
+		filepath.Join(home, "native.json"),
+		filepath.Join(runtime.OriginalEnvironment["USERPROFILE"], "legacy.json"),
+		filepath.Join(home, "Library", "Application Support", "editor", "settings.json"),
+		filepath.Join(runtime.OriginalEnvironment["XDG_CONFIG_HOME"], "editor", "settings.json"),
+	} {
+		found := false
+		for _, guard := range runtime.Guards {
+			if guard.Path == expected {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("original guard missing: %q", expected)
+		}
+	}
+	environment := childEnvironment(runtime)
+	for _, name := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME"} {
+		expected := runtime.OriginalEnvironment[name]
+		if expected == "" || !fixtureContained(runtime.GuardRoot, expected) {
+			t.Fatalf("%s has no disposable original root", name)
+		}
+		found := false
+		for _, pair := range environment {
+			if pair == name+"="+expected {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("child lost controlled %s", name)
+		}
+	}
+	if failure := runtime.assertGuards(); failure != nil {
+		t.Fatal(failure)
 	}
 }

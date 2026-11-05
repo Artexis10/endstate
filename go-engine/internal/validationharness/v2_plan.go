@@ -105,6 +105,7 @@ func compileV2FixturePlan(context *validationmode.Context, mod *modules.Module, 
 		sourcePolicy := validationmode.HostPathPolicy{InstanceRoot: instance.Root}
 		if compiled.Detector.Type == "path" {
 			sourcePolicy.InstanceAlias = v2DetectorAlias(compiled.Detector.Glob)
+			sourcePolicy.InstanceDetectorPattern = compiled.Detector.Glob
 		}
 		capturePolicy := sourcePolicy
 		capturePolicy.AllowRoot = strings.EqualFold(entry.Capture.Source, "${instance.root}")
@@ -115,6 +116,7 @@ func compileV2FixturePlan(context *validationmode.Context, mod *modules.Module, 
 		targetPolicy := validationmode.HostPathPolicy{InstanceRoot: targetInstance.Root}
 		if compiled.Detector.Type == "path" {
 			targetPolicy.InstanceAlias = v2DetectorAlias(compiled.Detector.Glob)
+			targetPolicy.InstanceDetectorPattern = compiled.Detector.Glob
 		}
 		restorePolicy := targetPolicy
 		restorePolicy.AllowRoot = strings.EqualFold(entry.Restore.Target, "${instance.root}")
@@ -286,6 +288,7 @@ func discoverV2FixtureInstances(context *validationmode.Context, mod *modules.Mo
 }
 
 func v2DetectorAlias(glob string) string {
+	glob = validationmode.NormalizeProductionAuthoredPath(glob)
 	if !strings.HasPrefix(glob, "%") {
 		return ""
 	}

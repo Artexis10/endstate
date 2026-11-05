@@ -1357,6 +1357,9 @@ func validationPreflightSessionWithInventory(t *testing.T, shortID string, inven
 }
 
 func TestPreflightValidationFlatPlatformGenerationUsesContainedHomeDetector(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	literalTemp := filepath.Join(t.TempDir(), "validation[set]")
 	if err := os.MkdirAll(literalTemp, 0700); err != nil {
 		t.Fatal(err)

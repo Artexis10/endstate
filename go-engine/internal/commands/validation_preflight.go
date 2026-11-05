@@ -178,7 +178,7 @@ func deriveValidationInstancePolicies(context *validationmode.Context, session *
 		if instance.Version != expected.Version {
 			return nil, validationPreflightFailure(session, coordinate+".version", "instance-provenance", isolationReasonUnsafePath)
 		}
-		policy := validationmode.HostPathPolicy{InstanceRoot: instance.Root, InstanceAlias: alias}
+		policy := validationmode.HostPathPolicy{InstanceRoot: instance.Root, InstanceAlias: alias, InstanceDetectorPattern: detector.Glob}
 		if _, err := context.ResolveHostPath(`${instance.root}\probe`, policy); err != nil {
 			return nil, validationPreflightFailure(session, coordinate+".root", "instance-provenance", isolationReasonUnsafePath)
 		}

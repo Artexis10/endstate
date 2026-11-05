@@ -12,9 +12,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	goruntime "runtime"
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -58,26 +60,36 @@ func registryVerifierFixtureSetupFailure(err error) *Failure {
 }
 
 func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
-	runtime.OriginalEnvironment = map[string]string{}
+	runtime.OriginalEnvironment = map[string]string{
+		// Child home lookup must never inherit the operator's native home.
+		"HOME":        filepath.Join(runtime.GuardRoot, "home"),
+		"USERPROFILE": filepath.Join(runtime.GuardRoot, "userprofile"),
+	}
+	for _, root := range runtime.OriginalEnvironment {
+		if err := os.MkdirAll(root, 0700); err != nil {
+			return err
+		}
+	}
 	seenGuards := map[string]struct{}{}
 	type guardFixtureTarget struct {
 		authored, coordinate string
 		directory            bool
+		resolved             string
 	}
 	var guardTargets []guardFixtureTarget
 	if runtime.Plan != nil {
 		for _, target := range runtime.Plan.Targets {
-			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory})
+			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory, ""})
 		}
 	}
 	if runtime.V2Plan != nil {
 		for _, target := range append(append([]V2FixtureTarget(nil), runtime.V2Plan.CaptureTargets...), runtime.V2Plan.Targets...) {
-			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory})
+			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory, target.Resolved})
 		}
 	}
 	if runtime.CapturePlan != nil {
 		for _, target := range runtime.CapturePlan.Targets {
-			guardTargets = append(guardTargets, guardFixtureTarget{target.AuthoredSource, target.Coordinate, false})
+			guardTargets = append(guardTargets, guardFixtureTarget{target.AuthoredSource, target.Coordinate, false, ""})
 		}
 	}
 	for _, target := range guardTargets {
@@ -85,22 +97,39 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			if runtime.V2Plan == nil || !strings.EqualFold(target.authored, "${instance.root}") {
 				return fmt.Errorf("instance-root guard lacks exact detector authority")
 			}
-			alias, detectorSuffix, ok := authoredAliasSuffix(runtime.V2Plan.Compiled.Detector.Glob)
-			if !ok {
-				return fmt.Errorf("instance-root detector has no declared alias")
+			detector := runtime.V2Plan.Compiled.Detector.Glob
+			token, _, coordinate := config.SplitEnginePath(detector)
+			if !coordinate {
+				normalized := validationmode.NormalizeProductionAuthoredPath(detector)
+				alias, _, ok := authoredAliasSuffix(normalized)
+				if !ok {
+					return fmt.Errorf("instance-root detector has no declared alias")
+				}
+				token = "%" + alias + "%"
 			}
-			wildcard := strings.IndexAny(detectorSuffix, "*?[")
-			if wildcard < 0 {
-				return fmt.Errorf("instance-root detector is not a production glob")
+			sandboxAnchor, err := runtime.validationContext().ResolveHostPath(token, validationmode.HostPathPolicy{AllowRoot: true})
+			if err != nil {
+				return err
 			}
-			prefix := strings.TrimRight(detectorSuffix[:wildcard], `\/`)
-			parent := filepath.Dir(filepath.FromSlash(strings.ReplaceAll(prefix, `\`, "/")))
-			if parent == "." || strings.ContainsAny(parent, "*?[") {
-				return fmt.Errorf("instance-root detector anchor is ambiguous")
+			relative, err := filepath.Rel(sandboxAnchor, target.resolved)
+			if err != nil {
+				return err
 			}
-			aliasRoot := filepath.Join(runtime.GuardRoot, strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(alias, "(", "-"), ")", "")))
-			runtime.OriginalEnvironment[alias] = aliasRoot
-			guardPath := filepath.Join(aliasRoot, parent, filepath.Base(runtime.V2Plan.Instance.Root))
+			aliasRoot, suffix, err := runtime.fixtureGuardRoot(token)
+			if err != nil {
+				return err
+			}
+			anchor := filepath.Join(aliasRoot, filepath.FromSlash(strings.ReplaceAll(suffix, `\`, "/")))
+			if err := os.MkdirAll(anchor, 0700); err != nil {
+				return err
+			}
+			guardPath := anchor
+			if relative != "." {
+				guardPath, err = safepath.Resolve(anchor, filepath.ToSlash(relative))
+			}
+			if err != nil {
+				return err
+			}
 			if target.directory {
 				guardPath = filepath.Join(guardPath, fixturePayloadName)
 			}
@@ -118,14 +147,8 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			runtime.Guards = append(runtime.Guards, guardTarget{Path: guardPath, Content: content})
 			continue
 		}
-		alias, suffix, ok := authoredAliasSuffix(validationmode.NormalizeProductionAuthoredPath(target.authored))
-		if !ok {
-			return fmt.Errorf("fixture target has no declared alias")
-		}
-		aliasRoot := filepath.Join(runtime.GuardRoot, strings.ToLower(strings.ReplaceAll(alias, "(", "-")))
-		aliasRoot = strings.ReplaceAll(aliasRoot, ")", "")
-		runtime.OriginalEnvironment[alias] = aliasRoot
-		if err := os.MkdirAll(aliasRoot, 0o700); err != nil {
+		aliasRoot, suffix, err := runtime.fixtureGuardRoot(target.authored)
+		if err != nil {
 			return err
 		}
 		guardPath := filepath.Join(aliasRoot, filepath.FromSlash(strings.ReplaceAll(suffix, `\`, "/")))
@@ -307,6 +330,32 @@ func newCLIJourneyExecutor(selected *selection, runtime *scenarioRuntime) *cliJo
 		selected: selected, runtime: runtime, workingDir: runtime.ChildWorkingDir,
 		environment: childEnvironment(runtime),
 	}
+}
+
+// fixtureGuardRoot preserves raw coordinate meaning while exporting only
+// disposable original roots to the child process.
+func (runtime *scenarioRuntime) fixtureGuardRoot(authored string) (string, string, error) {
+	normalized := validationmode.NormalizeProductionAuthoredPath(authored)
+	alias, suffix, ok := authoredAliasSuffix(normalized)
+	if !ok {
+		return "", "", fmt.Errorf("fixture target has no declared alias")
+	}
+	root := runtime.OriginalEnvironment[alias]
+	coordinate, _, _ := config.SplitEnginePath(authored)
+	if coordinate == "${home}" || coordinate == "${darwin.applicationSupport}" {
+		nativeHome := "HOME"
+		if goruntime.GOOS == "windows" {
+			nativeHome = "USERPROFILE"
+		}
+		root = runtime.OriginalEnvironment[nativeHome]
+	} else if root == "" {
+		root = filepath.Join(runtime.GuardRoot, strings.ToLower(strings.NewReplacer("(", "-", ")", "").Replace(alias)))
+		runtime.OriginalEnvironment[alias] = root
+	}
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return "", "", err
+	}
+	return root, suffix, nil
 }
 
 func childEnvironment(runtime *scenarioRuntime) []string {

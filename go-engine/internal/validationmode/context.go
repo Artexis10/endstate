@@ -33,16 +33,22 @@ type originalEnvironmentValue struct {
 // Context contains validation authority. Its host paths are intentionally
 // available only through methods and have no JSON or text representation.
 type Context struct {
-	root       string
-	descriptor Descriptor
-	virtual    map[string]string
-	original   map[string]originalEnvironmentValue
+	root            string
+	descriptor      Descriptor
+	virtual         map[string]string
+	original        map[string]originalEnvironmentValue
+	originalHome    string
+	originalHomeErr error
 }
 
 var canonicalRootRelative = map[string]string{
 	"APPDATA":           "sandbox/appdata",
 	"LOCALAPPDATA":      "sandbox/localappdata",
 	"USERPROFILE":       "sandbox/userprofile",
+	"XDG_CONFIG_HOME":   "sandbox/xdg-config",
+	"XDG_DATA_HOME":     "sandbox/xdg-data",
+	"XDG_STATE_HOME":    "sandbox/xdg-state",
+	"XDG_CACHE_HOME":    "sandbox/xdg-cache",
 	"ProgramFiles":      "sandbox/program-files",
 	"ProgramW6432":      "sandbox/program-files",
 	"ProgramFiles(x86)": "sandbox/program-files-x86",
@@ -114,6 +120,7 @@ func (context *Context) Activate() (func() error, error) {
 	if err := context.createVirtualRoots(); err != nil {
 		return nil, err
 	}
+	context.originalHome, context.originalHomeErr = os.UserHomeDir()
 	names := context.environmentNames()
 	context.original = make(map[string]originalEnvironmentValue, len(names))
 	for _, name := range names {

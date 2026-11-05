@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -17,13 +19,14 @@ import (
 
 // HostPathPolicy controls the two deliberate host-path exceptions.
 type HostPathPolicy struct {
-	AllowRoot     bool
-	DynamicRoot   string
-	InstanceRoot  string
-	InstanceAlias string
+	AllowRoot               bool
+	DynamicRoot             string
+	InstanceRoot            string
+	InstanceAlias           string
+	InstanceDetectorPattern string
 }
 
-// ResolveHostPath resolves a Windows-authored path using only Context aliases.
+// ResolveHostPath resolves an authored host path using only Context aliases.
 func (context *Context) ResolveHostPath(authored string, policy HostPathPolicy) (string, error) {
 	fail := func(message string) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrUnsafePath, message)
@@ -122,7 +125,13 @@ func NormalizeProductionAuthoredPath(value string) string {
 		coordinate string
 		alias      string
 	}{
+		// These coordinates and aliases are fixed by the module path contract.
 		{coordinate: "${home}", alias: "%USERPROFILE%"},
+		{coordinate: "${xdg.config}", alias: "%XDG_CONFIG_HOME%"},
+		{coordinate: "${xdg.data}", alias: "%XDG_DATA_HOME%"},
+		{coordinate: "${xdg.state}", alias: "%XDG_STATE_HOME%"},
+		{coordinate: "${xdg.cache}", alias: "%XDG_CACHE_HOME%"},
+		{coordinate: "${darwin.applicationSupport}", alias: "%USERPROFILE%/Library/Application Support"},
 		{coordinate: "${windows.appdata}", alias: "%APPDATA%"},
 		{coordinate: "${windows.localAppData}", alias: "%LOCALAPPDATA%"},
 	} {
@@ -333,6 +342,16 @@ func (context *Context) DisplayHostPath(absolute string, policy HostPathPolicy) 
 // environment value captured before activation. Wildcards protect their
 // non-wildcard parent prefix. Callers must never serialize the returned path.
 func (context *Context) OriginalHostPath(authored string, policy HostPathPolicy) (string, error) {
+	if coordinate, suffix, ok := config.SplitEnginePath(authored); ok {
+		if _, err := context.ResolveHostPattern(authored, HostPathPolicy{AllowRoot: policy.AllowRoot}); err != nil {
+			return "", err
+		}
+		original, err := context.originalCoordinateRoot(coordinate)
+		if err != nil {
+			return "", err
+		}
+		return resolveOriginalSuffix(original, suffix)
+	}
 	authored = NormalizeProductionAuthoredPath(authored)
 	if strings.HasPrefix(strings.ToLower(authored), "${instance.root}") {
 		if policy.InstanceRoot == "" || policy.InstanceAlias == "" {
@@ -341,6 +360,40 @@ func (context *Context) OriginalHostPath(authored string, policy HostPathPolicy)
 		instanceRoot, err := context.validateInstanceRoot(policy.InstanceRoot)
 		if err != nil {
 			return "", err
+		}
+		if policy.InstanceDetectorPattern != "" {
+			token, _, coordinate := config.SplitEnginePath(policy.InstanceDetectorPattern)
+			if !coordinate {
+				normalized := NormalizeProductionAuthoredPath(policy.InstanceDetectorPattern)
+				if !strings.HasPrefix(normalized, "%") {
+					return "", fmt.Errorf("%w: detector has no root authority", ErrUnsafePath)
+				}
+				end := strings.Index(normalized[1:], "%")
+				if end < 0 {
+					return "", fmt.Errorf("%w: detector alias is unterminated", ErrUnsafePath)
+				}
+				token = normalized[:end+2]
+			}
+			virtual, err := context.ResolveHostPath(token, HostPathPolicy{AllowRoot: true})
+			if err != nil || !isAncestorOrSame(virtual, instanceRoot) {
+				return "", fmt.Errorf("%w: detector root does not contain instance", ErrUnsafePath)
+			}
+			original, err := context.OriginalHostPath(token, HostPathPolicy{AllowRoot: true})
+			if err != nil || original == "" {
+				return original, err
+			}
+			relative, err := filepath.Rel(virtual, instanceRoot)
+			if err != nil {
+				return "", fmt.Errorf("%w: instance root cannot be related to detector", ErrUnsafePath)
+			}
+			base := original
+			if relative != "." {
+				base, err = resolveOriginalSuffix(original, "/"+filepath.ToSlash(relative))
+				if err != nil {
+					return "", fmt.Errorf("%w: original instance root is unsafe", ErrUnsafePath)
+				}
+			}
+			return resolveOriginalSuffix(base, authored[len("${instance.root}"):])
 		}
 		virtual, ok := context.VirtualRoot(policy.InstanceAlias)
 		if !ok || !isAncestorOrSame(virtual, instanceRoot) {
@@ -393,6 +446,49 @@ func (context *Context) OriginalHostPath(authored string, policy HostPathPolicy)
 	return resolveOriginalSuffix(original, authored[closing+1:])
 }
 
+// originalCoordinateRoot preserves coordinate provenance before sandbox aliases
+// replace the environment. A legacy USERPROFILE is not native home on Unix.
+func (context *Context) originalCoordinateRoot(coordinate string) (string, error) {
+	if context.originalHomeErr != nil {
+		return "", fmt.Errorf("%w: original home is unavailable", ErrUnsafePath)
+	}
+	environment := config.PathEnvironment{GOOS: runtime.GOOS, Home: context.originalHome, Env: map[string]string{}}
+	for name, value := range context.original {
+		if value.set {
+			environment.Env[name] = value.value
+		}
+	}
+	switch {
+	case strings.HasPrefix(coordinate, "${windows."):
+		environment.GOOS = "windows"
+	case strings.HasPrefix(coordinate, "${xdg."):
+		environment.GOOS = "linux"
+	case strings.HasPrefix(coordinate, "${darwin."):
+		environment.GOOS = "darwin"
+	}
+	original := ""
+	if strings.HasPrefix(coordinate, "${xdg.") {
+		normalized := NormalizeProductionAuthoredPath(coordinate)
+		value := environment.Env[strings.Trim(normalized, "%")]
+		// Native Windows fixture roots need guards without changing Unix XDG policy.
+		if runtime.GOOS == "windows" && filepath.IsAbs(value) && !path.IsAbs(value) {
+			original = value
+		}
+	}
+	if original == "" {
+		var err error
+		original, err = config.ResolveEnginePath(coordinate, environment)
+		if err != nil {
+			return "", fmt.Errorf("%w: original coordinate is unavailable", ErrUnsafePath)
+		}
+	}
+	original, err := canonicalGuardPath(filepath.Clean(original), false)
+	if err != nil {
+		return "", fmt.Errorf("%w: original coordinate root is unsafe", ErrUnsafePath)
+	}
+	return original, nil
+}
+
 func resolveOriginalSuffix(original, rawSuffix string) (string, error) {
 	suffix := strings.TrimLeft(rawSuffix, `\/`)
 	if wildcard := strings.IndexAny(suffix, "*?["); wildcard >= 0 {
@@ -407,7 +503,13 @@ func resolveOriginalSuffix(original, rawSuffix string) (string, error) {
 	if suffix == "" {
 		return original, nil
 	}
-	resolved, err := safepath.Resolve(original, filepath.ToSlash(suffix))
+	// Original coordinate roots can be absent. Validate the suffix and existing
+	// ancestor chain without creating the directory that the guard protects.
+	normalized, err := safepath.NormalizePortable(filepath.ToSlash(suffix))
+	if err != nil {
+		return "", fmt.Errorf("%w: original suffix is unsafe", ErrUnsafePath)
+	}
+	resolved, err := canonicalGuardPath(filepath.Join(original, filepath.FromSlash(normalized)), false)
 	if err != nil {
 		return "", fmt.Errorf("%w: original target is linked or outside its alias root", ErrUnsafePath)
 	}
