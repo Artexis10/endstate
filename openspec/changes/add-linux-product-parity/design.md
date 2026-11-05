@@ -216,10 +216,12 @@ Per-source `sourceDiscovered` counts describe raw normalized observations and ma
 This gives the CLI, GUI, fixtures, and release evidence one independently checkable accounting model without hiding source overlap or double-counting apps with both package and settings state.
 
 Discovery retains complete public inventories when a caller selects a subset.
-A resolved package uses its portable ID as candidate identity. Settings use
-their reviewed package ID when present, otherwise their settings ID. Unmapped
-inventory retains its source-qualified identity. Settings row IDs remain the
-keys for private file plans. Multiple settings rows can describe one candidate.
+A resolved package uses a typed package identity with its portable ID. Only an
+explicit reviewed settings package ID joins that package identity. Other
+settings use a separate typed settings identity, even when their ID text
+matches a package ID. Unmapped inventory retains its source-qualified identity.
+Settings row IDs remain the keys for private file plans. Multiple settings rows
+can describe one candidate.
 Presence-only settings remain visible but grant no action; without a resolved
 package, their candidate belongs to the unresolved partition.
 
