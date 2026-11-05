@@ -122,7 +122,8 @@ not own capture envelopes or platform-module provenance.
 - [ ] 3.5 Require every release/default/explicit flakeref and advanced override to produce the exact locked installable used for mutation, then persist requested intent, platform/config identity, effective inputs, and Home Manager generation in the revised Provisioning Generation contract
 - [x] 3.6 Complete source-specific desktop/executable ambiguity diagnostics, deterministic serialization, and installed CLI/GUI runtime-layout lookup tests
   - Independent review at `00462db` accepts deterministic alias diagnostics and relocated executable lookup for CLI and GUI layouts. Native GUI packaging acceptance remains with section 14.
-- [ ] 3.7 Add required amd64/arm64 evaluation of every advertised Linux Nix mapping against the exact release revision, recording principled architecture unavailability without substitutes
+- [x] 3.7 Add required amd64/arm64 evaluation of every advertised Linux Nix mapping against the exact release revision, recording principled architecture unavailability without substitutes
+  - Independent review accepts `8a9034b`. Native evaluation resolves all 45 catalog mappings on each architecture at the embedded revision and source hash. Metadata-declared unavailability remains distinct from evaluation failure. Required CI connects both evaluations to Go Tests; remote execution remains pending.
 
 ## 4. Discovery completion
 
