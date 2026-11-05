@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 type transferredMember struct {
@@ -110,7 +112,7 @@ func checkMappedTargetPolicy(request Request, instance modules.ConfigInstance, m
 			// Host separators and expansion tokens mark rooted patterns; basename globs stay relative.
 			if strings.ContainsAny(authored, `/\$%~`) || filepath.IsAbs(authored) {
 				var err error
-				resolved, err = resolveMappedSecretPattern(authored, instance, request.Boundary)
+				resolved, err = resolveMappedPolicyPattern(authored, instance, request.Boundary)
 				if err != nil {
 					return newError(CodeUnsafePath, -1, authored, err)
 				}
@@ -119,24 +121,17 @@ func checkMappedTargetPolicy(request Request, instance modules.ConfigInstance, m
 		}
 	}
 	capture := request.Plan.TargetGenerationDef.Capture
-	type captureRoot struct {
-		path     string
-		excluded bool
-	}
-	var roots []captureRoot
+	var roots []string
 	if capture != nil {
 		for _, file := range capture.Files {
-			root, err := resolveMappedPolicyPath(file.Source, instance, request.Boundary, false)
+			pattern, err := resolveMappedPolicyPattern(file.Source, instance, request.Boundary)
 			if err != nil {
 				return newError(CodeUnsafePath, -1, file.Source, err)
 			}
-			excluded, err := mappedCaptureExcluded(filepath.Base(root), capture.ExcludeGlobs)
-			if err != nil {
-				return newError(CodeUnsafePath, -1, file.Source, err)
-			}
-			roots = append(roots, captureRoot{root, excluded})
+			roots = append(roots, pattern)
 		}
 	}
+
 	for _, member := range members {
 		forbidden, err := bundle.ResolvedPathMatchesSecrets(member.target, secrets, caseSensitive)
 		if err != nil {
@@ -146,16 +141,9 @@ func checkMappedTargetPolicy(request Request, instance modules.ConfigInstance, m
 			return newError(CodeUnsafePath, member.actionIndex, member.target, fmt.Errorf("mapped member matches target secrets policy"))
 		}
 		for _, root := range roots {
-			relative, err := filepath.Rel(root.path, member.target)
-			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-				continue
-			}
-			forbidden := root.excluded
-			if !forbidden && relative != "." {
-				forbidden, err = mappedCaptureExcluded(filepath.ToSlash(relative), capture.ExcludeGlobs)
-				if err != nil {
-					return newError(CodeUnsafePath, member.actionIndex, member.target, err)
-				}
+			forbidden, err := mappedCaptureRootExcludes(member.target, root, capture.ExcludeGlobs, caseSensitive)
+			if err != nil {
+				return newError(CodeUnsafePath, member.actionIndex, member.target, err)
 			}
 			if forbidden {
 				return newError(CodeUnsafePath, member.actionIndex, member.target, fmt.Errorf("mapped member matches target capture exclusions"))
@@ -178,14 +166,12 @@ func mappedCaptureExcluded(value string, patterns []string) (bool, error) {
 	return false, nil
 }
 
-func resolveMappedPolicyPath(authored string, instance modules.ConfigInstance, boundary HostBoundary, pattern bool) (string, error) {
+func resolveMappedPolicyPath(authored string, instance modules.ConfigInstance, boundary HostBoundary) (string, error) {
 	if boundary != nil {
-		if pattern {
-			if resolver, ok := boundary.(interface {
-				ResolveHostPattern(string, modules.ConfigInstance) (string, error)
-			}); ok {
-				return resolver.ResolveHostPattern(authored, instance)
-			}
+		if resolver, ok := boundary.(interface {
+			ResolveHostPattern(string, modules.ConfigInstance) (string, error)
+		}); ok {
+			return resolver.ResolveHostPattern(authored, instance)
 		}
 		return boundary.ResolveHostPath(authored, instance)
 	}
@@ -240,7 +226,7 @@ func validateMappedJournalTransfers(lineage JournalLineage, actions []JournalAct
 	return nil
 }
 
-func resolveMappedSecretPattern(authored string, instance modules.ConfigInstance, boundary HostBoundary) (string, error) {
+func resolveMappedPolicyPattern(authored string, instance modules.ConfigInstance, boundary HostBoundary) (string, error) {
 	coordinate, suffix, ok := config.SplitEnginePath(authored)
 	if !ok && strings.HasPrefix(authored, "${instance.root}") {
 		coordinate = "${instance.root}"
@@ -248,9 +234,9 @@ func resolveMappedSecretPattern(authored string, instance modules.ConfigInstance
 		ok = true
 	}
 	if !ok {
-		return resolveMappedPolicyPath(authored, instance, boundary, true)
+		return resolveMappedPolicyPath(authored, instance, boundary)
 	}
-	root, err := resolveMappedPolicyPath(coordinate, instance, boundary, true)
+	root, err := resolveMappedPolicyPath(coordinate, instance, boundary)
 	if err != nil {
 		return "", err
 	}
@@ -262,4 +248,39 @@ func resolveMappedSecretPattern(authored string, instance modules.ConfigInstance
 		return quoted, nil
 	}
 	return strings.TrimSuffix(quoted, "/") + "/" + suffix, nil
+}
+
+func mappedCaptureRootExcludes(target, sourcePattern string, excludes []string, caseSensitive bool) (bool, error) {
+	target = filepath.ToSlash(target)
+	if !caseSensitive {
+		sourcePattern = strings.ToLower(sourcePattern)
+	}
+	// Match source roots against transferred-path prefixes, including absent destinations.
+	for root := target; root != "."; root = path.Dir(root) {
+		candidate := root
+		if !caseSensitive {
+			candidate = strings.ToLower(candidate)
+		}
+		matches, err := doublestar.Match(sourcePattern, candidate)
+		if err != nil {
+			return false, err
+		}
+		if matches {
+			excluded, err := mappedCaptureExcluded(path.Base(root), excludes)
+			if err != nil || excluded {
+				return excluded, err
+			}
+			if root != target {
+				relative := strings.TrimPrefix(target, strings.TrimSuffix(root, "/")+"/")
+				excluded, err = mappedCaptureExcluded(relative, excludes)
+				if err != nil || excluded {
+					return excluded, err
+				}
+			}
+		}
+		if path.Dir(root) == root {
+			break
+		}
+	}
+	return false, nil
 }

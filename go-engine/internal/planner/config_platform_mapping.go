@@ -100,5 +100,6 @@ func cloneSecretsDef(secrets *modules.SecretsDef) *modules.SecretsDef {
 	copied := *secrets
 	copied.Files = append([]string(nil), secrets.Files...)
 	copied.RegistryKeys = append([]string(nil), secrets.RegistryKeys...)
+	copied.RegistryValues = append([]modules.RegistrySecretValue(nil), secrets.RegistryValues...)
 	return &copied
 }

@@ -176,3 +176,19 @@ func TestLinuxCaptureMappedRestoreAndRevert(t *testing.T) {
 	}
 
 }
+
+func TestConfigCatalogSnapshotPinsRegistryValueSecrets(t *testing.T) {
+	current := &modules.Module{ID: "apps.mapping", Secrets: &modules.SecretsDef{RegistryValues: []modules.RegistrySecretValue{{Key: `HKCU\Software\Fixture`, ValueName: "Token"}}}}
+	snapshot := newConfigCatalogSnapshot(map[string]*modules.Module{current.ID: current}, nil)
+	current.Secrets.RegistryValues[0].ValueName = "Other"
+	copied := snapshot.ModuleCatalog()
+	scope, _ := modules.ResolveRegistrySecretScope(copied[current.ID])
+	if !scope.ExcludesValue(`HKCU\Software\Fixture`, "Token") {
+		t.Fatal("catalog mutation weakened the command's pinned registry secrets")
+	}
+	copied[current.ID].Secrets.RegistryValues[0].ValueName = "Caller"
+	scope, _ = modules.ResolveRegistrySecretScope(snapshot.ModuleCatalog()[current.ID])
+	if !scope.ExcludesValue(`HKCU\Software\Fixture`, "Token") {
+		t.Fatal("catalog reader weakened the command's pinned registry secrets")
+	}
+}

@@ -5,6 +5,7 @@ package configrestore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"os"
@@ -187,7 +188,7 @@ func TestMappedTargetPoliciesResolveThroughTheHostBoundary(t *testing.T) {
 			stage := filepath.Join(authority, "stage")
 			host := filepath.Join(authority, "host[fixture]{one,two}")
 			writeTestFile(t, filepath.Join(stage, "app", "nested", "token1.json"), `{}`)
-			boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{"${home}": host, "${home}/app": filepath.Join(host, "app"), "${xdg.config}/app": filepath.Join(host, "app")}}
+			boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{"${home}": host, "${home}/app": filepath.Join(host, "app"), "${xdg.config}/app": filepath.Join(host, "app"), "${xdg.config}": host}}
 			generation := modules.GenerationDef{ID: "g1", Restore: []modules.RestoreDef{{Type: "copy", Source: "app", Target: "${home}/app"}}}
 			if policy == "capture exclusions" {
 				generation.Capture = &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "${xdg.config}/app", Dest: "app"}}, ExcludeGlobs: []string{"**/token*.json"}}
@@ -204,5 +205,74 @@ func TestMappedTargetPoliciesResolveThroughTheHostBoundary(t *testing.T) {
 				t.Fatalf("target policy escaped the host boundary: %v", err)
 			}
 		})
+	}
+}
+
+func TestMappedCaptureSourceGlobsEnforceScopedExclusions(t *testing.T) {
+	for _, test := range []struct {
+		name, source, exclude, member string
+		want                          Code
+	}{
+		{"globbed source member", "${home}/app*", "token*.json", "token.json", CodeUnsafePath},
+		{"globbed source basename", "${home}/app?", "app1", "settings.json", CodeUnsafePath},
+		{"globbed source nested root", "${home}/app*/nested", "token*.json", "nested/token.json", CodeUnsafePath},
+		{"sibling stays outside source", "${home}/sibling*", "token*.json", "token.json", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := filepath.Join(t.TempDir(), "home[fixture]{one,two}")
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			fingerprint := strings.Repeat("a", 64)
+			generation := modules.GenerationDef{ID: "g1", Order: 1, Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{Source: test.source, Dest: "payload"}}, ExcludeGlobs: []string{test.exclude}}, Restore: []modules.RestoreDef{{Type: "copy", Source: "payload", Target: "${home}/app1"}}}
+			authored := modules.Module{ModuleSchemaVersion: 3, ID: "apps.mapping", DisplayName: "Mapping fixture", Sensitivity: "low", Platforms: map[string]modules.PlatformVariant{"linux": {Realization: "endstate-restore", Config: &modules.ConfigDef{InstanceDetectors: []modules.InstanceDetectorDef{{ID: "default", Type: "path", Glob: "${home}"}}, Sets: []modules.ConfigSetDef{{ID: "target", Generations: []modules.GenerationDef{generation}}}}, Mappings: []modules.PlatformMappingDef{{ID: "bridge", From: modules.PlatformMappingEndpoint{Platform: "darwin", ConfigSetID: "source", GenerationID: "g1"}, To: modules.PlatformMappingEndpoint{Platform: "linux", ConfigSetID: "target", GenerationID: "g1"}, AcceptsSourceFingerprints: []string{fingerprint}, Operations: []modules.MigrationOperationDef{}, Validate: []modules.ValidationDef{{Type: "json-parse", Path: "payload/settings.json"}}}}}}}
+			raw, err := json.Marshal(authored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			validated, err := modules.ParseAndValidateModuleJSON(raw, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := modules.ProjectModuleForPlatform(validated, "linux")
+			resolver := planner.NewCompatibilityResolver(map[string]*modules.Module{current.ID: current}, nil)
+			source := planner.SourceCapture{CaptureID: "capture", ModuleID: current.ID, ConfigSetID: "source", SourcePlatform: "darwin", Generation: "g1", GenerationFingerprint: fingerprint, CaptureModuleSchemaVersion: 3, SourceSnapshotLinked: true, SourcePayloadVerified: true}
+			plan := resolver.ResolveCandidate(source, planner.TargetInstance{ID: "target", ModuleID: current.ID, Root: home})
+			if plan.Resolution.Reason != nil {
+				t.Fatalf("mapping: %+v", plan.Resolution)
+			}
+			stage := t.TempDir()
+			writeTestFile(t, filepath.Join(stage, "payload", "settings.json"), `{}`)
+			writeTestFile(t, filepath.Join(stage, "payload", filepath.FromSlash(test.member)), `{}`)
+			materialized, err := Materialize(context.Background(), Request{Stage: &migration.StageResult{Root: stage, TargetGeneration: "g1"}, Plan: plan})
+			if CodeOf(err) != test.want {
+				t.Fatalf("capture-source glob changed exclusion scope: materialized=%v, err=%v, want=%s", materialized, err, test.want)
+			}
+			if err == nil && (materialized == nil || len(materialized.Actions) != 1) {
+				t.Fatalf("sibling source lost its restore action: %+v", materialized)
+			}
+			if _, err := os.Stat(filepath.Join(home, "app1")); !os.IsNotExist(err) {
+				t.Fatalf("policy preflight wrote target: %v", err)
+			}
+		})
+	}
+}
+
+func TestMappedRegistryValuePolicySurvivesCatalogAndPlanMutation(t *testing.T) {
+	stage, host := t.TempDir(), t.TempDir()
+	writeTestFile(t, filepath.Join(stage, "settings.json"), `{}`)
+	fingerprint := strings.Repeat("a", 64)
+	generation := modules.GenerationDef{ID: "g1", Order: 1, Restore: []modules.RestoreDef{{Type: "copy", Source: "settings.json", Target: instancePath("settings.json")}, {Type: "registry-set", Key: `HKCU\Software\Fixture`, ValueName: "Token", ValueType: "REG_SZ", Data: "fixture"}}}
+	current := &modules.Module{ID: "apps.mapping", ModuleSchemaVersion: 2, SourceSchemaVersion: 3, Platform: "windows", Secrets: &modules.SecretsDef{RegistryValues: []modules.RegistrySecretValue{{Key: `HKCU\Software\Fixture`, ValueName: "Token"}}}, Config: &modules.ConfigDef{Sets: []modules.ConfigSetDef{{ID: "target", Generations: []modules.GenerationDef{generation}}}}, Mappings: []modules.PlatformMappingDef{{ID: "bridge", From: modules.PlatformMappingEndpoint{Platform: "linux", ConfigSetID: "source", GenerationID: "g1"}, To: modules.PlatformMappingEndpoint{Platform: "windows", ConfigSetID: "target", GenerationID: "g1"}, AcceptsSourceFingerprints: []string{fingerprint}, Operations: []modules.MigrationOperationDef{}, Validate: []modules.ValidationDef{{Type: "json-parse", Path: "settings.json"}}}}}
+	resolver := planner.NewCompatibilityResolver(map[string]*modules.Module{current.ID: current}, nil)
+	source := planner.SourceCapture{CaptureID: "capture", ModuleID: current.ID, ConfigSetID: "source", SourcePlatform: "linux", Generation: "g1", GenerationFingerprint: fingerprint, CaptureModuleSchemaVersion: 3, SourceSnapshotLinked: true, SourcePayloadVerified: true}
+	plan := resolver.ResolveCandidate(source, planner.TargetInstance{ID: "target", ModuleID: current.ID, Root: host})
+	if plan.Resolution.Reason != nil {
+		t.Fatalf("mapping: %+v", plan.Resolution)
+	}
+	current.Secrets.RegistryValues[0].ValueName = "Other"
+	copied := planner.CloneConfigPlan(planner.ConfigPlan{Sets: []planner.PlanSet{plan}})
+	copied.Sets[0].TargetSecrets.RegistryValues[0].ValueName = "Caller"
+	if _, err := Materialize(context.Background(), Request{Stage: &migration.StageResult{Root: stage, TargetGeneration: "g1"}, Plan: plan}); CodeOf(err) != CodeUnsafePath {
+		t.Fatalf("mutation allowed mapped secret registry write: %v", err)
 	}
 }

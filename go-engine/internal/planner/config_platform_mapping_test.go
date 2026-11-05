@@ -16,20 +16,31 @@ func TestPlatformMappingPinsTargetAuthorityAndCannotBeBypassed(t *testing.T) {
 	source := SourceCapture{CaptureID: "capture", ModuleID: "apps.mapping", ConfigSetID: "source", SourcePlatform: "linux", Generation: "g1", GenerationFingerprint: fingerprint, CaptureModuleSchemaVersion: 3, SourceSnapshotLinked: true, SourcePayloadVerified: true}
 	target := TargetInstance{ID: "instance", ModuleID: source.ModuleID}
 	current := &modules.Module{ID: source.ModuleID, ModuleSchemaVersion: 2, SourceSchemaVersion: 3, Platform: "darwin", Revision: strings.Repeat("b", 64), Mappings: []modules.PlatformMappingDef{mapping}, Secrets: &modules.SecretsDef{Files: []string{"token.json"}}, Config: &modules.ConfigDef{Sets: []modules.ConfigSetDef{{ID: "renamed", Generations: []modules.GenerationDef{{ID: "g1", Order: 1, Capture: &modules.CaptureDef{ExcludeGlobs: []string{"private"}}}}}}}}
+	current.Secrets.RegistryValues = []modules.RegistrySecretValue{{Key: `HKCU\Software\Fixture`, ValueName: "Token", Subkeys: true}}
 	resolver := NewCompatibilityResolver(map[string]*modules.Module{current.ID: current}, nil)
 	current.Mappings[0].Operations[0].Value.(map[string]any)["value"] = "mutated"
 	current.Secrets.Files[0] = "mutated"
+	current.Secrets.RegistryValues[0].ValueName = "Other"
 	current.Config.Sets[0].Generations[0].Capture.ExcludeGlobs[0] = "mutated"
 	result := resolver.ResolveCandidate(source, target)
 	if result.Resolution.Reason != nil || result.Resolution.Resolution != ResolutionMigrate || result.Resolution.TargetConfigSetID != "renamed" || result.Resolution.MappingID != "bridge" || result.TargetSecrets.Files[0] != "token.json" || result.TargetGenerationDef.Capture.ExcludeGlobs[0] != "private" || result.Mapping.Operations[0].Value.(map[string]any)["value"] != "pinned" {
 		t.Fatalf("mapping authority not pinned: %+v", result)
 	}
+	scope, _ := modules.ResolveRegistrySecretScope(&modules.Module{Secrets: result.TargetSecrets})
+	if !scope.ExcludesValue(`HKCU\Software\Fixture\Child`, "Token") {
+		t.Fatal("catalog mutation weakened pinned registry secrets")
+	}
 	cloned := CloneConfigPlan(ConfigPlan{Sets: []PlanSet{result}})
 	cloned.Sets[0].Mapping.Operations[0].Value.(map[string]any)["value"] = "caller"
 	cloned.Sets[0].TargetSecrets.Files[0] = "caller"
+	cloned.Sets[0].TargetSecrets.RegistryValues[0].ValueName = "Caller"
 	cloned.Sets[0].TargetGenerationDef.Capture.ExcludeGlobs[0] = "caller"
 	if result.Mapping.Operations[0].Value.(map[string]any)["value"] != "pinned" || result.TargetSecrets.Files[0] != "token.json" || result.TargetGenerationDef.Capture.ExcludeGlobs[0] != "private" {
 		t.Fatal("caller mutated pinned mapping policy")
+	}
+	scope, _ = modules.ResolveRegistrySecretScope(&modules.Module{Secrets: result.TargetSecrets})
+	if !scope.ExcludesValue(`HKCU\Software\Fixture\Child`, "Token") {
+		t.Fatal("plan clone weakened original registry secrets")
 	}
 	for _, test := range []struct {
 		name   string
