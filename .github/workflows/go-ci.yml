@@ -13,9 +13,15 @@ jobs:
   test:
     # Keep this exact stable check name: branch protection may require it.
     name: Go Tests
+    needs: nix-catalog-evaluation
+    if: ${{ always() }}
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
+      - name: Require pinned mapping evaluation on both Linux architectures
+        if: ${{ needs.nix-catalog-evaluation.result != 'success' }}
+        shell: pwsh
+        run: exit 1
       - name: Checkout repository
         # v5.0.0
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -61,6 +67,41 @@ jobs:
             go test -timeout 3m ./internal/validationharness -run ('^' + $test + '$')
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+  nix-catalog-evaluation:
+    name: Nix Catalog (${{ matrix.system }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [x86_64-linux, aarch64-linux]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@9383ce2bf08796b65508822f5982f49151badc4e
+        with:
+          github-token: ''
+          diagnostic-endpoint: ''
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go-engine/go.sum
+      - name: Evaluate every advertised target at the release revision
+        working-directory: go-engine
+        run: go run ./cmd/endstate-validation nix-mappings --repo "$GITHUB_WORKSPACE" --system '${{ matrix.system }}' > "$RUNNER_TEMP/nix-catalog.json"
+      - name: Upload mapping evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nix-catalog-${{ matrix.system }}
+          path: ${{ runner.temp }}/nix-catalog.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   build-windows:
     name: Build Validation Binaries

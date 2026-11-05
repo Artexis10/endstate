@@ -29,10 +29,12 @@ func main() {
 // runCLICommands preserves the original no-subcommand byte contract. New
 // subcommands deliberately have their own compact evidence JSON contracts.
 func runCLICommands(args []string, stdout, stderr io.Writer, runner scenarioRunner) int {
-	if len(args) == 0 || (args[0] != "shard" && args[0] != "catalog" && args[0] != "canary" && args[0] != "aggregate" && args[0] != "sync-revisions") {
+	if len(args) == 0 || (args[0] != "shard" && args[0] != "catalog" && args[0] != "canary" && args[0] != "aggregate" && args[0] != "sync-revisions" && args[0] != "nix-mappings") {
 		return runCLI(args, stdout, stderr, runner)
 	}
 	switch args[0] {
+	case "nix-mappings":
+		return runNixMappings(args[1:], stdout, stderr)
 	case "shard":
 		return runShard(args[1:], stdout, runner)
 	case "catalog":
