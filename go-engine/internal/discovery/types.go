@@ -59,6 +59,9 @@ type Request struct {
 	SelectedSources []string `json:"selectedSources,omitempty"`
 	Only            []string `json:"only,omitempty"`
 	IncludeRuntimes bool     `json:"includeRuntimes,omitempty"`
+	// SkipSettingsCapture keeps public settings evidence but omits collection
+	// and selection accounting for sanitized capture.
+	SkipSettingsCapture bool `json:"-"`
 }
 
 // SourceStatus reports one adapter's bounded outcome.

@@ -124,15 +124,18 @@ func TestOrchestratorScopesFailuresAndReconcilesDeterministically(t *testing.T) 
 
 func TestLinuxDiscoveryCountsReconcile(t *testing.T) {
 	for _, selection := range []struct {
-		name     string
-		only     []string
-		selected int
-		plans    int
+		name         string
+		only         []string
+		selected     int
+		plans        int
+		skipSettings bool
 	}{
 		{name: "all", selected: 3, plans: 4},
 		{name: "module", only: []string{"apps.ripgrep"}, selected: 1, plans: 1},
 		{name: "settings only", only: []string{"standalone"}, selected: 1, plans: 1},
 		{name: "equal package and settings ids", only: []string{"ripgrep"}, selected: 2, plans: 3},
+		{name: "sanitize packages", selected: 1, skipSettings: true},
+		{name: "sanitize settings only", only: []string{"standalone"}, skipSettings: true},
 	} {
 		t.Run(selection.name, func(t *testing.T) {
 			candidates := []SettingsCandidate{
@@ -157,7 +160,7 @@ func TestLinuxDiscoveryCountsReconcile(t *testing.T) {
 					}}},
 					fakeAdapter{id: "settings", result: AdapterInventory{Settings: candidates, SettingsFiles: plans}},
 				},
-			}).Discover(context.Background(), Request{Only: selection.only})
+			}).Discover(context.Background(), Request{Only: selection.only, SkipSettingsCapture: selection.skipSettings})
 			if err != nil {
 				t.Fatal(err)
 			}

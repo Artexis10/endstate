@@ -193,7 +193,7 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 		candidate.Actions = canonicalActions(candidate.Actions)
 		candidate.Evidence = canonicalEvidence(candidate.Evidence)
 		result.Settings = append(result.Settings, candidate)
-		if slices.Contains(candidate.Actions, SettingsCapture) && settingsCandidateSelected(candidate, only) {
+		if !request.SkipSettingsCapture && slices.Contains(candidate.Actions, SettingsCapture) && settingsCandidateSelected(candidate, only) {
 			result.SettingsFiles = append(result.SettingsFiles, settingsFiles[id]...)
 		}
 	}
@@ -219,7 +219,7 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 		}
 		return result.Warnings[i].ItemID < result.Warnings[j].ItemID
 	})
-	result.Counts = countCandidates(result, only)
+	result.Counts = countCandidates(result, only, !request.SkipSettingsCapture)
 	return result, nil
 }
 
@@ -231,7 +231,7 @@ type candidateIdentity struct {
 	unresolvedID string
 }
 
-func countCandidates(result Result, only map[string]bool) Counts {
+func countCandidates(result Result, only map[string]bool, captureSettings bool) Counts {
 	type candidateState struct{ resolved, settings, selected bool }
 	candidates := make(map[candidateIdentity]candidateState)
 	for _, intent := range result.Resolved {
@@ -248,7 +248,7 @@ func countCandidates(result Result, only map[string]bool) Counts {
 		}
 		candidate := candidates[identity]
 		candidate.settings = candidate.settings || len(settings.Actions) > 0
-		candidate.selected = candidate.selected || (slices.Contains(settings.Actions, SettingsCapture) && settingsCandidateSelected(settings, only))
+		candidate.selected = candidate.selected || (captureSettings && slices.Contains(settings.Actions, SettingsCapture) && settingsCandidateSelected(settings, only))
 		candidates[identity] = candidate
 	}
 	for _, unresolved := range result.Unresolved {

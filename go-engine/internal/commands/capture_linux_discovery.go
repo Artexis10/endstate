@@ -55,8 +55,9 @@ func (d *discoveryCaptureRealizer) Realize([]realizer.Installable) (realizer.Res
 func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Emitter) (interface{}, *envelope.Error) {
 	emitter.EmitPhase("capture")
 	result, err := discoverLinuxFn(context.Background(), discovery.Request{
-		Only:            parseOnlyIDs(flags.Only),
-		IncludeRuntimes: flags.IncludeRuntimes,
+		Only:                parseOnlyIDs(flags.Only),
+		IncludeRuntimes:     flags.IncludeRuntimes,
+		SkipSettingsCapture: flags.Sanitize,
 	}, r)
 	if err != nil {
 		if r != nil {
