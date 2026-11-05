@@ -821,9 +821,37 @@ Under an active selection, a config module attaches only when **(a)** a selected
 
 Counts keep their existing meaning: `totalFound` reports what was detected on the machine (pre-filter), deselected apps are counted in `skipped`, and `totalFound == included + skipped` continues to hold.
 
-On a host using a platform realizer (Nix/brew), `--only` filters the captured app set the same way. That path attaches no config modules by design, so module tokens select nothing there.
+On Linux, ordinary discovery also accepts detected settings with a supported
+capture action. A selected settings capture can produce an artifact without a
+package when the artifact contains useful configuration payload. Presence-only
+settings remain visible but cannot satisfy a capture selection.
 
 > **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), which is not the token `--only` matches. Each entry additionally carries `manifestId` (e.g. `git-git`) — the app's id in the written manifest, and the value to pass to `capture --only`, `apply --only`, and `rebuild --only`. Clients building a selection UI should use `manifestId`. The field is additive; `id` is unchanged.
+
+### Linux Discovery Counts
+
+Linux capture retains the complete `data.discovery` inventory when `--only`
+selects a subset. Selection scopes captured packages and private file plans;
+it does not remove unselected public inventory or change raw source counts.
+
+Each `sources[].discovered` counts that source's normalized observations. These
+observations can overlap. Top-level `counts` uses unique candidates instead:
+
+| Field | Meaning |
+|-------|---------|
+| `discovered` | All unique user-facing candidates after reconciliation. |
+| `resolved` | Candidates with a reviewed portable package intent. |
+| `settings` | Candidates with at least one supported settings action; may overlap `resolved`. |
+| `settingsOnly` | Candidates with supported settings and no resolved package intent. |
+| `unresolved` | Remaining candidates, including presence-only settings. |
+| `selected` | Selected package or capturable settings candidates, counted once each. |
+| `ignored` | Dependency/runtime observations outside the candidate denominator. |
+
+The equations are `discovered = resolved + settingsOnly + unresolved`,
+`settingsOnly <= settings <= discovered`, and `selected <= discovered`.
+Only an explicit reviewed settings `packageId` joins a package candidate.
+An unrelated settings ID with equal text stays a distinct candidate.
+Unmapped observations retain their source-qualified identity.
 
 ### Share Mode (`capture --share`)
 
