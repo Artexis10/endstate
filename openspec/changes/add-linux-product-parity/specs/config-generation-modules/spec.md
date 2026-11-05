@@ -29,6 +29,13 @@ A schema-v3 variant with capture or restore declarations and no authored `config
 - **WHEN** a schema-v3 variant declares its own config sets and generations
 - **THEN** the engine SHALL use those declarations without adding the shorthand generation
 
+#### Scenario: Shorthand has no authored generation validation
+- **WHEN** the selected authored schema-v3 variant has no `config` and normalizes to `default/g1`
+- **THEN** its matrix scenario SHALL use `capture-contract` and emit only `catalog` and `engine-contract` proof
+- **AND** exact payload, source snapshot, platform, fingerprint, content, and optional-absence assertions SHALL remain required
+- **AND** an independent workflow test SHALL prove actual capture and restore bytes
+- **AND** generation and migration scenarios SHALL retain their non-zero production-validation requirements
+
 ### Requirement: Legacy module generations are Windows-only
 Schema-v1 and schema-v2 flat modules SHALL preserve their existing generation identities and behavior on Windows and SHALL be ineligible for automatic Linux or Darwin detection, capture, or restore.
 

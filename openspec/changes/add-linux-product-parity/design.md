@@ -289,6 +289,8 @@ Task 5.4 includes the same-platform guard from task 5.5. The resolver checks sou
 
 The proof captures a Linux generation and restores it through its compatible Linux variant. The same bundle offered to a Windows variant must leave target bytes unchanged and create no transaction, even if that variant accepts the source fingerprint. The existing resolver, staging engine, and journal provide this behavior; no second restore engine is required.
 
+The matrix represents normalized flat schema-v3 shorthand with the existing `capture-contract` scenario and only `catalog` plus `engine-contract` proof. The adapter must establish the original absence of authored `config` from the selected variant, not from shorthand IDs alone. It preserves exact payload, source snapshot, platform, fingerprint, content, and optional-absence checks. An independent workflow test proves actual capture and restore bytes. Generation and migration scenarios retain their non-zero production-validation requirements; a shorthand with no declared validation receives no config-roundtrip proof credit.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.
