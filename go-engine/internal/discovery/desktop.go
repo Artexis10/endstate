@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 )
 
 const (
@@ -214,11 +216,13 @@ func parseDesktopEntry(data []byte) (parsedDesktopEntry, error) {
 
 func defaultDesktopRoots() []string {
 	home, _ := os.UserHomeDir()
-	dataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
-	if dataHome == "" && home != "" {
-		dataHome = filepath.Join(home, ".local", "share")
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if !filepath.IsAbs(dataHome) && home != "" {
+		dataHome, _ = config.ResolveEnginePath("${xdg.data}", config.PathEnvironment{
+			GOOS: "linux", Home: home, Env: map[string]string{"XDG_DATA_HOME": dataHome},
+		})
 	}
-	dataDirs := strings.TrimSpace(os.Getenv("XDG_DATA_DIRS"))
+	dataDirs := os.Getenv("XDG_DATA_DIRS")
 	if dataDirs == "" {
 		dataDirs = "/usr/local/share:/usr/share"
 	}
@@ -227,7 +231,6 @@ func defaultDesktopRoots() []string {
 		values = append(values, filepath.Join(dataHome, "applications"))
 	}
 	for _, value := range filepath.SplitList(dataDirs) {
-		value = strings.TrimSpace(value)
 		if filepath.IsAbs(value) {
 			values = append(values, filepath.Join(value, "applications"))
 		}

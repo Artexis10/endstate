@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -48,6 +49,58 @@ func TestDesktopAdapterUnavailableWhenNoDataRootExists(t *testing.T) {
 	_, err := (DesktopAdapter{Roots: []string{filepath.Join(t.TempDir(), "missing")}}).Inventory(context.Background())
 	if !errors.Is(err, ErrNotAvailable) {
 		t.Fatalf("error = %v, want ErrNotAvailable", err)
+	}
+}
+
+func TestDesktopAdapterUsesDefaultHomeForRelativeXDGOverride(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG inventory uses Unix paths")
+	}
+	home := t.TempDir()
+	user := filepath.Join(home, ".local", "share", "applications")
+	system := filepath.Join(t.TempDir(), "applications")
+	for _, directory := range []string{user, system} {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDesktopFixture(t, filepath.Join(user, "editor.desktop"), "User editor", false, false, "Application")
+	writeDesktopFixture(t, filepath.Join(system, "editor.desktop"), "System editor", false, false, "Application")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "relative-data")
+	t.Setenv("XDG_DATA_DIRS", filepath.Dir(system))
+	inventory, err := (DesktopAdapter{}).Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Items) != 1 || inventory.Items[0].DisplayName != "User editor" || inventory.Ignored != 1 {
+		t.Fatalf("relative XDG override lost user precedence: %+v", inventory)
+	}
+}
+
+func TestDesktopAdapterPreservesSpacesInAbsoluteXDGPaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG inventory uses Unix paths")
+	}
+	root := t.TempDir()
+	user := filepath.Join(root, "user data ", "applications")
+	system := filepath.Join(root, "system data ", "applications")
+	for _, directory := range []string{user, system} {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDesktopFixture(t, filepath.Join(user, "editor.desktop"), "Editor", false, false, "Application")
+	writeDesktopFixture(t, filepath.Join(system, "browser.desktop"), "Browser", false, false, "Application")
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_DATA_HOME", filepath.Dir(user))
+	t.Setenv("XDG_DATA_DIRS", "relative-data"+string(os.PathListSeparator)+filepath.Dir(system))
+	inventory, err := (DesktopAdapter{}).Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Items) != 2 || inventory.Items[0].Ref != "browser.desktop" || inventory.Items[1].Ref != "editor.desktop" {
+		t.Fatalf("absolute XDG paths lost literal spaces: %+v", inventory)
 	}
 }
 
