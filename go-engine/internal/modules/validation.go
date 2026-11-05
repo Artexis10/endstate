@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
+
 	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
 )
 
@@ -123,7 +125,11 @@ func validateModuleV2(mod *Module, filePath string) error {
 			if strings.TrimSpace(detector.Glob) == "" {
 				return validationError(mod, filePath, DiagnosticInvalidDetector, "path detector %q requires glob", detector.ID)
 			}
-			if err := validateTemplatePlaceholders(detector.Glob); err != nil {
+			validateGlob := validateTemplatePlaceholders
+			if mod.SourceSchemaVersion == 3 {
+				validateGlob = func(value string) error { return validateModuleHostPath(mod, value) }
+			}
+			if err := validateGlob(detector.Glob); err != nil {
 				return validationError(mod, filePath, DiagnosticInvalidPlaceholder, "path detector %q glob: %v", detector.ID, err)
 			}
 			if hasTraversal(detector.Glob) {
@@ -206,7 +212,7 @@ func validateConfigSet(mod *Module, filePath string, set *ConfigSetDef) error {
 func validateGenerationPaths(mod *Module, filePath, setID string, generation *GenerationDef) error {
 	if generation.Capture != nil {
 		for index, captureFile := range generation.Capture.Files {
-			if err := validateHostTemplatePath(captureFile.Source); err != nil {
+			if err := validateModuleHostPath(mod, captureFile.Source); err != nil {
 				return validationError(mod, filePath, DiagnosticCodeForPathError(err), "config set %q generation %q capture.files[%d].source: %v", setID, generation.ID, index, err)
 			}
 			if err := validatePortablePath(captureFile.Dest); err != nil {
@@ -226,7 +232,7 @@ func validateGenerationPaths(mod *Module, filePath, setID string, generation *Ge
 			}
 		}
 		if restore.Target != "" {
-			if err := validateHostTemplatePath(restore.Target); err != nil {
+			if err := validateModuleHostPath(mod, restore.Target); err != nil {
 				return validationError(mod, filePath, DiagnosticCodeForPathError(err), "config set %q generation %q restore[%d].target: %v", setID, generation.ID, index, err)
 			}
 		}
@@ -539,6 +545,16 @@ func validateTemplatePlaceholders(value string) error {
 		return &pathValidationError{code: DiagnosticInvalidPlaceholder, detail: "placeholder syntax is malformed"}
 	}
 	return nil
+}
+
+func validateModuleHostPath(mod *Module, value string) error {
+	if mod.SourceSchemaVersion == 3 {
+		if err := config.ValidateEnginePath(value, mod.Platform); err != nil {
+			return &pathValidationError{code: DiagnosticUnsafePath, detail: err.Error()}
+		}
+		return nil
+	}
+	return validateHostTemplatePath(value)
 }
 
 func validateHostTemplatePath(path string) error {

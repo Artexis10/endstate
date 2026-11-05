@@ -23,6 +23,9 @@ func (r *CompatibilityResolver) ResolveSources(
 	for _, source := range orderedSources {
 		targets := sortedTargetInstances(targetsByModule[source.ModuleID])
 		selected := r.resolveSourceTargets(source, targets, explicitMappings)
+		if current, ok := r.modules[source.ModuleID]; ok {
+			selected.Resolution.TargetPlatform = current.platform
+		}
 		plan.Sets = append(plan.Sets, selected)
 	}
 	resolvePlanCollisions(&plan)
@@ -40,6 +43,9 @@ func (r *CompatibilityResolver) resolveSourceTargets(
 	targets []TargetInstance,
 	explicitMappings map[string]string,
 ) PlanSet {
+	if r.platformMismatch(source) {
+		return unresolvedSourcePlan(source, targets, ResolutionIncompatible, ReasonPlatformMappingMissing, StatusSkipped)
+	}
 	candidates := make([]PlanSet, len(targets))
 	resolvedTargets := append([]TargetInstance(nil), targets...)
 	for index, target := range targets {

@@ -220,3 +220,54 @@ func snapshotCapture(snapshot ModuleSnapshot) manifest.ConfigCapture {
 func strconvQuote(value string) string {
 	return `"` + strings.ReplaceAll(strings.ReplaceAll(value, `\`, `\\`), `"`, `\"`) + `"`
 }
+
+func TestSchemaV3SnapshotBindsCaptureToExactAuthoredSource(t *testing.T) {
+	raw, err := os.ReadFile("../../../modules/apps/ripgrep/module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authored := parseSnapshotModule(t, raw)
+	source := modules.ProjectModuleForPlatform(authored, "linux")
+	root := t.TempDir()
+	snapshot, err := WriteModuleSnapshot(root, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := manifest.ConfigCapture{ModuleID: source.ID, ConfigSetID: "default", SourcePlatform: "linux", SourceGeneration: "g1", SourceGenerationFingerprint: source.Config.Sets[0].Generations[0].Fingerprint, CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 3, ContentHash: snapshot.ContentHash, SnapshotPath: snapshot.Path}}
+	if err := VerifyModuleSnapshot(root, capture); err != nil {
+		t.Fatalf("exact authored source: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*manifest.ConfigCapture)
+	}{
+		{"module", func(c *manifest.ConfigCapture) { c.ModuleID = "apps.foreign" }},
+		{"variant", func(c *manifest.ConfigCapture) { c.SourcePlatform = "windows" }},
+		{"missing variant", func(c *manifest.ConfigCapture) { c.SourcePlatform = "" }},
+		{"inconsistent evidence platform", func(c *manifest.ConfigCapture) {
+			c.SourceInstance.Evidence = &manifest.ConfigSourceInstanceEvidence{Type: "path", Platform: "windows"}
+		}},
+		{"set", func(c *manifest.ConfigCapture) { c.ConfigSetID = "foreign" }},
+		{"generation", func(c *manifest.ConfigCapture) { c.SourceGeneration = "g2" }},
+		{"fingerprint", func(c *manifest.ConfigCapture) { c.SourceGenerationFingerprint = strings.Repeat("a", 64) }},
+		{"downgraded schema", func(c *manifest.ConfigCapture) { c.CaptureModule.SchemaVersion = 2; c.SourcePlatform = "" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candidate := capture
+			tt.mutate(&candidate)
+			if err := VerifyModuleSnapshot(root, candidate); IntegrityDiagnosticCode(err) != IntegritySnapshotConflict {
+				t.Fatalf("forged source accepted: %v", err)
+			}
+		})
+	}
+	legacy := parseSnapshotModule(t, snapshotModuleJSON("apps.legacy"))
+	legacySnapshot, err := WriteModuleSnapshot(root, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture.CaptureModule = manifest.CaptureModuleProvenance{SchemaVersion: 3, ContentHash: legacySnapshot.ContentHash, SnapshotPath: legacySnapshot.Path}
+	if err := VerifyModuleSnapshot(root, capture); IntegrityDiagnosticCode(err) != IntegritySnapshotConflict {
+		t.Fatalf("synthetically upgraded source accepted: %v", err)
+	}
+}

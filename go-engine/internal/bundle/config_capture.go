@@ -214,7 +214,7 @@ func CollectConfigSetWithValidation(plan ConfigSetCapturePlan, stagingRoot strin
 	if len(plan.Generation.Capture.RegistryKeys) > 0 || len(plan.Generation.Capture.RegistryValues) > 0 {
 		return nil, &UnsupportedConfigCaptureError{
 			Code:   ConfigCaptureRegistryUnsupported,
-			Detail: fmt.Sprintf("generation registry capture is unsupported for %s/%s/%s", plan.Module.ID, plan.Set.ID, plan.Generation.ID),
+			Detail: fmt.Sprintf("generation registry capture is unsupported for %s", modules.GenerationIdentity(plan.Module.ID, plan.Module.Platform, plan.Set.ID, plan.Generation.ID)),
 		}
 	}
 
@@ -363,11 +363,7 @@ func moduleMatchesPinnedSnapshot(mod *modules.Module) bool {
 				return false
 			}
 		} else {
-			// Hermetic callers may pin an already-projected legacy/generation
-			// snapshot. Align only the non-executable projection metadata.
-			pinned.SourceSchemaVersion = 3
-			pinned.Platform = mod.Platform
-			pinned.Realization = mod.Realization
+			return false
 		}
 	}
 	// Catalog loading adds only host-location metadata after parsing. Align

@@ -195,16 +195,12 @@ func TestRunCaptureLinux_NoNixCapturesNativeIntentAndLiveSettings(t *testing.T) 
 		enumerateCapturePackagesFn = originalEnumerate
 	})
 
-	module := &modules.Module{
-		ModuleSchemaVersion: 3,
-		ID:                  "apps.ripgrep", DisplayName: "ripgrep", Sensitivity: "low",
-		Platforms: map[string]modules.PlatformVariant{"linux": {
-			Realization: "home-manager",
-			Matches:     modules.MatchCriteria{PathExists: []string{liveConfig}},
-			Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{
-				Source: liveConfig, Dest: "apps/ripgrep/ripgreprc",
-			}}},
-		}},
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	moduleBytes := []byte(`{"moduleSchemaVersion":3,"id":"apps.ripgrep","displayName":"ripgrep","sensitivity":"low","platforms":{"linux":{"realization":"home-manager","matches":{"pathExists":["${home}/ripgreprc"]},"capture":{"files":[{"source":"${home}/ripgreprc","dest":"apps/ripgrep/ripgreprc"}]}}}}`)
+	module, err := modules.ParseModuleJSON(moduleBytes)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	withFakeGenerations(nil, errors.New("no Endstate history"), func() {

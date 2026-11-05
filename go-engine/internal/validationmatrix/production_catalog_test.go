@@ -56,7 +56,7 @@ func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 		glasswire gpu-tweak-iii marmoset-toolbag maven meshlab mgba minikube modo
 		moonlight motrix mullvad-browser netbeans nomachine ocenaudio okular openscad
 		openshot parsec podman-desktop portmaster proton-vpn qownnotes rambox
-		realvnc-viewer redisinsight rekordbox screenpresso serato-dj snipaste spyder
+		realvnc-viewer redisinsight rekordbox ripgrep screenpresso serato-dj snipaste spyder
 		sqlitestudio staxrip tigervnc treesize-free vorta vscode vscodium waveform
 		windsurf wireguard xtreme-download-manager yubikey-manager zettlr
 	`))
@@ -98,11 +98,15 @@ func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 					continue
 				}
 				wantReason := "documented-sensitive-one-way"
+				wantReviewedOn := "2026-07-22"
+				if catalog.Modules[moduleID].UsesImplicitConfigGeneration() {
+					wantReason, wantReviewedOn = "capture-provenance-only", "2026-11-05"
+				}
 				if mixedReason, ok := wantMixedReasons[moduleID]; ok {
 					wantReason = mixedReason
 				}
 				if review.Decision != "approved-one-way" || review.ReasonCode != wantReason ||
-					review.Reviewer != "endstate-maintainers" || review.ReviewedOn != "2026-07-22" ||
+					review.Reviewer != "endstate-maintainers" || review.ReviewedOn != wantReviewedOn ||
 					strings.TrimSpace(review.Evidence) == "" {
 					t.Errorf("%s one-way review = %+v, want frozen reviewed decision with reason %q", moduleID, review, wantReason)
 				}
@@ -116,8 +120,8 @@ func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 		t.Errorf("synthetic scenario count = %d, want 370", totalScenarios)
 	}
 	wantScenarioKinds := map[ScenarioKind]int{
-		ScenarioConfigRoundtripV1:  284,
-		ScenarioCaptureContract:    50,
+		ScenarioConfigRoundtripV1:  283,
+		ScenarioCaptureContract:    51,
 		ScenarioInstallContract:    30,
 		ScenarioConfigGenerationV2: 5,
 		ScenarioConfigMigrationV2:  1,

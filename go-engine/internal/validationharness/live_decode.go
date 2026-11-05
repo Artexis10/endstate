@@ -376,7 +376,7 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 	if err != nil || len(resolutions) != 1 {
 		return false
 	}
-	resolution, err := liveObjectAllowed(resolutions[0], []string{"captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "resolvedTargets", "status", "label", "message", "remediation"}, []string{"captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "resolvedTargets", "label", "message", "remediation", "status"})
+	resolution, err := liveObjectAllowed(resolutions[0], []string{"captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "resolvedTargets", "status", "label", "message", "remediation"}, []string{"captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourcePlatform", "targetPlatform", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "resolvedTargets", "label", "message", "remediation", "status"})
 	if err != nil || !validateLiveResolutionSubobjects(resolution) {
 		return false
 	}
@@ -548,7 +548,7 @@ func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
 			return liveEventRecord{}, false
 		}
 	case "config-resolution":
-		if !liveEventKeys(fields, append(base, "captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "label", "message", "remediation"), append(base, "captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation")) {
+		if !liveEventKeys(fields, append(base, "captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "label", "message", "remediation"), append(base, "captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourcePlatform", "targetPlatform", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation")) {
 			return liveEventRecord{}, false
 		}
 		if !validateLiveResolutionSubobjects(fields) {
@@ -607,7 +607,7 @@ func liveResolutionReason(value *planner.ResolutionReason) bool {
 	}
 	switch *value {
 	case planner.ReasonUnknownGeneration, planner.ReasonAmbiguousGeneration, planner.ReasonDowngradeUnsupported,
-		planner.ReasonMigrationPathMissing, planner.ReasonAmbiguousTargetInstance, planner.ReasonTargetNotDetected,
+		planner.ReasonMigrationPathMissing, planner.ReasonPlatformMappingMissing, planner.ReasonAmbiguousTargetInstance, planner.ReasonTargetNotDetected,
 		planner.ReasonMappedTargetNotDetected, planner.ReasonMappedTargetIncompatible, planner.ReasonTargetCollision,
 		planner.ReasonPayloadIntegrityFailed, planner.ReasonUnsupportedModuleSchema, planner.ReasonCatalogModuleMissing,
 		planner.ReasonConfigSetMissing, planner.ReasonSourceGenerationUnknown, planner.ReasonSourceGenerationDefinitionChanged,

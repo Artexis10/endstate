@@ -49,6 +49,7 @@ const (
 	ReasonAmbiguousGeneration               ResolutionReason = "ambiguous_generation"
 	ReasonDowngradeUnsupported              ResolutionReason = "downgrade_unsupported"
 	ReasonMigrationPathMissing              ResolutionReason = "migration_path_missing"
+	ReasonPlatformMappingMissing            ResolutionReason = "platform_mapping_missing"
 	ReasonAmbiguousTargetInstance           ResolutionReason = "ambiguous_target_instance"
 	ReasonTargetNotDetected                 ResolutionReason = "target_not_detected"
 	ReasonMappedTargetNotDetected           ResolutionReason = "mapped_target_not_detected"
@@ -105,6 +106,7 @@ type SourceCapture struct {
 	ModuleID              string         `json:"moduleId"`
 	ConfigSetID           string         `json:"configSetId"`
 	Instance              SourceInstance `json:"sourceInstance"`
+	SourcePlatform        string         `json:"sourcePlatform,omitempty"`
 	Generation            string         `json:"sourceGeneration"`
 	GenerationFingerprint string         `json:"sourceGenerationFingerprint"`
 	ModuleRevision        string         `json:"captureModuleRevision"`
@@ -144,6 +146,8 @@ type ConfigResolution struct {
 	SourceInstanceID            string            `json:"sourceInstanceId,omitempty"`
 	TargetInstanceID            string            `json:"targetInstanceId,omitempty"`
 	TargetCandidates            []TargetInstance  `json:"targetCandidates"`
+	SourcePlatform              string            `json:"sourcePlatform,omitempty"`
+	TargetPlatform              string            `json:"targetPlatform,omitempty"`
 	SourceGeneration            string            `json:"sourceGeneration,omitempty"`
 	SourceGenerationFingerprint string            `json:"sourceGenerationFingerprint,omitempty"`
 	TargetGeneration            string            `json:"targetGeneration,omitempty"`

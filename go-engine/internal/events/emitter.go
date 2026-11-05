@@ -224,6 +224,8 @@ func (e *Emitter) EmitConfigResolution(set planner.PlanSet) {
 		SourceInstanceID:            resolution.SourceInstanceID,
 		TargetInstanceID:            resolution.TargetInstanceID,
 		TargetCandidates:            targetCandidates,
+		SourcePlatform:              resolution.SourcePlatform,
+		TargetPlatform:              resolution.TargetPlatform,
 		SourceGeneration:            resolution.SourceGeneration,
 		SourceGenerationFingerprint: resolution.SourceGenerationFingerprint,
 		TargetGeneration:            resolution.TargetGeneration,

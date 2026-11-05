@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
 const (
@@ -14,8 +15,6 @@ const (
 	DiagnosticMissingPlatform           = "missing_platform"
 	DiagnosticInvalidRealization        = "invalid_realization"
 )
-
-var supportedModulePlatforms = map[string]bool{"windows": true, "linux": true, "darwin": true}
 
 func validateModuleV3(mod *Module, filePath string) error {
 	if len(mod.Platforms) == 0 {
@@ -25,7 +24,7 @@ func validateModuleV3(mod *Module, filePath string) error {
 		return validationError(mod, filePath, DiagnosticMixedPlatformDeclarations, "schema-v3 module cannot mix platforms with top-level matches, capture, restore, verify, secrets, or config")
 	}
 	for platform, variant := range mod.Platforms {
-		if !supportedModulePlatforms[platform] {
+		if !manifest.IsSupportedConfigPlatform(platform) {
 			return validationError(mod, filePath, DiagnosticMissingPlatform, "platform %q is not supported", platform)
 		}
 		if variant.Realization != "home-manager" && variant.Realization != "endstate-restore" {
@@ -84,8 +83,4 @@ func validatePlatformHostPaths(platform string, variant PlatformVariant) error {
 func matchCriteriaEmpty(matches MatchCriteria) bool {
 	return len(matches.Winget) == 0 && len(matches.Chocolatey) == 0 && len(matches.Exe) == 0 &&
 		len(matches.UninstallDisplayName) == 0 && len(matches.PathExists) == 0
-}
-
-func schemaV3GenerationIdentity(moduleID, platform, setID, generationID string) string {
-	return fmt.Sprintf("%s/%s/%s/%s", moduleID, platform, setID, generationID)
 }

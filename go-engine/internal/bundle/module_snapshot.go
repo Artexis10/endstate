@@ -13,6 +13,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 // ModuleSnapshot identifies the immutable canonical module bytes stored for
@@ -105,9 +106,8 @@ func moduleSnapshotIdentity(mod *modules.Module) (ModuleSnapshot, error) {
 	return ModuleSnapshot{Path: portablePath, ContentHash: mod.Revision}, nil
 }
 
-// VerifyModuleSnapshot verifies only containment, regular-file status, and the
-// recorded content hash. It never parses or returns a Module and therefore
-// cannot make the bundle snapshot target authority.
+// VerifyModuleSnapshot checks the immutable source evidence and its recorded
+// identity. Parsed source declarations never become target execution authority.
 func VerifyModuleSnapshot(bundleRoot string, capture manifest.ConfigCapture) error {
 	recordedPath := capture.CaptureModule.SnapshotPath
 	portablePath, err := normalizePortablePath(recordedPath)
@@ -137,12 +137,38 @@ func VerifyModuleSnapshot(bundleRoot string, capture manifest.ConfigCapture) err
 	if !info.Mode().IsRegular() {
 		return integrityError(IntegrityNotRegular, recordedPath, "module snapshot is not a regular file")
 	}
-	_, actualHash, err := hashRegularFile(hostPath)
+	// Hash the same regular-file bytes that source provenance parsing consumes.
+	raw, _, err := safepath.ReadRegularFile(hostPath)
 	if err != nil {
-		return err
+		return integrityError(IntegritySnapshotConflict, recordedPath, "read module snapshot: %v", err)
 	}
-	if !payloadHashPattern.MatchString(capture.CaptureModule.ContentHash) || actualHash != capture.CaptureModule.ContentHash {
+	if !payloadHashPattern.MatchString(capture.CaptureModule.ContentHash) || hashBytes(raw) != capture.CaptureModule.ContentHash {
 		return integrityError(IntegritySnapshotHashMismatch, recordedPath, "module snapshot SHA-256 does not match captureModule.contentHash")
+	}
+	source, err := modules.ParseModuleJSON(raw)
+	if err != nil || source.EffectiveSchemaVersion() != capture.CaptureModule.SchemaVersion {
+		return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot schema does not match captureModule.schemaVersion")
+	}
+	if source.EffectiveSchemaVersion() == 3 {
+		if source.ID != capture.ModuleID || !manifest.IsSupportedConfigPlatform(capture.SourcePlatform) ||
+			(capture.SourceInstance.Evidence != nil && capture.SourceInstance.Evidence.Platform != "" && capture.SourceInstance.Evidence.Platform != capture.SourcePlatform) {
+			return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot module or source platform does not match capture")
+		}
+		source = modules.ProjectModuleForPlatform(source, capture.SourcePlatform)
+		if source == nil || source.Config == nil {
+			return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot source variant has no config generations")
+		}
+		for _, set := range source.Config.Sets {
+			if set.ID != capture.ConfigSetID {
+				continue
+			}
+			for _, generation := range set.Generations {
+				if generation.ID == capture.SourceGeneration && generation.Fingerprint == capture.SourceGenerationFingerprint {
+					return nil
+				}
+			}
+		}
+		return integrityError(IntegritySnapshotConflict, recordedPath, "snapshot source generation or fingerprint does not match capture")
 	}
 	return nil
 }

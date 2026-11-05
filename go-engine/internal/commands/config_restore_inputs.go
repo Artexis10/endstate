@@ -185,7 +185,7 @@ func buildV2ConfigRestoreInputs(
 						Platform: evidence.Platform, Ref: evidence.Ref, Driver: evidence.Driver,
 					},
 				},
-				Generation: capture.SourceGeneration, GenerationFingerprint: capture.SourceGenerationFingerprint,
+				SourcePlatform: capture.SourcePlatform, Generation: capture.SourceGeneration, GenerationFingerprint: capture.SourceGenerationFingerprint,
 				ModuleRevision: capture.CaptureModule.ContentHash, CaptureModuleSchemaVersion: capture.CaptureModule.SchemaVersion,
 			},
 			payloadRoot:     payloadRoot,

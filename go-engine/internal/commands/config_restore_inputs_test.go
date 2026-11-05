@@ -315,7 +315,7 @@ func commandTestConfigCapture(t *testing.T, manifestDir, captureID, moduleID, co
 
 func writeCommandTestModuleSnapshot(t *testing.T, manifestDir, moduleID string) (string, string) {
 	t.Helper()
-	snapshot := []byte(fmt.Sprintf("{\"id\":%q}\n", moduleID))
+	snapshot := []byte(fmt.Sprintf("{\"moduleSchemaVersion\":2,\"id\":%q,\"displayName\":\"Fixture\",\"sensitivity\":\"low\",\"matches\":{}}\n", moduleID))
 	recordedPath := path.Join("provenance/modules", moduleID+".json")
 	snapshotPath := filepath.Join(manifestDir, filepath.FromSlash(recordedPath))
 	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o755); err != nil {

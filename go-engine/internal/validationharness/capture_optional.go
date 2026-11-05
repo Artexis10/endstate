@@ -5,8 +5,10 @@ package validationharness
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
@@ -54,7 +56,7 @@ func validateCaptureContractOptionalAbsentOutcome(raw []byte, events []map[strin
 		return fail(CodeEnvelopeContract, "capture", "outputPath", "optional-absence artifact reference is not exact")
 	}
 	if !rawStringArrayEquals(data["configsIncluded"], []string{}) || !rawStringArrayEquals(data["configsSkipped"], []string{captureContractModuleName(runtime)}) ||
-		!rawStringArrayEquals(data["configsCaptureErrors"], []string{}) || !rawStringArrayEquals(data["captureWarnings"], []string{}) {
+		!rawStringArrayEquals(data["configsCaptureErrors"], []string{}) || !rawStringArrayEquals(data["captureWarnings"], captureContractOptionalWarnings(runtime)) {
 		return fail(CodeEnvelopeContract, "capture", "configsSkipped", "optional-absence module was not exactly skipped")
 	}
 	var sanitized, isExample bool
@@ -68,6 +70,11 @@ func validateCaptureContractOptionalAbsentOutcome(raw []byte, events []map[strin
 	}
 	if failure := validateCaptureContractDeclaration(data["configCapture"], runtime); failure != nil {
 		return failure
+	}
+	if runtime.CapturePlan.generationPlan != nil {
+		if failure := validateFlatCaptureContractOptionalDeclaration(data["configCapture"], runtime); failure != nil {
+			return failure
+		}
 	}
 	var manifestRef map[string]json.RawMessage
 	var manifestValue struct{ Name, Path string }
@@ -158,11 +165,60 @@ func validateOptionalCaptureMetadata(runtime *scenarioRuntime, raw []byte) *Fail
 	}
 	var value bundle.BundleMetadata
 	if json.Unmarshal(raw, &value) != nil || value.SchemaVersion != "1.0" || value.OS != "windows" || value.MachineName == "" || value.EndstateVersion == "" || len(value.ConfigModulesIncluded) != 0 ||
-		!exactStrings(value.ConfigModulesSkipped, []string{captureContractModuleName(runtime)}) || len(value.CaptureWarnings) != 0 {
+		!exactStrings(value.ConfigModulesSkipped, captureContractOptionalSkipped(runtime)) || !exactStrings(value.CaptureWarnings, captureContractOptionalWarnings(runtime)) {
 		return fail(CodeArtifactContract, "capture", "metadata", "optional-absence metadata did not record the exact skipped module")
 	}
 	if _, err := time.Parse(time.RFC3339, value.CapturedAt); err != nil {
 		return fail(CodeArtifactContract, "capture", "metadata", "optional-absence metadata timestamp is invalid")
+	}
+	return nil
+}
+
+func captureContractOptionalSkipped(runtime *scenarioRuntime) []string {
+	if runtime.CapturePlan.generationPlan != nil {
+		return []string{}
+	}
+	return []string{captureContractModuleName(runtime)}
+}
+
+func captureContractOptionalWarnings(runtime *scenarioRuntime) []string {
+	pinned := runtime.CapturePlan.generationPlan
+	if pinned == nil {
+		return []string{}
+	}
+	return []string{fmt.Sprintf("config capture: captureId=%q moduleId=%q configSetId=%q status=%q code=%q detail=%q",
+		bundle.CaptureID(pinned.Module.ID, pinned.Set.ID, pinned.Instance.ID), pinned.Module.ID, pinned.Set.ID,
+		bundle.CaptureBundleStatusSkipped, bundle.CaptureBundleDiagnosticEmpty, "generation capture produced no regular files")}
+}
+
+func validateFlatCaptureContractOptionalDeclaration(raw json.RawMessage, runtime *scenarioRuntime) *Failure {
+	var summary struct {
+		ConfigSets []struct {
+			CaptureID                   string                        `json:"captureId"`
+			ModuleID                    string                        `json:"moduleId"`
+			ConfigSetID                 string                        `json:"configSetId"`
+			SourcePlatform              string                        `json:"sourcePlatform"`
+			SourceInstance              manifest.ConfigSourceInstance `json:"sourceInstance"`
+			SourceGeneration            string                        `json:"sourceGeneration"`
+			SourceGenerationFingerprint string                        `json:"sourceGenerationFingerprint"`
+			CaptureModuleRevision       string                        `json:"captureModuleRevision"`
+			FilesCaptured               int                           `json:"filesCaptured"`
+			Status                      string                        `json:"status"`
+			Reason                      *string                       `json:"reason"`
+		} `json:"configSets"`
+		Counts      struct{ Total, Captured, Skipped, Failed int } `json:"counts"`
+		Diagnostics []bundle.CaptureBundleDiagnostic               `json:"diagnostics"`
+	}
+	if json.Unmarshal(raw, &summary) != nil || len(summary.ConfigSets) != 1 || len(summary.Diagnostics) != 1 {
+		return fail(CodeEnvelopeContract, "capture", "configCapture", "flat schema-v3 optional absence must retain one skipped generation diagnostic")
+	}
+	expected, failure := expectedCaptureContractGeneration(runtime)
+	if failure != nil {
+		return failure
+	}
+	row, diagnostic := summary.ConfigSets[0], summary.Diagnostics[0]
+	if row.CaptureID != expected.CaptureID || row.ModuleID != expected.ModuleID || row.ConfigSetID != expected.ConfigSetID || row.SourcePlatform != expected.SourcePlatform || !reflect.DeepEqual(row.SourceInstance, expected.SourceInstance) || row.SourceGeneration != expected.SourceGeneration || row.SourceGenerationFingerprint != expected.SourceGenerationFingerprint || row.CaptureModuleRevision != expected.CaptureModule.ContentHash || row.FilesCaptured != 0 || row.Status != bundle.CaptureBundleStatusSkipped || row.Reason == nil || *row.Reason != bundle.CaptureBundleDiagnosticEmpty || summary.Counts.Total != 1 || summary.Counts.Captured != 0 || summary.Counts.Skipped != 1 || summary.Counts.Failed != 0 || diagnostic.CaptureID != expected.CaptureID || diagnostic.ModuleID != expected.ModuleID || diagnostic.ConfigSetID != expected.ConfigSetID || diagnostic.InstanceID != expected.SourceInstance.ID || diagnostic.Status != bundle.CaptureBundleStatusSkipped || diagnostic.Code != bundle.CaptureBundleDiagnosticEmpty {
+		return fail(CodeEnvelopeContract, "capture", "configCapture", "flat schema-v3 optional absence minted captured settings or lost source evidence")
 	}
 	return nil
 }

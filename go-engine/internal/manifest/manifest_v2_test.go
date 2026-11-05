@@ -411,3 +411,41 @@ func writeJSONValue(path string, value any) error {
 	}
 	return os.WriteFile(path, data, 0o644)
 }
+
+func TestSchemaV3CaptureRequiresConsistentPlatformEvidence(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(map[string]any)
+		invalid bool
+	}{
+		{name: "valid platform"},
+		{name: "missing platform", invalid: true, mutate: func(c map[string]any) { delete(c, "sourcePlatform") }},
+		{name: "empty platform", invalid: true, mutate: func(c map[string]any) { c["sourcePlatform"] = "" }},
+		{name: "unsupported platform", invalid: true, mutate: func(c map[string]any) { c["sourcePlatform"] = "unsupported" }},
+		{name: "inconsistent instance platform", invalid: true, mutate: func(c map[string]any) {
+			c["sourceInstance"].(map[string]any)["evidence"].(map[string]any)["platform"] = "windows"
+		}},
+		{name: "path evidence without platform", mutate: func(c map[string]any) {
+			c["sourceInstance"].(map[string]any)["evidence"] = map[string]any{"type": "path"}
+		}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			value := validManifestV2Value("capture-a")
+			capture := firstCapture(value)
+			capture["sourcePlatform"] = "linux"
+			capture["captureModule"].(map[string]any)["schemaVersion"] = 3
+			capture["sourceInstance"].(map[string]any)["evidence"].(map[string]any)["platform"] = "linux"
+			if tt.mutate != nil {
+				tt.mutate(capture)
+			}
+			loaded, err := LoadManifest(writeManifestValue(t, value))
+			if (err != nil) != tt.invalid {
+				t.Fatalf("manifest load error=%v, want invalid=%v", err, tt.invalid)
+			}
+			if err == nil && loaded.ConfigCaptures[0].SourcePlatform != "linux" {
+				t.Fatalf("sourcePlatform lost: %+v", loaded.ConfigCaptures[0])
+			}
+		})
+	}
+}

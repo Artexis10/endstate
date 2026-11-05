@@ -8,6 +8,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // configRestoreDetectionEvidence contains the replaceable machine evidence for
@@ -92,10 +93,17 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 			targetsByModule[moduleID] = []planner.TargetInstance{}
 			continue
 		}
+		discovery := modules.DiscoveryOptions{Glob: evidence.Glob}
+		if currentValidationMode != nil {
+			discovery.Glob = currentValidationMode.GlobSandboxPattern
+			discovery.ResolveHostPath = func(authored string) (string, error) {
+				return currentValidationMode.ResolveHostPattern(authored, validationmode.HostPathPolicy{AllowRoot: true})
+			}
+		}
 		targets, err := session.runtime.catalog.resolver.DiscoverTargets(
 			moduleID,
 			evidence.PackagesByModule[moduleID],
-			modules.DiscoveryOptions{Glob: evidence.Glob},
+			discovery,
 		)
 		if err != nil {
 			targetsByModule[moduleID] = []planner.TargetInstance{}

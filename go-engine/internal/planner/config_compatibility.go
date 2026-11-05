@@ -17,11 +17,13 @@ type CompatibilityResolver struct {
 }
 
 type pinnedCompatibilityModule struct {
-	schemaVersion     int
-	revision          string
-	sets              map[string]modules.ConfigSetDef
-	instanceDetectors []modules.InstanceDetectorDef
-	processPatterns   []string
+	schemaVersion       int
+	sourceSchemaVersion int
+	platform            string
+	revision            string
+	sets                map[string]modules.ConfigSetDef
+	instanceDetectors   []modules.InstanceDetectorDef
+	processPatterns     []string
 }
 
 // NewCompatibilityResolver copies and indexes the supplied catalog snapshot
@@ -36,10 +38,15 @@ func NewCompatibilityResolver(catalog map[string]*modules.Module, diagnostics []
 			continue
 		}
 		pinned := pinnedCompatibilityModule{
-			schemaVersion:   current.EffectiveSchemaVersion(),
-			revision:        current.Revision,
-			sets:            make(map[string]modules.ConfigSetDef),
-			processPatterns: sortedUniqueStrings(current.Matches.Exe),
+			schemaVersion:       current.EffectiveSchemaVersion(),
+			sourceSchemaVersion: current.SourceSchemaVersion,
+			platform:            current.Platform,
+			revision:            current.Revision,
+			sets:                make(map[string]modules.ConfigSetDef),
+			processPatterns:     sortedUniqueStrings(current.Matches.Exe),
+		}
+		if current.SourceSchemaVersion != 3 {
+			pinned.platform = "windows"
 		}
 		if current.Config != nil {
 			pinned.instanceDetectors = append([]modules.InstanceDetectorDef(nil), current.Config.InstanceDetectors...)
@@ -76,6 +83,8 @@ func (r *CompatibilityResolver) DiscoverTargets(
 	declarations := append([]modules.InstanceDetectorDef(nil), pinned.instanceDetectors...)
 	module := &modules.Module{
 		ModuleSchemaVersion: pinned.schemaVersion,
+		SourceSchemaVersion: pinned.sourceSchemaVersion,
+		Platform:            pinned.platform,
 		ID:                  moduleID,
 		Revision:            pinned.revision,
 		Config:              &modules.ConfigDef{InstanceDetectors: declarations},
@@ -151,6 +160,7 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 		ConfigSetID:                 source.ConfigSetID,
 		SourceInstanceID:            source.Instance.ID,
 		TargetInstanceID:            target.ID,
+		SourcePlatform:              sourceCapturePlatform(source),
 		SourceGeneration:            source.Generation,
 		SourceGenerationFingerprint: source.GenerationFingerprint,
 		MigrationPath:               []string{},
@@ -163,7 +173,7 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 		Resolution:      result,
 	}
 
-	if source.CaptureModuleSchemaVersion != 2 {
+	if source.CaptureModuleSchemaVersion != 2 && source.CaptureModuleSchemaVersion != 3 {
 		return finishCompatibility(plan, ResolutionUnknown, ReasonUnsupportedModuleSchema, StatusSkipped)
 	}
 	if source.PayloadIntegrityFailed {
@@ -175,6 +185,11 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 			return finishCompatibility(plan, ResolutionUnknown, ReasonUnsupportedModuleSchema, StatusSkipped)
 		}
 		return finishCompatibility(plan, ResolutionUnknown, ReasonCatalogModuleMissing, StatusSkipped)
+	}
+	plan.Resolution.TargetPlatform = current.platform
+	// Matching local generations never authorize writes across host platforms.
+	if r.platformMismatch(source) {
+		return finishCompatibility(plan, ResolutionIncompatible, ReasonPlatformMappingMissing, StatusSkipped)
 	}
 	plan.Resolution.RestoreModuleRevision = current.revision
 	if current.schemaVersion != 2 {
@@ -395,4 +410,18 @@ func cloneJSONValue(value any) any {
 	default:
 		return value
 	}
+}
+
+func sourceCapturePlatform(source SourceCapture) string {
+	if source.CaptureModuleSchemaVersion == 3 {
+		return source.SourcePlatform
+	}
+	return "windows"
+}
+
+func (r *CompatibilityResolver) platformMismatch(source SourceCapture) bool {
+	current, exists := r.modules[source.ModuleID]
+	return exists && !source.PayloadIntegrityFailed &&
+		(source.CaptureModuleSchemaVersion == 2 || source.CaptureModuleSchemaVersion == 3) &&
+		sourceCapturePlatform(source) != current.platform
 }

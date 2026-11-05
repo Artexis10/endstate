@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 )
 
 const (
@@ -20,10 +22,12 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 		return fail(CodeEnvelopeContract, "capture", "data", "capture contract runtime authority is absent")
 	}
 	var data map[string]json.RawMessage
-	if rejectDuplicateJSONFields(raw) != nil || json.Unmarshal(raw, &data) != nil || !exactRawFields(data,
-		"appsIncluded", "configModules", "configModuleMap", "packageModuleMap", "outputPath", "outputFormat",
-		"configsIncluded", "configsSkipped", "configsCaptureErrors", "sanitized", "isExample", "counts",
-		"captureWarnings", "warnings", "configCapture", "manifest") {
+	fields := []string{"appsIncluded", "configModules", "configModuleMap", "packageModuleMap", "outputPath", "outputFormat",
+		"configsIncluded", "configsSkipped", "configsCaptureErrors", "sanitized", "isExample", "counts", "captureWarnings", "warnings", "configCapture", "manifest"}
+	if runtime.CapturePlan.generationPlan != nil {
+		fields = append(fields, "bundleSchemaVersion", "manifestVersion")
+	}
+	if rejectDuplicateJSONFields(raw) != nil || json.Unmarshal(raw, &data) != nil || !exactRawFields(data, fields...) {
 		return fail(CodeEnvelopeContract, "capture", "data", "capture result has a malformed, duplicate, or foreign field shape")
 	}
 	if failure := validateCaptureContractWarnings(data["warnings"]); failure != nil {
@@ -73,6 +77,19 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 	if json.Unmarshal(data["manifest"], &manifestRef) != nil || !exactRawFields(manifestRef, "name", "path") || json.Unmarshal(data["manifest"], &manifestValue) != nil ||
 		manifestValue.Name != "captured" || portableCapturePath(manifestValue.Path) != wantArtifact {
 		return fail(CodeEnvelopeContract, "capture", "manifest", "capture manifest reference is not exact")
+	}
+	if runtime.CapturePlan.generationPlan != nil {
+		adapter, failure := captureContractGenerationRuntime(runtime)
+		if failure != nil {
+			return failure
+		}
+		expected, failure := expectedCaptureContractGeneration(runtime)
+		if failure != nil {
+			return failure
+		}
+		if failure := validateV2CaptureEnvelope(raw, adapter, expected); failure != nil {
+			return failure
+		}
 	}
 	return validateCaptureContractEvents(events, runtime, wantArtifact)
 }
@@ -133,7 +150,11 @@ func captureContractPayloadPaths(runtime *scenarioRuntime) []string {
 	}
 	paths := make([]string, 0, len(runtime.CapturePlan.Targets))
 	for _, target := range runtime.CapturePlan.Targets {
-		paths = append(paths, v1ArtifactPayloadPath(runtime.Module.ID, target.Destination))
+		payload := v1ArtifactPayloadPath(runtime.Module.ID, target.Destination)
+		if pinned := runtime.CapturePlan.generationPlan; pinned != nil {
+			payload = bundle.ConfigPayloadRoot(runtime.Module.ID, bundle.CaptureID(runtime.Module.ID, pinned.Set.ID, pinned.Instance.ID)) + "/" + target.Destination
+		}
+		paths = append(paths, payload)
 	}
 	sort.Strings(paths)
 	return paths
@@ -153,7 +174,11 @@ func captureContractDestinations(runtime *scenarioRuntime) []string {
 
 func validateCaptureContractDeclaration(raw json.RawMessage, runtime *scenarioRuntime) *Failure {
 	var summary map[string]json.RawMessage
-	if json.Unmarshal(raw, &summary) != nil || !exactRawFields(summary, "modules") {
+	fields := []string{"modules"}
+	if runtime.CapturePlan.generationPlan != nil {
+		fields = append(fields, "configSets", "counts", "diagnostics")
+	}
+	if json.Unmarshal(raw, &summary) != nil || !exactRawFields(summary, fields...) {
 		return fail(CodeEnvelopeContract, "capture", "configCapture", "capture declaration summary has a foreign field")
 	}
 	var modules []map[string]json.RawMessage

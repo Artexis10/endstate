@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
 const (
@@ -46,11 +48,19 @@ type GenerationHistory struct {
 	Generations   []GenerationHistoryEntry `json:"generations"`
 }
 
+// MarshalJSON writes the platform-aware ledger format while retaining legacy entries.
+func (history GenerationHistory) MarshalJSON() ([]byte, error) {
+	type wire GenerationHistory
+	history.SchemaVersion = 2
+	return json.Marshal(wire(history))
+}
+
 // GenerationHistoryEntry records the retained fingerprints for one stable
 // generation identity. Repository policy keeps entries and fingerprints in
 // strict lexical order so changes remain reviewable.
 type GenerationHistoryEntry struct {
 	ModuleID     string   `json:"moduleId"`
+	Platform     string   `json:"platform,omitempty"`
 	ConfigSetID  string   `json:"configSetId"`
 	GenerationID string   `json:"generationId"`
 	Fingerprints []string `json:"fingerprints"`
@@ -58,7 +68,7 @@ type GenerationHistoryEntry struct {
 
 // Identity returns the fully scoped stable generation identity.
 func (e GenerationHistoryEntry) Identity() string {
-	return e.ModuleID + "/" + e.ConfigSetID + "/" + e.GenerationID
+	return GenerationIdentity(e.ModuleID, e.Platform, e.ConfigSetID, e.GenerationID)
 }
 
 // GenerationHistoryValidationError is a stable, machine-readable failure
@@ -118,7 +128,7 @@ func ValidateGenerationHistory(history *GenerationHistory) error {
 	if history == nil {
 		return historyError(HistoryDiagnosticInvalidJSON, "", "", "history is nil")
 	}
-	if history.SchemaVersion != 1 {
+	if history.SchemaVersion != 1 && history.SchemaVersion != 2 {
 		return historyError(HistoryDiagnosticUnsupportedSchema, "", "schemaVersion", "schemaVersion %d is not supported", history.SchemaVersion)
 	}
 	if history.Generations == nil {
@@ -128,6 +138,9 @@ func ValidateGenerationHistory(history *GenerationHistory) error {
 	for index := range history.Generations {
 		entry := &history.Generations[index]
 		identity := entry.Identity()
+		if entry.Platform != "" && (history.SchemaVersion != 2 || !manifest.IsSupportedConfigPlatform(entry.Platform)) {
+			return historyError(HistoryDiagnosticInvalidIdentity, identity, "platform", "platform requires schema 2 and a supported host platform")
+		}
 		identityFields := []struct {
 			name  string
 			value string
@@ -242,32 +255,39 @@ func ValidateRepositoryGenerationHistory(catalog map[string]*Module, history *Ge
 
 type currentGenerationDeclaration struct {
 	ModuleID     string
+	Platform     string
 	ConfigSetID  string
 	GenerationID string
 	Generation   *GenerationDef
 }
 
 func (d currentGenerationDeclaration) Identity() string {
-	return d.ModuleID + "/" + d.ConfigSetID + "/" + d.GenerationID
+	return GenerationIdentity(d.ModuleID, d.Platform, d.ConfigSetID, d.GenerationID)
 }
 
 func collectCurrentGenerations(catalog map[string]*Module) []currentGenerationDeclaration {
 	var current []currentGenerationDeclaration
-	for _, mod := range catalog {
+	appendModule := func(mod *Module) {
 		if mod == nil || mod.EffectiveSchemaVersion() != 2 || mod.Config == nil {
-			continue
+			return
 		}
 		for setIndex := range mod.Config.Sets {
 			set := &mod.Config.Sets[setIndex]
 			for generationIndex := range set.Generations {
 				generation := &set.Generations[generationIndex]
 				current = append(current, currentGenerationDeclaration{
-					ModuleID:     mod.ID,
-					ConfigSetID:  set.ID,
-					GenerationID: generation.ID,
-					Generation:   generation,
+					ModuleID: mod.ID, Platform: mod.Platform, ConfigSetID: set.ID, GenerationID: generation.ID, Generation: generation,
 				})
 			}
+		}
+	}
+	for _, mod := range catalog {
+		if mod != nil && mod.EffectiveSchemaVersion() == 3 {
+			for platform := range mod.Platforms {
+				appendModule(ProjectModuleForPlatform(mod, platform))
+			}
+		} else {
+			appendModule(mod)
 		}
 	}
 	sort.Slice(current, func(left, right int) bool {
@@ -280,6 +300,9 @@ func compareCurrentGenerationIdentity(left, right currentGenerationDeclaration) 
 	if order := strings.Compare(left.ModuleID, right.ModuleID); order != 0 {
 		return order
 	}
+	if order := strings.Compare(left.Platform, right.Platform); order != 0 {
+		return order
+	}
 	if order := strings.Compare(left.ConfigSetID, right.ConfigSetID); order != 0 {
 		return order
 	}
@@ -288,6 +311,9 @@ func compareCurrentGenerationIdentity(left, right currentGenerationDeclaration) 
 
 func compareHistoryIdentity(left, right GenerationHistoryEntry) int {
 	if order := strings.Compare(left.ModuleID, right.ModuleID); order != 0 {
+		return order
+	}
+	if order := strings.Compare(left.Platform, right.Platform); order != 0 {
 		return order
 	}
 	if order := strings.Compare(left.ConfigSetID, right.ConfigSetID); order != 0 {

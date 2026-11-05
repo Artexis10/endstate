@@ -55,7 +55,8 @@ type ConfigInstance struct {
 // DiscoveryOptions contains replaceable operating-system boundaries. A zero
 // value uses filepath.Glob.
 type DiscoveryOptions struct {
-	Glob func(pattern string) ([]string, error)
+	Glob            func(pattern string) ([]string, error)
+	ResolveHostPath func(authored string) (string, error)
 }
 
 // InstancePathRole distinguishes host paths from portable bundle-relative
@@ -112,11 +113,30 @@ func DiscoverInstances(mod *Module, packages []PackageEvidence, options Discover
 				accumulateInstance(accumulators, instance)
 			}
 		case "path":
+			if mod.SourceSchemaVersion == 3 {
+				if err := config.ValidateEnginePath(detector.Glob, mod.Platform); err != nil {
+					return nil, err
+				}
+				resolve := options.ResolveHostPath
+				if resolve == nil {
+					resolve = config.ResolveHostEnginePath
+				}
+				resolved, err := resolve(detector.Glob)
+				if err != nil {
+					return nil, err
+				}
+				detector.Glob = resolved
+			} else {
+				detector.Glob = config.ExpandEnvVars(detector.Glob)
+			}
 			instances, err := discoverPathInstances(mod.ID, detector, glob)
 			if err != nil {
 				return nil, err
 			}
 			for _, instance := range instances {
+				if mod.SourceSchemaVersion == 3 {
+					instance.Evidence.Platform = mod.Platform
+				}
 				accumulateInstance(accumulators, instance)
 			}
 		default:
@@ -185,7 +205,7 @@ func canonicalPackageRef(backend, ref string) string {
 }
 
 func discoverPathInstances(moduleID string, detector InstanceDetectorDef, glob func(string) ([]string, error)) ([]ConfigInstance, error) {
-	expandedGlob := config.ExpandEnvVars(detector.Glob)
+	expandedGlob := detector.Glob
 	if err := validateDiscoveryGlob(expandedGlob); err != nil {
 		return nil, fmt.Errorf("module %q detector %q: %w", moduleID, detector.ID, err)
 	}
@@ -334,6 +354,9 @@ func ExpandInstancePath(template string, instance ConfigInstance, role InstanceP
 		}
 		return filepath.Clean(expanded), nil
 	case HostPath:
+		if config.IsEngineCoordinatePath(template) {
+			return config.ResolveHostEnginePath(template)
+		}
 		expanded, err := expandHostInstancePathTemplate(template, instance)
 		if err != nil {
 			return "", err

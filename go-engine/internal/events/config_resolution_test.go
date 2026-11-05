@@ -29,7 +29,7 @@ func TestEmitConfigResolutionExactJSON(t *testing.T) {
 				"sourceInstance":{"id":"source-a","detectorId":"installed","rawVersion":"1.5","normalizedVersion":"1.5","evidence":{"type":"package","backend":"winget","ref":"Vendor.Example"}},
 				"sourceInstanceId":"source-a","targetInstanceId":"target-a",
 				"targetCandidates":[{"id":"target-a","moduleId":"apps.example","detectorId":"installed","rawVersion":"1.9","normalizedVersion":"1.9","evidence":{"type":"package","backend":"winget","ref":"Vendor.Example"},"targetGeneration":"g1","targetGenerationFingerprint":"fingerprint-g1","restoreModuleRevision":"restore-revision"}],
-				"sourceGeneration":"g1","sourceGenerationFingerprint":"fingerprint-g1","targetGeneration":"g1",
+				"sourcePlatform":"windows","sourceGeneration":"g1","sourceGenerationFingerprint":"fingerprint-g1","targetGeneration":"g1",
 				"resolution":"direct","reason":null,"migrationPath":[],"captureModuleRevision":"capture-revision","restoreModuleRevision":"restore-revision",
 				"label":"Compatible","message":"Settings are compatible with the selected target.","remediation":null
 			}`,
@@ -43,7 +43,7 @@ func TestEmitConfigResolutionExactJSON(t *testing.T) {
 				"sourceInstance":{"id":"source-a","detectorId":"installed","rawVersion":"1.5","normalizedVersion":"1.5","evidence":{"type":"package","backend":"winget","ref":"Vendor.Example"}},
 				"sourceInstanceId":"source-a","targetInstanceId":"target-a",
 				"targetCandidates":[{"id":"target-a","moduleId":"apps.example","detectorId":"installed","rawVersion":"1.9","normalizedVersion":"1.9","evidence":{"type":"package","backend":"winget","ref":"Vendor.Example"},"targetGeneration":"g3","targetGenerationFingerprint":"fingerprint-g3","restoreModuleRevision":"restore-revision"}],
-				"sourceGeneration":"g1","sourceGenerationFingerprint":"fingerprint-g1","targetGeneration":"g3",
+				"sourcePlatform":"windows","sourceGeneration":"g1","sourceGenerationFingerprint":"fingerprint-g1","targetGeneration":"g3",
 				"resolution":"migrate","reason":null,"migrationPath":["g1","g2","g3"],"captureModuleRevision":"capture-revision","restoreModuleRevision":"restore-revision",
 				"label":"Will be upgraded","message":"Settings will be upgraded from g1 to g3 before restore.","remediation":null
 			}`,
@@ -56,7 +56,7 @@ func TestEmitConfigResolutionExactJSON(t *testing.T) {
 				"captureId":"capture-a","moduleId":"apps.example","configSetId":"preferences",
 				"sourceInstance":{"id":"source-a","detectorId":"installed","rawVersion":"1.5","normalizedVersion":"1.5","evidence":{"type":"package","backend":"winget","ref":"Vendor.Example"}},
 				"sourceInstanceId":"source-a","targetCandidates":[],
-				"sourceGeneration":"g1","sourceGenerationFingerprint":"fingerprint-g1",
+				"sourcePlatform":"windows","sourceGeneration":"g1","sourceGenerationFingerprint":"fingerprint-g1",
 				"resolution":"unknown","reason":"target_detection_failed","migrationPath":[],"captureModuleRevision":"capture-revision",
 				"label":"Compatibility unknown","message":"Target detection failed, so compatibility could not be determined.","remediation":"Review the detection failure, resolve its cause, and retry."
 			}`,

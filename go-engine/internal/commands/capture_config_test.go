@@ -921,6 +921,11 @@ func TestRunCaptureRealizerSuppliesInstalledNixAndBrewPackageEvidence(t *testing
 		t.Fatal(err)
 	}
 	t.Setenv("ENDSTATE_CAPTURE_CONFIG", configRoot)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", configRoot)
+	} else {
+		t.Setenv("HOME", configRoot)
+	}
 	makeModule := func(id string) *modules.Module {
 		base := testCaptureGenerationModule(t, captureGenerationModuleSpec{
 			ID: id, PathMatch: configRoot,
@@ -928,10 +933,18 @@ func TestRunCaptureRealizerSuppliesInstalledNixAndBrewPackageEvidence(t *testing
 			Sets:          []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
 			CaptureSource: captureTestEnvPath("ENDSTATE_CAPTURE_CONFIG", "prefs.json"),
 		})
-		base.SourceSchemaVersion = 3
-		base.Platform = "darwin"
-		base.Realization = "endstate-restore"
-		return base
+		variant := modules.PlatformVariant{Realization: "endstate-restore", Matches: base.Matches, Config: base.Config}
+		variant.Matches.PathExists = nil
+		variant.Config.Sets[0].Generations[0].Capture.Files[0].Source = "${home}/prefs.json"
+		authored, err := json.Marshal(&modules.Module{ModuleSchemaVersion: 3, ID: id, DisplayName: id, Sensitivity: "low", Platforms: map[string]modules.PlatformVariant{"darwin": variant}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := modules.ParseModuleJSON(authored)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return modules.ProjectModuleForPlatform(parsed, "darwin")
 	}
 	nixModule := makeModule("apps.ripgrep")
 	brewModule := makeModule("apps.hello")

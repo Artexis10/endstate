@@ -5,7 +5,9 @@ package validationharness
 
 import (
 	"archive/zip"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"sort"
@@ -22,6 +24,25 @@ func inspectCaptureContractArtifact(runtime *scenarioRuntime, zipPath string) (c
 	if runtime == nil || runtime.CapturePlan == nil || runtime.validationContext() == nil ||
 		runtime.validationContext().ValidateSandboxPath(zipPath) != nil || !fixtureContained(runtime.Root, zipPath) {
 		return captureContractEvidence{}, fail(CodeIsolationFailure, "capture", "artifact", "capture contract artifact left validation authority")
+	}
+	if runtime.CapturePlan.generationPlan != nil {
+		adapter, failure := captureContractGenerationRuntime(runtime)
+		if failure != nil {
+			return captureContractEvidence{}, failure
+		}
+		evidence, failure := inspectGenerationCaptureArtifact(adapter, zipPath)
+		if failure != nil {
+			return captureContractEvidence{}, failure
+		}
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(manifest.StripJsoncComments(evidence.V2.Entries["manifest.jsonc"]), &fields) != nil || !captureContractVerifierProjectionExact(fields["verify"], runtime) {
+			return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "manifest.verify", "flat schema-v3 verifier differs from production")
+		}
+		count := len(evidence.V2.Capture.PayloadManifest)
+		return captureContractEvidence{ArtifactPath: zipPath, AssertionCounts: map[string]int{
+			validationmatrix.AssertionCaptured: count, validationmatrix.AssertionContent: count,
+			validationmatrix.AssertionPayload: count, validationmatrix.AssertionProvenance: 1,
+		}}, nil
 	}
 	info, err := os.Lstat(zipPath)
 	if err != nil || safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() {
@@ -202,4 +223,44 @@ func captureContractArtifactNamesExact(zipPath string, expected ...string) bool 
 		}
 	}
 	return true
+}
+
+// The capture-contract adapter shares generation artifact checks without
+// claiming generation-v2 validation, restore, or migration proof.
+func captureContractGenerationRuntime(runtime *scenarioRuntime) (*scenarioRuntime, *Failure) {
+	if runtime == nil || runtime.Module == nil || !runtime.Module.UsesImplicitConfigGeneration() || runtime.CapturePlan == nil || runtime.CapturePlan.generationPlan == nil {
+		return nil, fail(CodeGenerationContract, "capture", "plan", "flat schema-v3 generation authority is absent")
+	}
+	pinned := runtime.CapturePlan.generationPlan
+	if pinned.Instance.ID == "" {
+		return nil, fail(CodeGenerationContract, "capture", "instance", "flat schema-v3 instance was not bound during fixture planning")
+	}
+	plan := &V2FixturePlan{context: runtime.validationContext(), Instance: pinned.Instance, TargetInstance: pinned.Instance,
+		CaptureID: bundle.CaptureID(pinned.Module.ID, pinned.Set.ID, pinned.Instance.ID),
+		Compiled:  v2CompiledFixture{ModuleID: pinned.Module.ID, ModuleRevision: pinned.Module.Revision, Set: *pinned.Set, Generation: *pinned.Generation, TargetGeneration: *pinned.Generation},
+	}
+	for _, target := range runtime.CapturePlan.Targets {
+		fixture := V2FixtureTarget{Coordinate: target.Coordinate, Authored: target.AuthoredSource, Destination: target.Destination, Resolved: target.Resolved, Optional: target.Optional,
+			Members: []V2FixtureFile{{Relative: ".", Path: target.Resolved, Captured: target.Content}},
+		}
+		plan.CaptureTargets = append(plan.CaptureTargets, fixture)
+		plan.Targets = append(plan.Targets, fixture)
+	}
+	adapter := *runtime
+	adapter.V2Plan = plan
+	return &adapter, nil
+}
+
+func expectedCaptureContractGeneration(runtime *scenarioRuntime) (manifest.ConfigCapture, *Failure) {
+	pinned := runtime.CapturePlan.generationPlan
+	projected, err := bundle.ProjectCapturePlanningManifest(nil, nil, []bundle.ConfigSetCapturePlan{*pinned})
+	if err != nil || len(projected.ConfigCaptures) != 1 {
+		return manifest.ConfigCapture{}, fail(CodeGenerationContract, "capture", "plan", "flat schema-v3 capture projection failed")
+	}
+	capture := projected.ConfigCaptures[0]
+	for _, target := range runtime.CapturePlan.Targets {
+		digest := sha256.Sum256(target.Content)
+		capture.PayloadManifest = append(capture.PayloadManifest, manifest.PayloadManifestEntry{RelativePath: target.Destination, Size: int64(len(target.Content)), SHA256: fmt.Sprintf("%x", digest)})
+	}
+	return capture, nil
 }

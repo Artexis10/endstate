@@ -45,6 +45,7 @@ type CaptureContractPlan struct {
 	Restores       []modules.RestoreDef
 	context        *validationmode.Context
 	root           string
+	generationPlan *bundle.ConfigSetCapturePlan
 }
 
 func (plan *CaptureContractPlan) MaterializeCaptured() *Failure {
@@ -132,17 +133,33 @@ func compileCaptureContractAt(repoRoot string, mod *modules.Module, scenario val
 		return reject("module", "capture contract requires one immutable production module")
 	}
 	authority, err := modules.ParseModuleJSON(mod.CanonicalSnapshot())
-	if err != nil || authority.Revision != mod.Revision || !bytes.Equal(declarativeModuleJSON(mod), declarativeModuleJSON(authority)) {
+	implicit := mod.UsesImplicitConfigGeneration()
+	if err == nil && implicit {
+		authority = modules.ProjectModuleForPlatform(authority, mod.Platform)
+	}
+	if err != nil || authority == nil || authority.Revision != mod.Revision || !bytes.Equal(declarativeModuleJSON(mod), declarativeModuleJSON(authority)) {
 		return reject("module", "capture contract module differs from its immutable catalog snapshot")
 	}
-	if mod.EffectiveSchemaVersion() != 1 || scenario.Mode != validationmatrix.ScenarioCaptureContract {
-		return reject("schema", "capture contract requires a schema-v1 capture-contract scenario")
+	if (mod.EffectiveSchemaVersion() != 1 && !implicit) || scenario.Mode != validationmatrix.ScenarioCaptureContract {
+		return reject("schema", "capture contract requires schema v1 or normalized flat schema v3")
 	}
 	if scenario.Review == nil || scenario.Review.Decision != "approved-one-way" {
 		return reject("review", "capture contract requires approved one-way review authority")
 	}
+	var generationPlan *bundle.ConfigSetCapturePlan
+	if implicit {
+		if mod.Config == nil || len(mod.Config.Sets) != 1 || len(mod.Config.Sets[0].Generations) != 1 {
+			return reject("config", "flat schema-v3 projection has no exact generation")
+		}
+		set := &mod.Config.Sets[0]
+		generation := &set.Generations[0]
+		generationPlan = &bundle.ConfigSetCapturePlan{Module: mod, Set: set, Generation: generation}
+		view := *mod
+		view.Config, view.Capture, view.Restore = nil, generation.Capture, generation.Restore
+		mod = &view
+	}
 	if mod.Config != nil || mod.Capture == nil || len(mod.Capture.Files) == 0 || len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0 {
-		return reject("operations", "capture contract requires direct file captures with no registry or generation lane")
+		return reject("operations", "capture contract requires direct file captures without registry capture")
 	}
 	if len(mod.Matches.Winget) != 1 || len(mod.Matches.Chocolatey) != 0 {
 		return reject("matches", "capture contract requires exactly one Winget app reference")
@@ -157,8 +174,11 @@ func compileCaptureContractAt(repoRoot string, mod *modules.Module, scenario val
 	seenPayloads := make(map[string]struct{}, len(mod.Capture.Files))
 	for index, file := range mod.Capture.Files {
 		coordinate := "capture.files[" + strconv.Itoa(index) + "]"
+		if implicit {
+			coordinate = "config.sets[0].generations[0]." + coordinate
+		}
 		source := strings.ReplaceAll(file.Source, `\`, "/")
-		if !canonicalDirectCaptureSource(file.Source) {
+		if !canonicalDirectCaptureSource(validationmode.NormalizeProductionAuthoredPath(file.Source)) {
 			return reject(coordinate+".source", "capture contract requires one direct canonical file source")
 		}
 		if !file.Optional {
@@ -182,6 +202,9 @@ func compileCaptureContractAt(repoRoot string, mod *modules.Module, scenario val
 			return reject(coordinate+".source", "capture source is shadowed by the production secrets matcher")
 		}
 		payload := strings.ToLower(v1ArtifactPayloadPath(mod.ID, destination))
+		if implicit {
+			payload = strings.ToLower(destination)
+		}
 		if _, duplicate := seenPayloads[payload]; duplicate {
 			return reject(coordinate+".dest", "capture destinations collide after the production flattened payload rewrite")
 		}
@@ -233,7 +256,8 @@ func compileCaptureContractAt(repoRoot string, mod *modules.Module, scenario val
 	}
 	return &CaptureContractPlan{
 		ModuleID: mod.ID, ModuleRevision: mod.Revision, ScenarioID: scenario.ID,
-		Inventory: inventory, Targets: targets, Verifiers: append([]modules.VerifyDef(nil), mod.Verify...), Restores: append([]modules.RestoreDef(nil), mod.Restore...),
+		generationPlan: generationPlan,
+		Inventory:      inventory, Targets: targets, Verifiers: append([]modules.VerifyDef(nil), mod.Verify...), Restores: append([]modules.RestoreDef(nil), mod.Restore...),
 	}, nil
 }
 

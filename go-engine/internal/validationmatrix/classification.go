@@ -11,6 +11,12 @@ import (
 )
 
 func validateClassification(record *ValidationRecord, mod *modules.Module) error {
+	if mod.UsesImplicitConfigGeneration() {
+		if len(record.Synthetic.Scenarios) != 1 || record.Synthetic.Scenarios[0].Mode != ScenarioCaptureContract {
+			return validationError(CodeInvalidClassification, record.ModuleID, record.FilePath, "flat schema-v3 settings require one capture-contract scenario")
+		}
+		return nil
+	}
 	if mod.EffectiveSchemaVersion() == 2 {
 		return validateSchemaV2Classification(record, mod)
 	}

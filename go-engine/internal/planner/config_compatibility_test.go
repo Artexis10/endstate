@@ -25,11 +25,12 @@ func TestCompatibilityResolverResolveCandidate_Direct(t *testing.T) {
 	)
 
 	want := ConfigResolution{
-		CaptureID:                   "capture-a",
-		ModuleID:                    "apps.example",
-		ConfigSetID:                 "preferences",
-		SourceInstanceID:            "source-a",
-		TargetInstanceID:            "target-a",
+		CaptureID:        "capture-a",
+		ModuleID:         "apps.example",
+		ConfigSetID:      "preferences",
+		SourceInstanceID: "source-a",
+		TargetInstanceID: "target-a",
+		SourcePlatform:   "windows", TargetPlatform: "windows",
 		SourceGeneration:            "g1",
 		SourceGenerationFingerprint: "fingerprint-g1",
 		TargetGeneration:            "g1",
@@ -468,5 +469,27 @@ func compatibilityTestTarget(rawVersion string) TargetInstance {
 		RawVersion:        evidence.Raw,
 		NormalizedVersion: evidence.Normalized,
 		Root:              `C:\Users\example\AppData\Roaming\Example`,
+	}
+}
+
+func TestPlatformGuardPrecedesMissingTargetSelectionAndScopesLegacySources(t *testing.T) {
+	current := compatibilityTestModule(compatibilityTestGeneration("g1", 1, "<2", "same-fingerprint"))
+	current.SourceSchemaVersion, current.Platform = 3, "linux"
+	source := compatibilityTestSource("g1", "same-fingerprint")
+	// A schema-v2 capture remains Windows-scoped even if its evidence claims Linux.
+	source.Instance.Evidence.Platform = "linux"
+	resolver := NewCompatibilityResolver(map[string]*modules.Module{current.ID: current}, nil)
+	for _, explicit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "automatic", true: "explicit"}[explicit], func(t *testing.T) {
+			mapping := map[string]string{}
+			if explicit {
+				mapping[source.CaptureID] = "absent-target"
+			}
+			plan := resolver.ResolveSources([]SourceCapture{source}, nil, mapping)
+			result := plan.Sets[0].Resolution
+			if result.Reason == nil || *result.Reason != ReasonPlatformMappingMissing || result.SourcePlatform != "windows" || result.TargetPlatform != "linux" || result.Status != StatusSkipped {
+				t.Fatalf("cross-platform source lost its refusal before target selection: %+v", result)
+			}
+		})
 	}
 }

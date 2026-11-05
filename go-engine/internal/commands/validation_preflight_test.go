@@ -88,7 +88,7 @@ func TestPreflightValidationProductionModuleReprojectsPinnedSchemaV3Authority(t 
 	}{
 		{name: "exact Windows projection"},
 		{name: "mutated Windows projection", wantErr: true, mutate: func(mod *modules.Module) {
-			mod.Restore[0].Target = `${windows.appdata}/ripgrep/forged`
+			mod.Config.Sets[0].Generations[0].Restore[0].Target = `${windows.appdata}/ripgrep/forged`
 		}},
 	}
 
@@ -107,17 +107,17 @@ func TestPreflightValidationProductionModuleReprojectsPinnedSchemaV3Authority(t 
 				tt.mutate(candidate)
 			}
 
+			if got := validationModuleAuthorityIsPinned(candidate); got == tt.wantErr {
+				t.Fatalf("pinned schema-v3 authority = %v, want %v", got, !tt.wantErr)
+			}
+			if !tt.wantErr {
+				return
+			}
 			context, session := validationPreflightSessionFor(t, "ripgrep")
 			err = preflightValidationProductionModule(validationProductionModulePreflight{
 				Context: context, Session: session, Catalog: catalog, Modules: []*modules.Module{candidate},
 				Manifest: manifestForValidationModule(candidate), PortableRoot: context.Root(),
 			})
-			if !tt.wantErr {
-				if err != nil {
-					t.Fatalf("exact schema-v3 projection: %v", err)
-				}
-				return
-			}
 			if !errors.Is(err, validationmode.ErrUnsafePath) {
 				t.Fatalf("error = %v, want unsafe path", err)
 			}
@@ -1354,4 +1354,27 @@ func validationPreflightSessionWithInventory(t *testing.T, shortID string, inven
 	// RegistryGuard itself has dedicated native-boundary coverage.
 	session.registryGuard = &countingRegistryIsolationGuard{}
 	return context, session
+}
+
+func TestPreflightValidationFlatPlatformGenerationUsesContainedHomeDetector(t *testing.T) {
+	authored, err := modules.GetCatalog(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := modules.ProjectModuleForPlatform(authored["apps.ripgrep"], "windows")
+	catalog := map[string]*modules.Module{candidate.ID: candidate}
+	context, session := validationPreflightSessionFor(t, "ripgrep")
+	planning := planCaptureConfigWithValidation(catalog, nil, nil, context, captureSelection{})
+	if len(planning.GenerationPlans) != 1 {
+		t.Fatalf("contained shorthand discovery failed: %+v", planning.PreplanningDiagnostics)
+	}
+	projected, err := bundle.ProjectCapturePlanningManifest(nil, nil, planning.GenerationPlans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation := &captureConfigPreparation{Catalog: catalog, Planning: planning}
+	plans, instances := validationCapturePlanningFacts(preparation)
+	if err := preflightValidationProductionModule(validationProductionModulePreflight{Context: context, Session: session, Catalog: catalog, Modules: planning.Modules, Manifest: projected, PortableRoot: context.Root(), ConfigPlans: plans, Instances: instances}); err != nil {
+		t.Fatalf("flat schema-v3 capture preflight: %v", err)
+	}
 }

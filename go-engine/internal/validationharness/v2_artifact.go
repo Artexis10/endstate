@@ -26,7 +26,26 @@ type v2CaptureEvidence struct {
 }
 
 func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureEnvelope []byte) (captureEvidence, *Failure) {
-	if runtime == nil || runtime.V2Plan == nil || runtime.validationContext().ValidateSandboxPath(zipPath) != nil {
+	evidence, failure := inspectGenerationCaptureArtifact(runtime, zipPath)
+	if failure != nil {
+		return captureEvidence{}, failure
+	}
+	if failure := validateV2CaptureEnvelope(captureEnvelope, runtime, evidence.V2.Capture); failure != nil {
+		return captureEvidence{}, failure
+	}
+	verifyManifest := filepath.Join(runtime.Root, "manifests", "captured-verify.jsonc")
+	if err := runtime.validationContext().ValidateSandboxPath(verifyManifest); err != nil {
+		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "verifyManifest", "verify manifest left validation authority")
+	}
+	if err := writeV2VerifyManifest(verifyManifest, evidence.V2.Entries["manifest.jsonc"]); err != nil {
+		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "verifyManifest", "persist pure-v2 verify manifest")
+	}
+	evidence.VerifyManifest = verifyManifest
+	return evidence, nil
+}
+
+func inspectGenerationCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEvidence, *Failure) {
+	if runtime == nil || runtime.V2Plan == nil || runtime.validationContext() == nil || runtime.validationContext().ValidateSandboxPath(zipPath) != nil {
 		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "artifact", "schema-v2 capture artifact left validation authority")
 	}
 	entries, failure := readCaptureArtifactEntries(zipPath)
@@ -54,7 +73,7 @@ func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureE
 	}
 	version, versionOK := captured.Version.(float64)
 	if !versionOK || version != 2 || len(captured.Restore) != 0 || len(captured.ConfigModules) != 0 || len(captured.LegacyConfigLanes) != 0 || len(captured.ConfigCaptures) != 1 {
-		return captureEvidence{}, fail(CodeArtifactContract, "capture", "manifest", fmt.Sprintf("artifact is not exact pure-v2: version=%T:%v restore=%d modules=%d legacy=%d captures=%d %s", captured.Version, captured.Version, len(captured.Restore), len(captured.ConfigModules), len(captured.LegacyConfigLanes), len(captured.ConfigCaptures), v2CaptureFailureSummary(captureEnvelope)))
+		return captureEvidence{}, fail(CodeArtifactContract, "capture", "manifest", fmt.Sprintf("artifact is not exact pure-v2: version=%T:%v restore=%d modules=%d legacy=%d captures=%d", captured.Version, captured.Version, len(captured.Restore), len(captured.ConfigModules), len(captured.LegacyConfigLanes), len(captured.ConfigCaptures)))
 	}
 	if len(captured.Apps) != 1 {
 		return captureEvidence{}, fail(CodeArtifactContract, "capture", "manifest.apps", "pure-v2 capture must select exactly one app")
@@ -70,7 +89,7 @@ func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureE
 		capture.SourceInstance.ID != instance.ID || capture.SourceInstance.DetectorID != instance.DetectorID ||
 		capture.SourceInstance.RawVersion != instance.Version.Raw || capture.SourceInstance.NormalizedVersion != instance.Version.Normalized ||
 		capture.SourceGeneration != plan.Compiled.Generation.ID || capture.SourceGenerationFingerprint != plan.Compiled.Generation.Fingerprint ||
-		capture.CaptureModule.SchemaVersion != 2 || capture.CaptureModule.ContentHash != runtime.Module.Revision ||
+		capture.CaptureModule.SchemaVersion != runtime.Module.AuthoredSchemaVersion() || capture.SourcePlatform != runtime.Module.Platform || capture.CaptureModule.ContentHash != runtime.Module.Revision ||
 		capture.PayloadRoot != bundle.ConfigPayloadRoot(runtime.Module.ID, plan.CaptureID) {
 		return captureEvidence{}, fail(CodeArtifactContract, "capture", "configCaptures[0]", "config capture identity or immutable generation provenance differs")
 	}
@@ -127,17 +146,7 @@ func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureE
 	if failure := validateV2Metadata(entries["metadata.json"], plan.CaptureID); failure != nil {
 		return captureEvidence{}, failure
 	}
-	if failure := validateV2CaptureEnvelope(captureEnvelope, runtime, capture); failure != nil {
-		return captureEvidence{}, failure
-	}
 
-	verifyManifest := filepath.Join(runtime.Root, "manifests", "captured-verify.jsonc")
-	if err := runtime.validationContext().ValidateSandboxPath(verifyManifest); err != nil {
-		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "verifyManifest", "verify manifest left validation authority")
-	}
-	if err := writeV2VerifyManifest(verifyManifest, manifestBytes); err != nil {
-		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "verifyManifest", "persist pure-v2 verify manifest")
-	}
 	counts := map[string]int{
 		validationmatrix.AssertionCaptured: len(expectedPayload), validationmatrix.AssertionPayload: len(expectedPayload),
 		validationmatrix.AssertionProvenance: 1, validationmatrix.AssertionRewrittenRestore: len(plan.Targets),
@@ -147,25 +156,7 @@ func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureE
 	if plan.Compiled.Migration != nil {
 		counts[validationmatrix.AssertionMigration] = 1
 	}
-	return captureEvidence{ArtifactPath: zipPath, VerifyManifest: verifyManifest, AssertionCounts: counts, V2: &v2CaptureEvidence{Capture: capture, Entries: entries}}, nil
-}
-
-func v2CaptureFailureSummary(raw []byte) string {
-	var data struct {
-		ConfigCapture struct {
-			ConfigSets []struct {
-				Status        string  `json:"status"`
-				Reason        *string `json:"reason"`
-				FilesCaptured int     `json:"filesCaptured"`
-			} `json:"configSets"`
-			Counts      struct{ Total, Captured, Skipped, Failed int } `json:"counts"`
-			Diagnostics []struct{ Code, Status string }                `json:"diagnostics"`
-		} `json:"configCapture"`
-	}
-	if json.Unmarshal(raw, &data) != nil {
-		return "captureEnvelope=malformed"
-	}
-	return fmt.Sprintf("configSets=%v counts=%+v diagnostics=%v", data.ConfigCapture.ConfigSets, data.ConfigCapture.Counts, data.ConfigCapture.Diagnostics)
+	return captureEvidence{ArtifactPath: zipPath, AssertionCounts: counts, V2: &v2CaptureEvidence{Capture: capture, Entries: entries}}, nil
 }
 
 func defaultDriver(value string) string {
@@ -180,7 +171,7 @@ func exactV2SourceEvidence(evidence *manifest.ConfigSourceInstanceEvidence, inst
 		return false
 	}
 	if evidence.Type == "path" {
-		return evidence.AppID == "" && evidence.Backend == "" && evidence.Platform == "" && evidence.Ref == "" && evidence.Driver == ""
+		return evidence.AppID == "" && evidence.Backend == "" && evidence.Platform == instance.Evidence.Platform && evidence.Ref == "" && evidence.Driver == ""
 	}
 	return evidence.AppID == instance.Evidence.AppID && evidence.Backend == instance.Evidence.Backend && evidence.Platform == instance.Evidence.Platform && evidence.Ref == instance.Evidence.Ref && evidence.Driver == instance.Evidence.Driver
 }
@@ -207,6 +198,7 @@ func validateV2CaptureEnvelope(raw []byte, runtime *scenarioRuntime, capture man
 				CaptureID                   string  `json:"captureId"`
 				ModuleID                    string  `json:"moduleId"`
 				ConfigSetID                 string  `json:"configSetId"`
+				SourcePlatform              string  `json:"sourcePlatform,omitempty"`
 				SourceGeneration            string  `json:"sourceGeneration"`
 				SourceGenerationFingerprint string  `json:"sourceGenerationFingerprint"`
 				CaptureModuleRevision       string  `json:"captureModuleRevision"`
@@ -222,7 +214,7 @@ func validateV2CaptureEnvelope(raw []byte, runtime *scenarioRuntime, capture man
 		return fail(CodeEnvelopeContract, "capture", "data.configCapture", "capture envelope lacks one exact schema-v2 result")
 	}
 	row := data.ConfigCapture.ConfigSets[0]
-	if row.CaptureID != capture.CaptureID || row.ModuleID != runtime.Module.ID || row.ConfigSetID != runtime.V2Plan.Compiled.Set.ID || row.SourceGeneration != runtime.V2Plan.Compiled.Generation.ID || row.SourceGenerationFingerprint != runtime.V2Plan.Compiled.Generation.Fingerprint || row.CaptureModuleRevision != runtime.Module.Revision || row.FilesCaptured != len(capture.PayloadManifest) || row.Status != "captured" || row.Reason != nil || data.ConfigCapture.Counts.Total != 1 || data.ConfigCapture.Counts.Captured != 1 || data.ConfigCapture.Counts.Skipped != 0 || data.ConfigCapture.Counts.Failed != 0 || len(data.ConfigCapture.Diagnostics) != 0 {
+	if row.SourcePlatform != capture.SourcePlatform || row.CaptureID != capture.CaptureID || row.ModuleID != runtime.Module.ID || row.ConfigSetID != runtime.V2Plan.Compiled.Set.ID || row.SourceGeneration != runtime.V2Plan.Compiled.Generation.ID || row.SourceGenerationFingerprint != runtime.V2Plan.Compiled.Generation.Fingerprint || row.CaptureModuleRevision != runtime.Module.Revision || row.FilesCaptured != len(capture.PayloadManifest) || row.Status != "captured" || row.Reason != nil || data.ConfigCapture.Counts.Total != 1 || data.ConfigCapture.Counts.Captured != 1 || data.ConfigCapture.Counts.Skipped != 0 || data.ConfigCapture.Counts.Failed != 0 || len(data.ConfigCapture.Diagnostics) != 0 {
 		return fail(CodeEnvelopeContract, "capture", "data.configCapture", "capture envelope generation evidence is incomplete or inconsistent")
 	}
 	return nil

@@ -5,8 +5,20 @@
   "synthetic": {
     "scenarios": [
       {
-        "id": "default-v1",
-        "mode": "config-roundtrip-v1"
+        "id": "platform-settings-capture",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/ripgrep/validation-fixture-capture.jsonc",
+          "sha256": "64162912718d93a0c5d021f018b5e3115f80507988368ec34820f47fc649d4bd"
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "capture-provenance-only",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-11-05",
+          "evidence": "Flat platform settings use default/g1 provenance without authored validators. This scenario proves capture integrity and optional absence. An independent engine regression proves same-platform restore and cross-platform refusal."
+        }
       }
     ]
   },

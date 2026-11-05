@@ -64,7 +64,7 @@ func TestLoadGenerationHistory_StrictJSON(t *testing.T) {
 		},
 		{
 			name:    "unsupported schema",
-			content: `{"schemaVersion":2,"generations":[]}`,
+			content: `{"schemaVersion":3,"generations":[]}`,
 			code:    HistoryDiagnosticUnsupportedSchema,
 		},
 		{

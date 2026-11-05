@@ -564,9 +564,10 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string, con
 func projectConfigCapture(plan ConfigSetCapturePlan, payloadRoot string, payloadManifest []manifest.PayloadManifestEntry, snapshot ModuleSnapshot) manifest.ConfigCapture {
 	evidence := plan.Instance.Evidence
 	return manifest.ConfigCapture{
-		CaptureID:   CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID),
-		ModuleID:    plan.Module.ID,
-		ConfigSetID: plan.Set.ID,
+		CaptureID:      CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID),
+		ModuleID:       plan.Module.ID,
+		ConfigSetID:    plan.Set.ID,
+		SourcePlatform: plan.Module.Platform,
 		SourceInstance: manifest.ConfigSourceInstance{
 			ID:                plan.Instance.ID,
 			DetectorID:        plan.Instance.DetectorID,
@@ -580,7 +581,7 @@ func projectConfigCapture(plan ConfigSetCapturePlan, payloadRoot string, payload
 		SourceGeneration:            plan.Generation.ID,
 		SourceGenerationFingerprint: plan.Generation.Fingerprint,
 		CaptureModule: manifest.CaptureModuleProvenance{
-			SchemaVersion: plan.Module.EffectiveSchemaVersion(), ContentHash: snapshot.ContentHash, SnapshotPath: snapshot.Path,
+			SchemaVersion: plan.Module.AuthoredSchemaVersion(), ContentHash: snapshot.ContentHash, SnapshotPath: snapshot.Path,
 		},
 		PayloadRoot:     payloadRoot,
 		PayloadManifest: payloadManifest,

@@ -102,10 +102,13 @@ func ResolveHostEnginePath(authored string) (string, error) {
 	return ResolveEnginePath(authored, environment)
 }
 
-func isEngineCoordinatePath(value string) bool {
+// IsEngineCoordinatePath reports whether a path starts with a supported coordinate.
+func IsEngineCoordinatePath(value string) bool {
 	coordinate, _, ok := splitEngineCoordinate(value)
 	return ok && engineCoordinates[coordinate] != nil
 }
+
+func isEngineCoordinatePath(value string) bool { return IsEngineCoordinatePath(value) }
 
 func splitEngineCoordinate(value string) (coordinate, suffix string, ok bool) {
 	if !strings.HasPrefix(value, "${") {

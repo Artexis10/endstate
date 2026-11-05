@@ -88,6 +88,14 @@ func (m *Module) EffectiveSchemaVersion() int {
 	return m.ModuleSchemaVersion
 }
 
+// AuthoredSchemaVersion retains source provenance across executable projection.
+func (m *Module) AuthoredSchemaVersion() int {
+	if m != nil && m.SourceSchemaVersion != 0 {
+		return m.SourceSchemaVersion
+	}
+	return m.EffectiveSchemaVersion()
+}
+
 // CanonicalSnapshot returns a defensive copy of the immutable canonical module
 // definition pinned when this Module was parsed.
 func (m *Module) CanonicalSnapshot() []byte {

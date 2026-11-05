@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generations": [
     {
       "moduleId": "apps.owncloud",
@@ -15,6 +15,24 @@
       "generationId": "g2",
       "fingerprints": [
         "899536c068d45769a2292adc25ab331226c5fc8eb4c71f89da00b61a3a3cdfba"
+      ]
+    },
+    {
+      "moduleId": "apps.ripgrep",
+      "platform": "linux",
+      "configSetId": "default",
+      "generationId": "g1",
+      "fingerprints": [
+        "3bede2cdfb82497e37821a0e1208f496a99c9def4ecc8e2ba9dcf2c82e34f866"
+      ]
+    },
+    {
+      "moduleId": "apps.ripgrep",
+      "platform": "windows",
+      "configSetId": "default",
+      "generationId": "g1",
+      "fingerprints": [
+        "011f3c517cfaa40d3e4eb5102fd3eba986f31bc45c2c83c98773a8d2a6ff71a0"
       ]
     },
     {

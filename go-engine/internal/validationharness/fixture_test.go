@@ -193,14 +193,17 @@ func TestProductionRipgrepSchemaV3WindowsFixtureMapsEngineCoordinates(t *testing
 		t.Fatalf("ripgrep catalog authority = module=%+v scenarios=%+v", mod, record.Synthetic.Scenarios)
 	}
 	scenario := record.Synthetic.Scenarios[0]
-	definitions, failure := compileFixtureDefinitionsAt(repo, mod, scenario)
+	plan, failure := compileCaptureContractAt(repo, mod, scenario)
 	if failure != nil {
 		t.Fatal(failure)
 	}
 	validationContext := fixtureValidationContext(t, mod.ID, scenario.ID)
-	plan, failure := compileFixturePlan(validationContext, mod, scenario, definitions)
-	if failure != nil {
-		t.Fatal(failure)
+	for index := range plan.Targets {
+		resolved, err := validationContext.ResolveHostPath(plan.Targets[index].AuthoredSource, validationmode.HostPathPolicy{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan.Targets[index].Resolved = resolved
 	}
 	if len(plan.Targets) != 2 {
 		t.Fatalf("ripgrep fixture targets = %+v, want two", plan.Targets)
@@ -212,8 +215,8 @@ func TestProductionRipgrepSchemaV3WindowsFixtureMapsEngineCoordinates(t *testing
 		"${windows.appdata}/ripgrep/config": filepath.Join(appData, "ripgrep", "config"),
 	}
 	for _, target := range plan.Targets {
-		if target.Resolved != want[target.Authored] {
-			t.Fatalf("ripgrep fixture target %q resolved to %q, want %q", target.Authored, target.Resolved, want[target.Authored])
+		if target.Resolved != want[target.AuthoredSource] {
+			t.Fatalf("ripgrep fixture target %q resolved to %q, want %q", target.AuthoredSource, target.Resolved, want[target.AuthoredSource])
 		}
 	}
 }

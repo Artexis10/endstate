@@ -50,6 +50,7 @@ type ConfigCapture struct {
 	CaptureID                   string                  `json:"captureId"`
 	ModuleID                    string                  `json:"moduleId"`
 	ConfigSetID                 string                  `json:"configSetId"`
+	SourcePlatform              string                  `json:"sourcePlatform,omitempty"`
 	SourceInstance              ConfigSourceInstance    `json:"sourceInstance"`
 	SourceGeneration            string                  `json:"sourceGeneration"`
 	SourceGenerationFingerprint string                  `json:"sourceGenerationFingerprint"`

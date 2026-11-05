@@ -274,6 +274,21 @@ func prepareScenarioRuntimeWithRegistryFixtureFactory(selected *selection, facto
 		compiled.Verifiers = append([]modules.VerifyDef(nil), selected.capturePlan.Verifiers...)
 		compiled.context = validationContext
 		compiled.root = root
+		if compiled.generationPlan != nil {
+			instances, err := modules.DiscoverInstances(selected.module, nil, modules.DiscoveryOptions{
+				Glob: validationContext.GlobSandboxPattern,
+				ResolveHostPath: func(authored string) (string, error) {
+					return validationContext.ResolveHostPattern(authored, validationmode.HostPathPolicy{AllowRoot: true})
+				},
+			})
+			if err != nil || len(instances) != 1 {
+				fixtureFailure = fail(CodeGenerationContract, "fixture", "instance", "flat schema-v3 detector must identify one contained settings location")
+				break
+			}
+			pinned := *compiled.generationPlan
+			pinned.Instance = instances[0]
+			compiled.generationPlan = &pinned
+		}
 		capturePlan = &compiled
 	case validationmatrix.ScenarioRestoreContract:
 		if selected.restorePlan == nil || selected.restorePlan.Inventory != inventory {

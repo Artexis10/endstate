@@ -323,8 +323,18 @@ func validateConfigCapture(capture *ConfigCapture) error {
 	default:
 		return fmt.Errorf("sourceInstance.evidence.type %q is unsupported", evidence.Type)
 	}
-	if capture.CaptureModule.SchemaVersion != 2 {
-		return fmt.Errorf("captureModule.schemaVersion must be 2")
+	if capture.CaptureModule.SchemaVersion != 2 && capture.CaptureModule.SchemaVersion != 3 {
+		return fmt.Errorf("captureModule.schemaVersion must be 2 or 3")
+	}
+	if capture.CaptureModule.SchemaVersion == 3 {
+		if !IsSupportedConfigPlatform(capture.SourcePlatform) {
+			return fmt.Errorf("schema-v3 capture requires a supported sourcePlatform")
+		}
+		if evidence.Platform != "" && evidence.Platform != capture.SourcePlatform {
+			return fmt.Errorf("sourceInstance.evidence.platform must match sourcePlatform")
+		}
+	} else if capture.SourcePlatform != "" {
+		return fmt.Errorf("schema-v2 capture cannot declare sourcePlatform")
 	}
 	if !lowerHex256Pattern.MatchString(capture.CaptureModule.ContentHash) {
 		return fmt.Errorf("captureModule.contentHash must be lowercase 64-hex SHA-256")
@@ -528,4 +538,14 @@ func validatePortableManifestPath(value string) error {
 		return fmt.Errorf("path is not canonical")
 	}
 	return nil
+}
+
+// IsSupportedConfigPlatform follows the fixed schema-v3 host platform enum.
+func IsSupportedConfigPlatform(platform string) bool {
+	switch platform {
+	case "windows", "linux", "darwin":
+		return true
+	default:
+		return false
+	}
 }

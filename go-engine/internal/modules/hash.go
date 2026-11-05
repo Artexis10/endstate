@@ -108,6 +108,12 @@ func ParseModuleJSON(data []byte) (*Module, error) {
 			}
 		}
 	}
+	for platform, variant := range mod.Platforms {
+		if err := setPlatformGenerationFingerprints(&mod, platform, &variant); err != nil {
+			return nil, err
+		}
+		mod.Platforms[platform] = variant
+	}
 	return &mod, nil
 }
 
@@ -209,4 +215,78 @@ func removeLoaderFields(value any) {
 func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// Platform fingerprints cover the selected authored variant, not its executable
+// projection. Historical acceptance changes compatibility, not configuration.
+func platformGenerationFingerprint(mod *Module, platform, setID, generationID string, variant PlatformVariant) (string, error) {
+	var definition any
+	if len(mod.canonicalSnapshot) > 0 {
+		var authored struct {
+			Platforms map[string]json.RawMessage `json:"platforms"`
+		}
+		if err := decodeModuleJSON(mod.canonicalSnapshot, &authored); err != nil {
+			return "", err
+		}
+		if raw := authored.Platforms[platform]; len(raw) > 0 {
+			if err := decodeModuleJSON(raw, &definition); err != nil {
+				return "", err
+			}
+		}
+	}
+	if definition == nil {
+		raw, err := json.Marshal(variant)
+		if err != nil {
+			return "", err
+		}
+		if err := decodeModuleJSON(raw, &definition); err != nil {
+			return "", err
+		}
+	}
+	removePlatformFingerprintFields(definition)
+	envelope := struct {
+		ModuleID     string `json:"moduleId"`
+		Platform     string `json:"platform"`
+		ConfigSetID  string `json:"configSetId"`
+		GenerationID string `json:"generationId"`
+		Variant      any    `json:"variant"`
+	}{mod.ID, platform, setID, generationID, definition}
+	canonical, err := json.Marshal(envelope)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize platform generation: %w", err)
+	}
+	return sha256Hex(canonical), nil
+}
+
+func removePlatformFingerprintFields(value any) {
+	variant, _ := value.(map[string]any)
+	config, _ := variant["config"].(map[string]any)
+	sets, _ := config["sets"].([]any)
+	for _, item := range sets {
+		set, _ := item.(map[string]any)
+		generations, _ := set["generations"].([]any)
+		for _, item := range generations {
+			generation, _ := item.(map[string]any)
+			delete(generation, "acceptsSourceFingerprints")
+			delete(generation, "fingerprint")
+		}
+	}
+}
+
+func setPlatformGenerationFingerprints(mod *Module, platform string, variant *PlatformVariant) error {
+	if variant.Config == nil {
+		return nil
+	}
+	for setIndex := range variant.Config.Sets {
+		set := &variant.Config.Sets[setIndex]
+		for generationIndex := range set.Generations {
+			generation := &set.Generations[generationIndex]
+			fingerprint, err := platformGenerationFingerprint(mod, platform, set.ID, generation.ID, *variant)
+			if err != nil {
+				return err
+			}
+			generation.Fingerprint = fingerprint
+		}
+	}
+	return nil
 }

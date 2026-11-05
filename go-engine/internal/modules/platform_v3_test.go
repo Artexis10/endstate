@@ -33,10 +33,10 @@ func TestParseAndProjectPlatformV3Module(t *testing.T) {
 		t.Fatalf("parsed module = %+v", mod)
 	}
 	linux := FilterCatalogForPlatform(map[string]*Module{mod.ID: mod}, "linux")[mod.ID]
-	if linux == nil || linux.EffectiveSchemaVersion() != 1 || linux.SourceSchemaVersion != 3 || linux.Platform != "linux" {
+	if linux == nil || linux.EffectiveSchemaVersion() != 2 || linux.SourceSchemaVersion != 3 || linux.Platform != "linux" {
 		t.Fatalf("Linux projection = %+v", linux)
 	}
-	if linux.Realization != "home-manager" || linux.Capture == nil || len(linux.Matches.PathExists) != 1 {
+	if linux.Realization != "home-manager" || linux.Config == nil || linux.Config.Sets[0].Generations[0].Capture == nil || len(linux.Matches.PathExists) != 1 {
 		t.Fatalf("Linux executable fields = %+v", linux)
 	}
 	if got := FilterCatalogForPlatform(map[string]*Module{mod.ID: mod}, "windows"); len(got) != 0 {

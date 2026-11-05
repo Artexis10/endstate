@@ -198,13 +198,10 @@ func validationPathInstanceLocator(root string) string {
 }
 
 func validationDetectorPattern(context *validationmode.Context, authored string) (string, string, error) {
-	if _, err := context.ResolveHostPath(validationHostProbe(authored), validationmode.HostPathPolicy{}); err != nil {
+	if _, err := context.ResolveHostPath(validationHostProbe(authored), validationmode.HostPathPolicy{AllowRoot: true}); err != nil {
 		return "", "", err
 	}
-	normalized := authored
-	if strings.HasPrefix(authored, `~\`) || strings.HasPrefix(authored, "~/") {
-		normalized = `%USERPROFILE%\` + authored[2:]
-	}
+	normalized := validationmode.NormalizeProductionAuthoredPath(authored)
 	if !strings.HasPrefix(normalized, "%") {
 		return "", "", validationmode.ErrUnsafePath
 	}
@@ -241,7 +238,9 @@ func validationDiscoveredPathInstance(context *validationmode.Context, mod *modu
 	if err != nil {
 		return nil, err
 	}
-	discovered, err := modules.DiscoverInstances(mod, nil, modules.DiscoveryOptions{Glob: func(requested string) ([]string, error) {
+	discovered, err := modules.DiscoverInstances(mod, nil, modules.DiscoveryOptions{ResolveHostPath: func(authored string) (string, error) {
+		return context.ResolveHostPattern(authored, validationmode.HostPathPolicy{AllowRoot: true})
+	}, Glob: func(requested string) ([]string, error) {
 		if requested == detector.Glob || strings.EqualFold(filepath.Clean(requested), filepath.Clean(pattern)) {
 			return append([]string(nil), matches...), nil
 		}
@@ -453,8 +452,11 @@ func validateValidationConfigCaptures(session *ValidationModeSession, mod *modul
 		if capture.CaptureID != expectedID {
 			return validationPreflightFailure(session, prefix+".captureId", "module-provenance", isolationReasonUnsafePath)
 		}
-		if capture.CaptureModule.SchemaVersion != 2 {
+		if capture.CaptureModule.SchemaVersion != mod.AuthoredSchemaVersion() {
 			return validationPreflightFailure(session, prefix+".captureModule.schemaVersion", "module-provenance", isolationReasonUnsafePath)
+		}
+		if capture.SourcePlatform != mod.Platform {
+			return validationPreflightFailure(session, prefix+".sourcePlatform", "module-provenance", isolationReasonUnsafePath)
 		}
 		if capture.CaptureModule.ContentHash != mod.Revision {
 			return validationPreflightFailure(session, prefix+".captureModule.contentHash", "module-provenance", isolationReasonUnsafePath)
@@ -709,7 +711,7 @@ func walkValidationModuleDeclarations(context *validationmode.Context, session *
 			if detector.Type != "path" {
 				continue
 			}
-			if err := preflightHostPath(context, session, fmt.Sprintf("config.instanceDetectors[%d].glob", detectorIndex), detector.Glob, validationmode.HostPathPolicy{}); err != nil {
+			if err := preflightHostPath(context, session, fmt.Sprintf("config.instanceDetectors[%d].glob", detectorIndex), detector.Glob, validationmode.HostPathPolicy{AllowRoot: true}); err != nil {
 				return err
 			}
 		}

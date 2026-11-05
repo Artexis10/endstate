@@ -92,6 +92,7 @@ type CaptureConfigSetResult struct {
 	ConfigSetID                 string                        `json:"configSetId"`
 	DisplayName                 string                        `json:"displayName"`
 	SourceInstance              manifest.ConfigSourceInstance `json:"sourceInstance"`
+	SourcePlatform              string                        `json:"sourcePlatform,omitempty"`
 	SourceGeneration            string                        `json:"sourceGeneration"`
 	SourceGenerationFingerprint string                        `json:"sourceGenerationFingerprint"`
 	CaptureModuleRevision       string                        `json:"captureModuleRevision"`
@@ -343,6 +344,9 @@ func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []
 		discovery := modules.DiscoveryOptions{}
 		if context != nil {
 			discovery.Glob = context.GlobSandboxPattern
+			discovery.ResolveHostPath = func(authored string) (string, error) {
+				return context.ResolveHostPattern(authored, validationmode.HostPathPolicy{AllowRoot: true})
+			}
 		}
 		instances, err := modules.DiscoverInstances(mod, capturePackageEvidence(mod, apps), discovery)
 		if err != nil {
@@ -685,7 +689,7 @@ func buildCaptureConfigSummary(planning captureConfigPlanning, result *bundle.Ca
 		}
 		summary.ConfigSets = append(summary.ConfigSets, CaptureConfigSetResult{
 			CaptureID: capture.CaptureID, ModuleID: capture.ModuleID, ConfigSetID: capture.ConfigSetID, DisplayName: displayName,
-			SourceInstance: capture.SourceInstance, SourceGeneration: capture.SourceGeneration, SourceGenerationFingerprint: capture.SourceGenerationFingerprint,
+			SourcePlatform: capture.SourcePlatform, SourceInstance: capture.SourceInstance, SourceGeneration: capture.SourceGeneration, SourceGenerationFingerprint: capture.SourceGenerationFingerprint,
 			CaptureModuleRevision: capture.CaptureModule.ContentHash, FilesCaptured: len(capture.PayloadManifest), Status: CaptureConfigStatusCaptured,
 		})
 		completed[capture.CaptureID] = struct{}{}
@@ -708,6 +712,7 @@ func buildCaptureConfigSummary(planning captureConfigPlanning, result *bundle.Ca
 			CaptureModuleRevision: candidate.Module.Revision, Status: diagnostic.Status, Reason: &reason,
 		}
 		if candidate.Generation != nil {
+			row.SourcePlatform = candidate.Module.Platform
 			row.SourceGeneration = candidate.Generation.ID
 			row.SourceGenerationFingerprint = candidate.Generation.Fingerprint
 		}

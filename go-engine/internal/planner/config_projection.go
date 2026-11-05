@@ -15,6 +15,7 @@ func ProjectConfigResolution(set PlanSet) ConfigResolution {
 		projected.CaptureID = set.Source.CaptureID
 		projected.ModuleID = set.Source.ModuleID
 		projected.ConfigSetID = set.Source.ConfigSetID
+		projected.SourcePlatform = sourceCapturePlatform(set.Source)
 		projected.SourceGeneration = set.Source.Generation
 		projected.SourceGenerationFingerprint = set.Source.GenerationFingerprint
 		projected.CaptureModuleRevision = set.Source.ModuleRevision
@@ -39,6 +40,8 @@ func ProjectConfigResolution(set PlanSet) ConfigResolution {
 		projected.SourceInstanceID = ""
 		projected.TargetInstanceID = ""
 		projected.TargetCandidates = []TargetInstance{}
+		projected.SourcePlatform = ""
+		projected.TargetPlatform = ""
 		projected.SourceGeneration = ""
 		projected.SourceGenerationFingerprint = ""
 		projected.TargetGeneration = ""
@@ -121,6 +124,9 @@ func reasonPresentation(reason ResolutionReason) (string, *string, bool) {
 	case ReasonDowngradeUnsupported:
 		message = "Settings cannot be restored to an older configuration generation."
 		remediation = "Choose a target with the same or a newer supported configuration generation."
+	case ReasonPlatformMappingMissing:
+		message = "No supported mapping exists between the source and target platforms."
+		remediation = "Restore on the source platform or add a reviewed cross-platform mapping."
 	case ReasonMigrationPathMissing:
 		message = "No supported migration path exists between the source and target generations."
 		remediation = "Choose a compatible target version or add a reviewed forward migration to the module catalog."
