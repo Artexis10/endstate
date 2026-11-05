@@ -13,6 +13,22 @@ For schema-v3 modules, configuration generation identity SHALL include the expli
 - **THEN** it SHALL resolve only Linux generations by default
 - **AND** Windows or Darwin declaration order SHALL not influence selection
 
+### Requirement: Flat schema-v3 settings use generation provenance
+A schema-v3 variant with capture or restore declarations and no authored `config` SHALL use the existing generation pipeline through the fixed shorthand identity `default/g1`. Its executable projection SHALL use one per-user path instance rooted at the home coordinate, retain the authored variant for fingerprinting and source evidence, and remove duplicate top-level capture and restore execution. This normalization SHALL NOT change schema-v1/v2 behavior.
+
+#### Scenario: Flat variant captures multiple files
+- **WHEN** a flat schema-v3 variant captures two live configuration files
+- **THEN** capture SHALL produce one platform-qualified `default/g1` config capture containing both files
+- **AND** it SHALL NOT publish those files through a legacy unverified lane
+
+#### Scenario: Home location contains no configuration
+- **WHEN** the shorthand detector finds the user home but collection finds no eligible settings payload
+- **THEN** the engine SHALL NOT count that location as an installed application or a successful settings capture
+
+#### Scenario: Authored generation identities remain authoritative
+- **WHEN** a schema-v3 variant declares its own config sets and generations
+- **THEN** the engine SHALL use those declarations without adding the shorthand generation
+
 ### Requirement: Legacy module generations are Windows-only
 Schema-v1 and schema-v2 flat modules SHALL preserve their existing generation identities and behavior on Windows and SHALL be ineligible for automatic Linux or Darwin detection, capture, or restore.
 

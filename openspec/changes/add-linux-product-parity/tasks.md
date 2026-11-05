@@ -179,6 +179,7 @@ fingerprints/history, capture provenance, and authored platform mappings.
 - [x] 5.2 Treat legacy schema-v1/v2 flat modules as Windows-only without mutating the loaded catalog
 - [ ] 5.3 Prove full-catalog Windows compatibility and Linux/Darwin inertness through host seams and frozen snapshots
 - [ ] 5.4 Qualify generation identity, fingerprints, history, manifest provenance, and validation with non-empty source platform/variant identity
+  - Decision 19 includes flat schema-v3 normalization through `default/g1`, source-snapshot schema linkage, the same-platform guard from 5.5, required host-coordinate support from 5.6, and the complete event/strict-reader chain. Full authored cross-platform mappings and remaining path tooling stay separate.
 - [ ] 5.5 Implement same-platform default resolution plus explicit source-to-target mappings/migrations and stable `platform_mapping_missing`
 - [ ] 5.6 Complete coordinate canonicalization, containment, symlink, unsupported-shell, diagnostics, validation-mode, and frozen-fixture tooling
 
