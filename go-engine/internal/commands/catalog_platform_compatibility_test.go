@@ -17,7 +17,10 @@ import (
 // This exercises selection, not native Windows filesystem or registry execution.
 func assertCommandCatalogPlatformContracts(t *testing.T, load func(string) (map[string]*modules.Module, error)) {
 	t.Helper()
-	root := filepath.Join("..", "..", "..")
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
 	authored, diagnostics, err := modules.GetCatalogWithDiagnostics(root)
 	if err != nil || len(diagnostics) != 0 {
 		t.Fatalf("source catalog: %v; diagnostics=%v", err, diagnostics)
@@ -65,11 +68,7 @@ func assertCommandCatalogPlatformContracts(t *testing.T, load func(string) (map[
 					t.Errorf("%s lost its frozen source contract", id)
 				}
 				if source.EffectiveSchemaVersion() <= 2 {
-					actual, expected := *got, *source
-					// Loader locations can differ in spelling without changing declarations.
-					actual.FilePath, expected.FilePath = "", ""
-					actual.ModuleDir, expected.ModuleDir = "", ""
-					if !reflect.DeepEqual(actual, expected) {
+					if !reflect.DeepEqual(got, source) {
 						t.Errorf("legacy module %s changed its executable declarations", id)
 					}
 					continue
