@@ -102,4 +102,21 @@ func TestCurrentKeepsInstalledInputsWhenAnUnusedPinHasTheSameDerivation(t *testi
 	if actual.ID != "app" || actual.Resolution == nil || actual.Resolution.Source.URL != oldPin {
 		t.Fatalf("unused input was attributed to an installed package: %+v", actual)
 	}
+	diff, err := b.Plan([]realizer.Installable{{ID: "app", Ref: "attribute"}})
+	if err != nil || len(diff.Present) != 1 || len(diff.ToAdd) != 0 {
+		t.Fatalf("default input change replaced an unchanged bare request: %+v %v", diff, err)
+	}
+}
+
+func TestNativeStorePathsKeepPOSIXSeparators(t *testing.T) {
+	for _, value := range []string{"/nix/store/package.drv", "/nix/store/package"} {
+		if !storePath(value) {
+			t.Fatalf("native POSIX path was interpreted with host separators: %q", value)
+		}
+	}
+	for _, value := range []string{`\nix\store\package`, `/nix/store/package\activate`, "/nix/store/package/activate"} {
+		if storePath(value) {
+			t.Fatalf("a host path or nested script was accepted as a Nix store path: %q", value)
+		}
+	}
 }

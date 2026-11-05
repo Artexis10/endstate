@@ -295,12 +295,20 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 	var homeResult *RollbackHomeResult
 	if flags.EnableRestore && homeRef != nil {
 		newGen, viaFallback, herr := rollbackHomeConfig(r, homeRef)
+		if newGen > 0 {
+			copyRef := *homeRef
+			copyRef.Generation = newGen
+			copyRef.ActivationFailed = herr != nil
+			if homeRef.Kind == "" {
+				if reader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
+					copyRef.ActivationOutput = reader.ActiveHomeOutput()
+				}
+			}
+			newHomeRef = &copyRef
+		}
 		if herr != nil {
 			return nil, herr
 		}
-		copyRef := *homeRef
-		copyRef.Generation = newGen
-		newHomeRef = &copyRef
 		homeResult = &RollbackHomeResult{
 			TargetGeneration: homeRef.Generation,
 			NewGeneration:    newGen,
@@ -484,7 +492,7 @@ func rollbackHomeConfig(r realizer.Realizer, homeRef *provision.HomeGenRef) (new
 		if frozen, ok := r.(realizer.HomePreparer); ok && homeRef.Resolution != nil && homeRef.ActivationOutput != "" && len(homeRef.Resolution.Outputs) == 1 && homeRef.Resolution.OutputPaths[homeRef.Resolution.Outputs[0]] == homeRef.ActivationOutput {
 			gen, err := frozen.ActivatePreparedHome(homeRef.Resolution)
 			if err != nil {
-				return 0, false, homeRollbackError(err)
+				return gen, false, homeRollbackError(err)
 			}
 			return gen, false, nil
 		}
@@ -496,7 +504,7 @@ func rollbackHomeConfig(r realizer.Realizer, homeRef *provision.HomeGenRef) (new
 		return gen, false, nil
 	}
 	if !errors.Is(herr, realizer.ErrHomeSnapshotMissing) {
-		return 0, false, homeRollbackError(herr)
+		return gen, false, homeRollbackError(herr)
 	}
 
 	// Snapshot garbage-collected. Fall back only when faithful.
@@ -515,7 +523,7 @@ func rollbackHomeConfig(r realizer.Realizer, homeRef *provision.HomeGenRef) (new
 	}
 	gen, aerr := activator.ActivateHome(homeRef.Flake)
 	if aerr != nil {
-		return 0, false, homeRollbackError(aerr)
+		return gen, true, homeRollbackError(aerr)
 	}
 	return gen, true, nil
 }

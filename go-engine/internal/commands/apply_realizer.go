@@ -215,30 +215,23 @@ func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool
 		return nil
 	}
 	active := reader.ActiveHomeGeneration()
-	hasOutput := false
+	activeOutput := ""
 	if outputReader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
-		hasOutput = outputReader.ActiveHomeOutput() != ""
+		activeOutput = outputReader.ActiveHomeOutput()
 	}
-	if active <= 0 && !hasOutput {
+	if active <= 0 && activeOutput == "" {
 		return nil
 	}
 	if generations, err := listGenerationsFn(); err == nil {
-		hasOutputHistory := false
-		for _, generation := range generations {
-			if generation != nil && generation.HomeManager != nil && generation.HomeManager.Kind != "" {
-				hasOutputHistory = true
-				break
-			}
-		}
-		for _, generation := range generations {
-			if generation == nil || generation.HomeManager == nil {
-				continue
-			}
-			if hasOutputHistory && generation.HomeManager.Kind == "" {
-				continue
-			}
-			if homeManagerOwnsActive(r, generation.HomeManager, active) {
+		if matching, outputHistory := matchingHomeManagerReference(generations, activeOutput); outputHistory {
+			if matching != nil {
 				return nil
+			}
+		} else {
+			for _, generation := range generations {
+				if generation != nil && generation.HomeManager != nil && homeManagerOwnsActive(r, generation.HomeManager, active) {
+					return nil
+				}
 			}
 		}
 	}
@@ -715,10 +708,18 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			} else {
 				hmGen, aerr = activator.ActivateHome(flake)
 			}
+			if hmGen > 0 {
+				preparationCommitted = true
+				homeRef = homeGenerationReference(flags, mf, preparedHome, hmGen)
+				homeRef.ActivationFailed = aerr != nil
+			}
 			if aerr != nil {
 				rerr, ok := aerr.(*realizer.Error)
 				if !ok || rerr == nil {
 					rerr = &realizer.Error{Code: envelope.ErrInstallFailed, Raw: aerr.Error()}
+				}
+				if rerr.Stage == "commit" {
+					preparationCommitted = true
 				}
 				emitter.EmitItem(flake, driverName, "failed", "install_failed", "Home-manager configuration activation failed", "home-manager")
 				emitter.EmitSummary("config", 1, 0, 0, 1)
@@ -728,8 +729,6 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				return nil, envelope.NewError(envelope.ErrInstallFailed, "Home-manager configuration activation failed.").
 					WithDetail(map[string]string{"subcode": rerr.Subcode, "stage": rerr.Stage, "raw": rerr.Raw})
 			}
-			preparationCommitted = true
-			homeRef = homeGenerationReference(flags, mf, preparedHome, hmGen)
 			homeResult = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: true}
 			emitter.EmitItem(flake, driverName, "configured", "", fmt.Sprintf("Activated home-manager generation %d", hmGen), "home-manager")
 			emitter.EmitSummary("config", 1, 1, 0, 0)
@@ -789,11 +788,32 @@ func homeManagerOwnsActive(r interface{}, home *provision.HomeGenRef, active int
 	if home == nil {
 		return false
 	}
-	if home.Kind == "" {
+	if !hasHomeOutputIdentity(home) {
 		return home.Generation == active
 	}
 	reader, ok := r.(interface{ ActiveHomeOutput() string })
 	return ok && home.ActivationOutput != "" && reader.ActiveHomeOutput() == home.ActivationOutput
+}
+
+func hasHomeOutputIdentity(home *provision.HomeGenRef) bool {
+	return home.Kind != "" || home.ActivationOutput != ""
+}
+
+// New provenance uses the active output. Once it exists, legacy generation-only
+// records cannot grant ownership to an unmatched native output.
+func matchingHomeManagerReference(generations []*provision.Generation, activeOutput string) (*provision.HomeGenRef, bool) {
+	outputHistory := false
+	for _, generation := range generations {
+		if generation == nil || generation.HomeManager == nil || !hasHomeOutputIdentity(generation.HomeManager) {
+			continue
+		}
+		outputHistory = true
+		home := generation.HomeManager
+		if home.ActivationOutput != "" && home.ActivationOutput == activeOutput {
+			return home, true
+		}
+	}
+	return nil, outputHistory
 }
 
 func settingsDigest(settings *manifest.HomeManagerSettings) string {

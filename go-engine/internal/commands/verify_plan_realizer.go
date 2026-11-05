@@ -218,11 +218,13 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 	// Mirrors recoverHomeManager in capture_realizer.go.
 	recorded := 0
 	ownershipMatches := true
+	activationFailed := false
 	if gens, err := listGenerationsFn(); err == nil {
 		for _, g := range gens {
 			if g.HomeManager != nil {
 				recorded = g.HomeManager.Generation
-				if g.HomeManager.Kind != "" {
+				activationFailed = g.HomeManager.ActivationFailed
+				if hasHomeOutputIdentity(g.HomeManager) {
 					ownershipMatches = homeManagerOwnsActive(hgr, g.HomeManager, active)
 				}
 				break
@@ -242,6 +244,12 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 		item.Version = strconv.Itoa(active)
 		item.Expected = strconv.Itoa(recorded)
 		item.Message = fmt.Sprintf("home-manager generation %d is active, want %d (recorded)", active, recorded)
+		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonConfigDrift, item.Message, "home-manager")
+	case activationFailed:
+		item.Status = "fail"
+		item.Reason = driver.ReasonConfigDrift
+		item.Version = strconv.Itoa(active)
+		item.Message = "The Home Manager profile matches, but its recorded settings activation failed"
 		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonConfigDrift, item.Message, "home-manager")
 	default:
 		item.Status = "pass"

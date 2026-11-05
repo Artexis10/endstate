@@ -78,6 +78,8 @@ type HomeGenRef struct {
 	SettingsDigest   string                    `json:"settingsDigest,omitempty"`
 	Resolution       *realizer.InputResolution `json:"resolution,omitempty"`
 	ActivationOutput string                    `json:"activationOutput,omitempty"`
+	// A native profile commit can precede a failing settings activation stage.
+	ActivationFailed bool `json:"activationFailed,omitempty"`
 
 	Flake string `json:"flake"`
 	// Config is the user's originally-declared homeManager.config (a path to a

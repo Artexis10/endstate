@@ -27,6 +27,11 @@ func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, r
 	addedPackages := make([]provision.PackageRecord, 0)
 	changedExisting := false
 	for _, a := range actions {
+		// Result rows can contain several backends. Each generation owns only
+		// its backend's package facts; empty drivers preserve legacy callers.
+		if a.Driver != "" && a.Driver != backend {
+			continue
+		}
 		switch a.Status {
 		case "installed":
 			ref := derefRef(a.Ref)

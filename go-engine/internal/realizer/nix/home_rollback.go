@@ -5,8 +5,8 @@ package nix
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
@@ -42,23 +42,30 @@ var _ realizer.HomeRollbacker = (*Backend)(nil)
 // Error.Raw, destined for envelope error.detail (the moat).
 func (b *Backend) RollbackHome(generation int) (int, error) {
 	link := homeProfilePath() + "-" + strconv.Itoa(generation) + "-link"
-	store, err := os.Readlink(link)
+	_, err := os.Readlink(link)
 	if err != nil {
 		return 0, realizer.ErrHomeSnapshotMissing
 	}
-
-	activate := filepath.Join(store, "activate")
-	_, stderr, exit, runErr := b.execScript(activate)
-	if runErr != nil { // spawn failure (script missing/unrunnable)
-		return 0, classify(-1, parsePlainLog(stderr), false)
-	}
-	if exit != 0 {
-		rerr := classify(exit, parsePlainLog(stderr), false)
-		if rerr != nil && rerr.Code == envelope.ErrInstallFailed {
-			rerr.Code = envelope.ErrRollbackFailed
-			rerr.Stage = "rollback"
+	// Native inventory canonicalizes the snapshot; host symlink separators must
+	// not become a different Nix store path or activation script.
+	data, err := b.native("path-info", link)
+	if err != nil {
+		if failure, ok := err.(*realizer.Error); ok {
+			return 0, failure
 		}
-		return 0, rerr
+		return 0, realizer.ErrHomeSnapshotMissing
 	}
-	return b.homeGen(), nil
+	store := strings.TrimSpace(string(data))
+	if !storePath(store) {
+		return 0, realizer.ErrHomeSnapshotMissing
+	}
+
+	generation, activationErr := b.activateHomeOutput(store)
+	if failure, ok := activationErr.(*realizer.Error); ok && failure.Code == envelope.ErrInstallFailed {
+		failure.Code = envelope.ErrRollbackFailed
+		if failure.Stage != "commit" {
+			failure.Stage = "rollback"
+		}
+	}
+	return generation, activationErr
 }

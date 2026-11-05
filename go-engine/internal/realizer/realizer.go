@@ -72,6 +72,8 @@ type PreparationFinalizer interface{ FinalizePreparation(committed bool) }
 // HomePreparer freezes and optionally builds activation before package mutation.
 type HomePreparer interface {
 	PrepareHome(flake string, build bool) (*InputResolution, error)
+	// A positive generation with an error records a native commit followed by
+	// failed activation, not completed settings.
 	ActivatePreparedHome(*InputResolution) (int, error)
 	ActiveHomeOutput() string
 }
@@ -79,7 +81,9 @@ type HomePreparer interface {
 // Matches preserves portable identity without changing native removal keys.
 func Matches(element Element, desired Installable) bool {
 	if element.ID != "" {
-		return element.ID == desired.ID
+		// An unchanged bare request can keep its installed pin. A changed request
+		// must not use the portable ID to verify a different native target.
+		return element.ID == desired.ID && element.RequestedRef == desired.Ref
 	}
 	return false
 }

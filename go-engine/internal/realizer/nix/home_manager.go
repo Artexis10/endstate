@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -31,7 +32,13 @@ func (b *Backend) ActiveHomeGeneration() int { return b.homeGen() }
 // ActivateHome prepares an exact native activation for direct callers. The
 // command path prepares it before package mutation and reuses that built output.
 func (b *Backend) ActivateHome(flake string) (generation int, resultErr error) {
-	defer func() { b.FinalizePreparation(resultErr == nil) }()
+	defer func() {
+		committed := generation > 0 || resultErr == nil
+		if failure, ok := resultErr.(*realizer.Error); ok && failure.Stage == "commit" {
+			committed = true
+		}
+		b.FinalizePreparation(committed)
+	}()
 	r, err := b.PrepareHome(flake, true)
 	if err != nil {
 		return 0, err
@@ -191,17 +198,31 @@ func (b *Backend) ActivatePreparedHome(r *realizer.InputResolution) (int, error)
 	if !storePath(output) {
 		return 0, unresolved(fmt.Errorf("invalid activation output"))
 	}
-	_, stderr, exit, err := b.execScript(filepath.Join(output, "activate"))
-	if err != nil {
-		return 0, classify(-1, parsePlainLog(stderr), false)
+	return b.activateHomeOutput(output)
+}
+
+// Home Manager writes its profile before installPackages. Observe both sides
+// so a later failure preserves the commit without claiming completed settings.
+func (b *Backend) activateHomeOutput(output string) (int, error) {
+	beforeGeneration := b.homeGen()
+	beforeOutput := b.ActiveHomeOutput()
+	_, stderr, exit, err := b.execScript(path.Join(output, "activate"))
+	generation := b.homeGen()
+	activeOutput := b.ActiveHomeOutput()
+	if err != nil || exit != 0 {
+		if err != nil {
+			exit = -1
+		}
+		failure := classify(exit, parsePlainLog(stderr), false)
+		if generation > 0 && activeOutput == output && (generation != beforeGeneration || activeOutput != beforeOutput) {
+			failure.Stage = "commit"
+			return generation, failure
+		}
+		return 0, failure
 	}
-	if exit != 0 {
-		return 0, classify(exit, parsePlainLog(stderr), false)
-	}
-	if b.ActiveHomeOutput() != output {
+	if activeOutput != output {
 		return 0, &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "activation-provenance", Stage: "commit", Raw: "activation did not commit the prepared output"}
 	}
-	generation := b.homeGen()
 	if generation <= 0 {
 		return 0, &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "activation-provenance", Stage: "commit", Raw: "active native generation could not be observed"}
 	}

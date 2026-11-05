@@ -6,6 +6,7 @@ package nix
 import (
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,10 +27,15 @@ func captureScript(stderr []byte, exit int, runErr error) (ScriptRunner, *string
 	return r, got
 }
 
+// snapshotOutputRunner supplies the native read for the selected snapshot.
+func snapshotOutputRunner(output string) Runner {
+	return func(args ...string) ([]byte, []byte, int, error) { return []byte(output + "\n"), nil, 0, nil }
+}
+
 // setupHomeLink points XDG_STATE_HOME at a temp dir and creates a
 // home-manager-<gen>-link symlink in the home-manager profile dir, returning the
-// (arbitrary) store path it points at. The target need not exist — RollbackHome
-// only reads the link to locate the generation's `activate` script.
+// native store path reported by the injected inventory transport. The host
+// symlink target stays inside the test root; native inventory owns its identity.
 func setupHomeLink(t *testing.T, gen int) string {
 	t.Helper()
 	state := t.TempDir()
@@ -38,9 +44,9 @@ func setupHomeLink(t *testing.T, gen int) string {
 	if err := os.MkdirAll(profiles, 0o755); err != nil {
 		t.Fatalf("mkdir profiles: %v", err)
 	}
-	store := filepath.Join(t.TempDir(), "xxxx-home-manager-generation")
+	store := "/nix/store/snapshot-home-manager-generation"
 	link := filepath.Join(profiles, "home-manager-"+strconv.Itoa(gen)+"-link")
-	if err := os.Symlink(store, link); err != nil {
+	if err := os.Symlink(filepath.Join(t.TempDir(), "snapshot"), link); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
 	return store
@@ -52,7 +58,7 @@ func setupHomeLink(t *testing.T, gen int) string {
 func TestRollbackHome_Success_RunsActivateAndReturnsNewGen(t *testing.T) {
 	store := setupHomeLink(t, 3)
 	run, gotPath := captureScript(nil, 0, nil)
-	b := &Backend{runScript: run, homeGenFn: func() int { return 9 }}
+	b := &Backend{Run: snapshotOutputRunner(store), runScript: run, homeGenFn: func() int { return 9 }}
 
 	gen, err := b.RollbackHome(3)
 	if err != nil {
@@ -61,7 +67,7 @@ func TestRollbackHome_Success_RunsActivateAndReturnsNewGen(t *testing.T) {
 	if gen != 9 {
 		t.Errorf("generation = %d, want 9 (the new forward gen from homeGenFn)", gen)
 	}
-	want := filepath.Join(store, "activate")
+	want := path.Join(store, "activate")
 	if *gotPath != want {
 		t.Errorf("ran script %q, want %q", *gotPath, want)
 	}
@@ -93,9 +99,9 @@ func TestRollbackHome_MissingSnapshot_DistinctErrorNoExec(t *testing.T) {
 // stderr matches no systemic anchor classifies as ROLLBACK_FAILED (not
 // INSTALL_FAILED), with the raw text confined to Err.Raw (the moat).
 func TestRollbackHome_Failure_RemapsToRollbackFailed(t *testing.T) {
-	setupHomeLink(t, 2)
+	store := setupHomeLink(t, 2)
 	run, _ := captureScript([]byte("error: activation script failed midway"), 1, nil)
-	b := &Backend{runScript: run}
+	b := &Backend{Run: snapshotOutputRunner(store), runScript: run}
 
 	_, err := b.RollbackHome(2)
 	rerr := asRealizerErr(t, err)
@@ -110,9 +116,9 @@ func TestRollbackHome_Failure_RemapsToRollbackFailed(t *testing.T) {
 // TestRollbackHome_Permission_Systemic: a permission anchor surfaces
 // PERMISSION_DENIED.
 func TestRollbackHome_Permission_Systemic(t *testing.T) {
-	setupHomeLink(t, 2)
+	store := setupHomeLink(t, 2)
 	run, _ := captureScript([]byte("error: opening file '/nix/store/.lock': Permission denied"), 1, nil)
-	b := &Backend{runScript: run}
+	b := &Backend{Run: snapshotOutputRunner(store), runScript: run}
 
 	_, err := b.RollbackHome(2)
 	rerr := asRealizerErr(t, err)
@@ -124,9 +130,9 @@ func TestRollbackHome_Permission_Systemic(t *testing.T) {
 // TestRollbackHome_Daemon_Systemic: a daemon anchor surfaces REALIZER_UNAVAILABLE
 // (passed through classify, not remapped).
 func TestRollbackHome_Daemon_Systemic(t *testing.T) {
-	setupHomeLink(t, 2)
+	store := setupHomeLink(t, 2)
 	run, _ := captureScript([]byte("error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket'"), 1, nil)
-	b := &Backend{runScript: run}
+	b := &Backend{Run: snapshotOutputRunner(store), runScript: run}
 
 	_, err := b.RollbackHome(2)
 	rerr := asRealizerErr(t, err)
@@ -138,13 +144,38 @@ func TestRollbackHome_Daemon_Systemic(t *testing.T) {
 // TestRollbackHome_Spawn_Unavailable: a spawn failure (runner returns a non-nil
 // error) surfaces REALIZER_UNAVAILABLE regardless of any text.
 func TestRollbackHome_Spawn_Unavailable(t *testing.T) {
-	setupHomeLink(t, 2)
+	store := setupHomeLink(t, 2)
 	run, _ := captureScript(nil, -1, errors.New("exec: activate not found"))
-	b := &Backend{runScript: run}
+	b := &Backend{Run: snapshotOutputRunner(store), runScript: run}
 
 	_, err := b.RollbackHome(2)
 	rerr := asRealizerErr(t, err)
 	if rerr.Code != envelope.ErrRealizerUnavailable {
 		t.Errorf("Code = %q, want REALIZER_UNAVAILABLE", rerr.Code)
+	}
+}
+
+func TestRollbackHomePreservesACommitFollowedByActivationFailure(t *testing.T) {
+	store := setupHomeLink(t, 3)
+	generation := 0
+	output := ""
+	b := &Backend{homeGenFn: func() int { return generation }, Run: func(args ...string) ([]byte, []byte, int, error) {
+		if args[len(args)-1] != homeProfilePath() {
+			return []byte(store), nil, 0, nil
+		}
+		return []byte(output), nil, 0, nil
+	}}
+	b.runScript = func(path string, args ...string) ([]byte, []byte, int, error) {
+		if path != store+"/activate" {
+			t.Fatalf("wrong snapshot: %s", path)
+		}
+		generation = 9
+		output = store
+		return nil, []byte("installPackages failed after writeBoundary"), 1, nil
+	}
+	newGeneration, err := b.RollbackHome(3)
+	failure := asRealizerErr(t, err)
+	if newGeneration != 9 || failure.Code != envelope.ErrRollbackFailed || failure.Stage != "commit" {
+		t.Fatalf("native commit disappeared after rollback activation failed: %d %+v", newGeneration, failure)
 	}
 }

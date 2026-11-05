@@ -466,9 +466,8 @@ func realizerCaptureIdentity(driverName, ref, defaultDriver string) string {
 // recoverHomeManager returns the home-manager configuration to record in the
 // captured manifest, or nil if none is known. The flake is recovered from the
 // engine's own provisioning history (home-manager does not persist the source
-// flakeref in a live install): the most-recent generation whose HomeManager is
-// set — provision.List is newest-first, and a later package-only apply records
-// HomeManager=nil, so the first match is the config still in effect. The read is
+// flakeref in a live install). New history must match the active native output;
+// legacy history retains its most-recent declaration compatibility. The read is
 // best-effort: an error or empty history simply yields nil (the field is
 // omitted; package capture is unaffected). On --update with no flake in history,
 // an existing manifest's homeManager block is preserved rather than dropped.
@@ -485,17 +484,28 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 	if err != nil {
 		return unavailable()
 	}
+	activeOutput := ""
+	if reader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
+		activeOutput = reader.ActiveHomeOutput()
+	}
+	matching, outputHistory := matchingHomeManagerReference(gens, activeOutput)
+	if outputHistory && matching == nil {
+		return unavailable()
+	}
+
 	for _, g := range gens {
 		if g == nil || g.HomeManager == nil {
 			continue
 		}
 		home := g.HomeManager
+		if outputHistory && home != matching {
+			continue
+		}
+		if home.ActivationFailed {
+			return unavailable()
+		}
 		if home.Kind != "" {
 			if home.Generated {
-				reader, ok := r.(realizer.HomeGenerationReader)
-				if !ok || !homeManagerOwnsActive(r, home, reader.ActiveHomeGeneration()) {
-					return unavailable()
-				}
 				if home.Kind == "settings" {
 					source, err := loadManifest(home.SourceManifest)
 					if err != nil || source.HomeManager == nil || source.HomeManager.Settings == nil || home.SettingsDigest == "" || settingsDigest(source.HomeManager.Settings) != home.SettingsDigest {

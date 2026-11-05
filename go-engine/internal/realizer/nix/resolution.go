@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -234,8 +235,9 @@ func (b *Backend) observeOutputs(r *realizer.InputResolution) error {
 }
 
 // Store paths and output names are closed native formats, never human meaning.
-func storePath(path string) bool {
-	return strings.HasPrefix(path, "/nix/store/") && filepath.Dir(path) == "/nix/store" && !strings.ContainsAny(path, "\x00\n\r")
+func storePath(value string) bool {
+	// Nix store paths use POSIX separators, including during Windows inspection.
+	return strings.HasPrefix(value, "/nix/store/") && path.Dir(value) == "/nix/store" && !strings.ContainsAny(value, "\x00\n\r\\")
 }
 func storeDerivation(path string) bool { return storePath(path) && strings.HasSuffix(path, ".drv") }
 func outputName(name string) bool {
