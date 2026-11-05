@@ -21,40 +21,10 @@ import (
 )
 
 func TestDefaultCommandCatalogProjectsInjectedPlatform(t *testing.T) {
-	originalGOOS := captureGOOSFn
-	t.Cleanup(func() { captureGOOSFn = originalGOOS })
-
-	for _, tc := range []struct {
-		platform   string
-		wantLegacy bool
-	}{
-		{platform: "windows", wantLegacy: true},
-		{platform: "linux"},
-	} {
-		t.Run(tc.platform, func(t *testing.T) {
-			captureGOOSFn = func() string { return tc.platform }
-			catalog, err := loadModuleCatalogFn(filepath.Join("..", "..", ".."))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for id, mod := range catalog {
-				if mod.EffectiveSchemaVersion() == 3 {
-					t.Fatalf("command catalog retained authored schema-v3 module %s", id)
-				}
-				if mod.SourceSchemaVersion == 3 && mod.Platform != tc.platform {
-					t.Fatalf("command catalog projected %s for %q on %q", id, mod.Platform, tc.platform)
-				}
-			}
-
-			ripgrep := catalog["apps.ripgrep"]
-			if ripgrep == nil || ripgrep.SourceSchemaVersion != 3 || ripgrep.Platform != tc.platform {
-				t.Fatalf("ripgrep %s projection = %+v", tc.platform, ripgrep)
-			}
-			if legacy := catalog["apps.notepad-plus-plus"]; (legacy != nil) != tc.wantLegacy {
-				t.Fatalf("legacy Windows module on %s = %+v, want present %t", tc.platform, legacy, tc.wantLegacy)
-			}
-		})
-	}
+	assertCommandCatalogPlatformContracts(t, func(root string) (map[string]*modules.Module, error) {
+		catalog, err := loadModuleCatalogFn(root)
+		return catalog, err
+	})
 }
 
 // Capture writes .endstate by default, but an explicit --out that already names
