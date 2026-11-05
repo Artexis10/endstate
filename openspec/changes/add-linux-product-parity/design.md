@@ -277,7 +277,13 @@ The parser hashes a canonical envelope containing module ID, platform, config-se
 
 Executable projections own their mutable declarations. They retain the full authored snapshot and revision for inspection. Generation history reads its legacy schema and writes schema version 2 with an optional platform field. Legacy entries retain their original identities and fingerprints.
 
-Schema-v3 capture records retain the authored schema and require a supported source platform. Snapshot verification checks the recorded module, source variant, config set, generation, and exact recomputed fingerprint. The snapshot supplies source evidence only; the current trusted catalog remains execution authority.
+Flat schema-v3 variants with capture or restore work use the same generation pipeline. Projection supplies the fixed shorthand identity `default/g1` and one existing path detector at `${home}`. That detector identifies a user settings location; it proves neither installation nor configuration presence. Projection moves capture and restore declarations into that generation and clears their top-level copies. It preserves matching, verification, secrets, realization, and presentation. Only the fixed `./payload/` restore-source prefix is removed; capture destinations remain unchanged. Actual schema-v1/v2 declarations retain their existing behavior.
+
+Projected schema-v3 detector globs, capture sources, and restore targets accept engine-owned coordinates through the shared validator and resolver. Portable destinations and staging sources retain their stricter rules. Paths remain declarative until host resolution; catalog validation does not receive expanded absolute paths.
+
+Schema-v3 capture records retain the authored schema and require a supported source platform. Snapshot verification compares recorded and authored schema for both schema 2 and schema 3. For schema 3, it also checks the recorded module, source variant, config set, generation, and exact recomputed fingerprint. It reuses the same projection for shorthand variants and rejects synthetic schema-v3 stamping. The snapshot supplies source evidence only; the current trusted catalog remains execution authority.
+
+Missing structural platform evidence fails manifest loading under the existing strict contract. Semantic snapshot-link failures use the existing per-capture invalid state, so independent valid work can continue. Resolution events, reports, and strict validation readers retain both platform fields and the stable skip reason.
 
 Task 5.4 includes the same-platform guard from task 5.5. The resolver checks source and target platforms before generation or fingerprint acceptance. A different platform returns `platform_mapping_missing`, including when an explicit target instance was selected. Existing legacy sources remain Windows-scoped. Full authored cross-platform mappings remain separate task 5.5 work.
 
