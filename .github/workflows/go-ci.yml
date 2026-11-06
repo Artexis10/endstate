@@ -13,13 +13,17 @@ jobs:
   test:
     # Keep this exact stable check name: branch protection may require it.
     name: Go Tests
-    needs: nix-catalog-evaluation
+    needs: [nix-catalog-evaluation, linux-no-nix-capture]
     if: ${{ always() }}
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - name: Require pinned mapping evaluation on both Linux architectures
         if: ${{ needs.nix-catalog-evaluation.result != 'success' }}
+        shell: pwsh
+        run: exit 1
+      - name: Require Linux capture on a machine without Nix
+        if: ${{ needs.linux-no-nix-capture.result != 'success' }}
         shell: pwsh
         run: exit 1
       - name: Checkout repository
@@ -100,6 +104,75 @@ jobs:
         with:
           name: nix-catalog-${{ matrix.system }}
           path: ${{ runner.temp }}/nix-catalog.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  linux-no-nix-capture:
+    # Required through the stable Go Tests job. It runs the built binary on a host
+    # with no Nix executable and no Endstate state, as a new user would.
+    name: Linux No-Nix Capture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        # v6.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go-engine/go.sum
+      - name: Require a runner without Nix
+        run: |
+          if command -v nix >/dev/null 2>&1; then
+            echo "::error::nix is on PATH, so this job cannot prove capture without Nix"
+            exit 1
+          fi
+          if [ -e "$HOME/.nix-profile" ]; then
+            echo "::error::$HOME/.nix-profile exists, so this job cannot prove capture without Nix"
+            exit 1
+          fi
+      - name: Build the engine inside the workspace
+        # The binary finds the package catalog through the repository marker, as in a checkout.
+        working-directory: go-engine
+        run: go build -o bin/endstate ./cmd/endstate
+      - name: Capture with a fresh home and no ENDSTATE_ROOT
+        run: |
+          fresh="$RUNNER_TEMP/fresh-home"
+          mkdir -p "$fresh/.config" "$fresh/.local/share" "$fresh/.local/state" "$fresh/.cache"
+          artifact="$RUNNER_TEMP/no-nix.endstate"
+          result="$RUNNER_TEMP/no-nix-capture.json"
+          status=0
+          env -u ENDSTATE_ROOT HOME="$fresh" XDG_CONFIG_HOME="$fresh/.config" \
+            XDG_DATA_HOME="$fresh/.local/share" XDG_STATE_HOME="$fresh/.local/state" \
+            XDG_CACHE_HOME="$fresh/.cache" \
+            "$GITHUB_WORKSPACE/go-engine/bin/endstate" capture --out "$artifact" --json > "$result" || status=$?
+          if ! jq -e --arg artifact "$artifact" '
+            def state($id): [.data.discovery.sources[]? | select(.id == $id) | .state] | first;
+            .success == true and .error == null
+            and state("nix-user-profile") == "not_available"
+            and state("endstate-profile") == "not_available"
+            and state("debian-explicit") == "succeeded"
+            and .data.outputPath == $artifact
+          ' "$result" > /dev/null; then
+            echo "::error::capture exited $status and its JSON failed the no-Nix assertions"
+            jq '{success, error, sources: [.data.discovery.sources[]? | {id, state}]}' "$result" || cat "$result"
+            exit 1
+          fi
+          if [ ! -s "$artifact" ]; then
+            echo "::error::capture reported success but wrote no artifact at $artifact"
+            exit 1
+          fi
+      - name: Upload capture evidence
+        if: always()
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-no-nix-capture
+          path: ${{ runner.temp }}/no-nix-capture.json
           if-no-files-found: ignore
           retention-days: 7
 

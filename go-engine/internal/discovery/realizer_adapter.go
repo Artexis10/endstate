@@ -32,6 +32,10 @@ func (adapter RealizerInventoryAdapter) Inventory(ctx context.Context) (AdapterI
 	}
 	set, err := adapter.Realizer.Current()
 	if err != nil {
+		// No Nix executable means there is no Endstate-managed profile to read.
+		if realizer.IsSpawnFailure(err) {
+			return AdapterInventory{}, ErrNotAvailable
+		}
 		return AdapterInventory{}, fmt.Errorf("read Endstate-managed package profile: %w", err)
 	}
 	names := make([]string, 0, len(set.Elements))
