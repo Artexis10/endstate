@@ -746,6 +746,50 @@ gap. Native user-session lifecycle and Windows acceptance remain separate;
 hermetic proof never promotes either runtime. Fixed names support one engine
 root per user manager; concurrent schedules require a later identity migration.
 
+### 25. Report observed registry drift before accepting refreshed facts
+
+Keep the release harvester separate from runtime capture. Task 8.7 adds one
+typed report for the existing registry schema. A general JSON diff cannot
+describe an option that disappears before refresh produces a candidate.
+Use direct comparisons of the fixed metadata fields, with no recursive diff
+framework, new dependency, registry schema, or runtime API.
+
+Refresh a deep copy and leave the supplied registry unchanged. Preserve old
+review fingerprints until explicit CLI write acceptance. Keep task 8.1's
+FileRoundTrip target derivation, including existing optional flags and the
+optional default for new coordinates. Report observed probe targets and
+derived runtime targets separately. Preserve curated aliases, probe values,
+dispositions, codecs, and exclusions. Refresh never updates module bindings.
+
+Report input revisions, docs hash, program membership, tracked options, option
+types, declarations, source hashes, observed targets, and derived targets.
+Identify each change by adapter, field, subject, and added/removed/changed kind,
+with explicit before/after presence. Sort traversal and report rows by stable
+metadata keys. Compare full values before applying display bounds.
+
+A missing tracked option is confirmed removal drift. Failed source reads and
+failed probes are unavailable observations, not removals or empty values.
+An incomplete refresh returns its confirmed observations and stop location,
+with no publishable candidate. Counts describe observed changes, not an
+invented total for unread adapters. The stored registry lacks a complete prior
+option inventory; it cannot identify every newly added upstream option.
+
+Render at most 128 change rows and 256 bytes per displayed metadata value.
+Show omitted rows and shortened values explicitly, with UTF-8-safe rendering.
+These output bounds control release diagnostics; they do not grant or remove
+target authority and do not add another publication gate.
+
+An ordinary check reports drift and fails without accepting fingerprints.
+Only `--write --accept-reviews` accepts a complete candidate, validates it with
+the existing registry rules, and publishes through the cancellation-aware
+atomic writer. Changed fingerprints leave existing schema-v3 bindings stale.
+Preserve timeout, signal, output-bound, and failed-publication behavior from 8.2.
+
+Prove the actual check/write workflow, deterministic bounded output, missing
+options, failed probes after known changes, and unchanged input/disk on failure.
+Retain target-derivation proof and verify successful explicit acceptance with
+the normal frozen-registry parser. Final runtime and delivery gates stay open.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.

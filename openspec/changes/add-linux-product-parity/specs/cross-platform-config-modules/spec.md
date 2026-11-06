@@ -223,6 +223,23 @@ Each adapter SHALL declare exactly one reviewed disposition: `typed-roundtrip`, 
 - **THEN** the harvester SHALL interrupt the evaluation and return a timeout or cancellation failure
 - **AND** the refresh SHALL NOT publish updated registry bytes or accept a late successful result
 
+#### Scenario: Registry facts change before explicit review acceptance
+- **WHEN** a release check observes changed inputs, docs, programs, tracked options, types, declarations, source hashes, or managed targets
+- **THEN** it SHALL report deterministic typed changes with explicit before/after presence and retain the previous review fingerprints
+- **AND** only explicit write acceptance of a complete candidate SHALL calculate new fingerprints, validate, and publish it
+- **AND** refresh SHALL preserve existing target-derivation rules, curated aliases, dispositions, probe assignments, and independent module bindings
+
+#### Scenario: Refresh stops after confirmed changes
+- **WHEN** a tracked option is absent or a required source read or target probe fails
+- **THEN** the report SHALL retain confirmed changes and identify the stop location and incomplete observation state
+- **AND** confirmed absence SHALL appear as removal while failed reads SHALL remain unavailable, never fabricated empty observations
+- **AND** refresh SHALL preserve its input registry and return no publishable candidate
+
+#### Scenario: Registry review output exceeds display bounds
+- **WHEN** observed registry changes exceed 128 rows or a displayed metadata value exceeds 256 bytes
+- **THEN** comparison SHALL use full values while the rendered report explicitly counts omitted rows and marks shortened values
+- **AND** incomplete counts SHALL describe observed changes, without claiming that unread adapters were checked
+
 #### Scenario: Direct settings mapping has a proven codec
 - **WHEN** a Home Manager program writes a reviewed structured settings option directly to a known target and its source-to-target round-trip suite passes
 - **THEN** the adapter MAY use `typed-roundtrip` to decode live state and re-emit that settings option
