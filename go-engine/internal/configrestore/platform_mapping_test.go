@@ -210,20 +210,32 @@ func TestMappedTargetPoliciesResolveThroughTheHostBoundary(t *testing.T) {
 
 func TestMappedCaptureSourceGlobsEnforceScopedExclusions(t *testing.T) {
 	for _, test := range []struct {
-		name, source, exclude, member string
-		want                          Code
+		name, source, exclude, member, target string
+		want                                  Code
 	}{
-		{"globbed source member", "${home}/app*", "token*.json", "token.json", CodeUnsafePath},
-		{"globbed source basename", "${home}/app?", "app1", "settings.json", CodeUnsafePath},
-		{"globbed source nested root", "${home}/app*/nested", "token*.json", "nested/token.json", CodeUnsafePath},
-		{"sibling stays outside source", "${home}/sibling*", "token*.json", "token.json", ""},
+		{"globbed source member", "${home}/app*", "token*.json", "token.json", "", CodeUnsafePath},
+		{"globbed source basename", "${home}/app?", "app1", "settings.json", "", CodeUnsafePath},
+		{"globbed source nested root", "${home}/app*/nested", "token*.json", "nested/token.json", "", CodeUnsafePath},
+		{"sibling stays outside source", "${home}/sibling*", "token*.json", "token.json", "", ""},
+		{"glob written with trailing slash", "${home}/app*/", "token*.json", "token.json", "", CodeUnsafePath},
+		{"literal bracket root", "${home}/app[1]", "token*.json", "token.json", "${home}/app[1]", CodeUnsafePath},
+		{"literal brace root", "${home}/{1F2E}", "token*.json", "token.json", "${home}/{1F2E}", CodeUnsafePath},
+		{"literal root with trailing slash", "${home}/app1/", "token*.json", "token.json", "", CodeUnsafePath},
+		{"literal root with doubled separator", "${home}/cfg//app1", "token*.json", "token.json", "${home}/cfg/app1", CodeUnsafePath},
+		{"literal root with dot segment", "${home}/./app1", "token*.json", "token.json", "", CodeUnsafePath},
+		{"dot directory root keeps its name", "${home}/.app1", "token*.json", "token.json", "${home}/.app1", CodeUnsafePath},
+		{"literal root allows unexcluded member", "${home}/app[1]", "token*.json", "notes.json", "${home}/app[1]", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := filepath.Join(t.TempDir(), "home[fixture]{one,two}")
 			t.Setenv("HOME", home)
 			t.Setenv("USERPROFILE", home)
 			fingerprint := strings.Repeat("a", 64)
-			generation := modules.GenerationDef{ID: "g1", Order: 1, Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{Source: test.source, Dest: "payload"}}, ExcludeGlobs: []string{test.exclude}}, Restore: []modules.RestoreDef{{Type: "copy", Source: "payload", Target: "${home}/app1"}}}
+			target := test.target
+			if target == "" {
+				target = "${home}/app1"
+			}
+			generation := modules.GenerationDef{ID: "g1", Order: 1, Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{Source: test.source, Dest: "payload"}}, ExcludeGlobs: []string{test.exclude}}, Restore: []modules.RestoreDef{{Type: "copy", Source: "payload", Target: target}}}
 			authored := modules.Module{ModuleSchemaVersion: 3, ID: "apps.mapping", DisplayName: "Mapping fixture", Sensitivity: "low", Platforms: map[string]modules.PlatformVariant{"linux": {Realization: "endstate-restore", Config: &modules.ConfigDef{InstanceDetectors: []modules.InstanceDetectorDef{{ID: "default", Type: "path", Glob: "${home}"}}, Sets: []modules.ConfigSetDef{{ID: "target", Generations: []modules.GenerationDef{generation}}}}, Mappings: []modules.PlatformMappingDef{{ID: "bridge", From: modules.PlatformMappingEndpoint{Platform: "darwin", ConfigSetID: "source", GenerationID: "g1"}, To: modules.PlatformMappingEndpoint{Platform: "linux", ConfigSetID: "target", GenerationID: "g1"}, AcceptsSourceFingerprints: []string{fingerprint}, Operations: []modules.MigrationOperationDef{}, Validate: []modules.ValidationDef{{Type: "json-parse", Path: "payload/settings.json"}}}}}}}
 			raw, err := json.Marshal(authored)
 			if err != nil {
@@ -250,7 +262,7 @@ func TestMappedCaptureSourceGlobsEnforceScopedExclusions(t *testing.T) {
 			if err == nil && (materialized == nil || len(materialized.Actions) != 1) {
 				t.Fatalf("sibling source lost its restore action: %+v", materialized)
 			}
-			if _, err := os.Stat(filepath.Join(home, "app1")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.FromSlash(strings.Replace(target, "${home}", home, 1))); !os.IsNotExist(err) {
 				t.Fatalf("policy preflight wrote target: %v", err)
 			}
 		})

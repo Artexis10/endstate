@@ -121,14 +121,18 @@ func checkMappedTargetPolicy(request Request, instance modules.ConfigInstance, m
 		}
 	}
 	capture := request.Plan.TargetGenerationDef.Capture
-	var roots []string
+	var roots []mappedCaptureRoot
 	if capture != nil {
 		for _, file := range capture.Files {
 			pattern, err := resolveMappedPolicyPattern(file.Source, instance, request.Boundary)
 			if err != nil {
 				return newError(CodeUnsafePath, -1, file.Source, err)
 			}
-			roots = append(roots, pattern)
+			literal, err := resolveMappedPolicyPath(file.Source, instance, request.Boundary)
+			if err != nil {
+				return newError(CodeUnsafePath, -1, file.Source, err)
+			}
+			roots = append(roots, mappedCaptureRoot{pattern: pattern, literal: filepath.ToSlash(filepath.Clean(literal))})
 		}
 	}
 
@@ -244,16 +248,31 @@ func resolveMappedPolicyPattern(authored string, instance modules.ConfigInstance
 	// Doublestar also reserves braces; resolved coordinate roots are literal host data.
 	quoted = strings.NewReplacer("{", "[{]", "}", "[}]").Replace(quoted)
 	suffix = strings.TrimLeft(strings.ReplaceAll(suffix, `\`, "/"), "/")
+	if suffix != "" {
+		// Capture cleans its source path, so "app*/", "a//b" and "./a" name the same root.
+		if suffix = path.Clean(suffix); suffix == "." {
+			suffix = ""
+		}
+	}
 	if suffix == "" {
 		return quoted, nil
 	}
 	return strings.TrimSuffix(quoted, "/") + "/" + suffix, nil
 }
 
-func mappedCaptureRootExcludes(target, sourcePattern string, excludes []string, caseSensitive bool) (bool, error) {
+// mappedCaptureRoot keeps both readings of an authored capture source. Capture
+// reads the cleaned source literally, while the target policy also treats glob
+// spellings as patterns; a prefix in either reading enforces the exclusions.
+type mappedCaptureRoot struct {
+	pattern string
+	literal string
+}
+
+func mappedCaptureRootExcludes(target string, source mappedCaptureRoot, excludes []string, caseSensitive bool) (bool, error) {
 	target = filepath.ToSlash(target)
+	sourcePattern, sourceLiteral := source.pattern, source.literal
 	if !caseSensitive {
-		sourcePattern = strings.ToLower(sourcePattern)
+		sourcePattern, sourceLiteral = strings.ToLower(sourcePattern), strings.ToLower(sourceLiteral)
 	}
 	// Match source roots against transferred-path prefixes, including absent destinations.
 	for root := target; root != "."; root = path.Dir(root) {
@@ -261,9 +280,13 @@ func mappedCaptureRootExcludes(target, sourcePattern string, excludes []string, 
 		if !caseSensitive {
 			candidate = strings.ToLower(candidate)
 		}
-		matches, err := doublestar.Match(sourcePattern, candidate)
-		if err != nil {
-			return false, err
+		matches := candidate == sourceLiteral
+		if !matches {
+			var err error
+			matches, err = doublestar.Match(sourcePattern, candidate)
+			if err != nil {
+				return false, err
+			}
 		}
 		if matches {
 			excluded, err := mappedCaptureExcluded(path.Base(root), excludes)
