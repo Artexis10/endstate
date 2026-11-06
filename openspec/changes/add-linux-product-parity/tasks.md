@@ -377,8 +377,8 @@ implementation packets may run in parallel only after 10.1–10.3 land.
 **Red-first tests:** `TestTypedValueTransactionRecoversInterruptedMutation`,
 `TestGSettingsUserOverrideVersusDefault`,
 `TestGSettingsRevertRestoresAbsence`,
-`TestKConfigPreservesCoResidentKeys`,
-`TestKConfigRevertRestoresAbsentKey`,
+`TestKConfigClassifiesUserEntry`,
+`TestKConfigWriteFailsWhenFreshReadDiffers`,
 `TestDesktopSessionUnavailableIsScoped`.
 
 **Hermetic gate:** `cd go-engine && GOCACHE=/tmp/endstate-lane-desktop-gocache go test
@@ -392,7 +392,7 @@ content verification in its concrete workflow. Preserve version-1 history.
 Keep real-session promotion as explicit dependent work.
 The initial 10.1–10.3 packet uses an injected hermetic backend through that full
 workflow. Production detection stays unavailable; 10.4 and 10.5 stay open
-until the command boundary, database header check, and writer namespace proof are implemented; 10.9 also requires its real-session runs.
+until the command boundary, database header check, and writer namespace proof are implemented; 10.9 also requires its real-session runs. 10.6 and 10.7 stay open until the engine KConfig reader, cascade scan, writer-tool boundary with fresh-read verification, and session namespace proof are implemented; 10.9 also requires the native-isolated and real-session runs; co-resident preservation by the KConfig writer tool is proven in the native-isolated run on KF6 and KF5, not hermetically.
 
 - [x] 10.1 Extend durable configuration transactions with typed target identity, value/absence snapshots, atomic intent/journal state, verification, recovery, and revert
 - [x] 10.2 Define canonical bounded value encodings and stable unavailable/ownership/partial-failure reason codes shared by desktop adapters

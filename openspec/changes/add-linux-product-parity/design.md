@@ -675,14 +675,78 @@ configuration directory but not the session bus, so this proof is what keeps a
 sandboxed run from writing the user's real database. Load the desktop runtime
 lazily; unrelated reads and old journals need no desktop runtime. An unresolved
 pending desktop mutation retains the existing global mutation stop. The engine
-stays CGO-free and needs `dconf` and `gsettings` at runtime only. Memory and
+stays CGO-free, and the GNOME boundary needs only `dconf` and `gsettings` at runtime. Memory and
 keyfile test backends prove their boundary, never GNOME/dconf promotion.
 
 Build the foundation against that concrete preference's workflow. Prove inherited
 absence, explicit false, content drift, reconciliation, interrupted mutation,
 third-value conflict, and revert while preserving an unrelated preference.
-Then add KDE's own version-aware key boundary and collision rules. Distinct KDE
-keys may coexist; whole-file and ancestor-directory ownership must conflict.
+Then add KDE's own boundary. Begin with `kwinrc`, group `Windows`, key
+`ElectricBorderMaximize`. KWin 5.27 and 6.x read this boolean with default `true`,
+and the Screen Edges settings page writes it and removes it on reset to default. A
+KDE target declares `file`, `group`, `key`, and `type`, where `file` is one file
+name under `${xdg.config}`. Its identity is `kconfig:<file>[<group>]<key>`,
+preserving case. It uses the same boolean payload.
+
+The engine reads and classifies the user file itself, and writes through the
+maintained `kwriteconfig6` or `kwriteconfig5` tool for the proven Plasma major. Do
+not read through `kreadconfig`: it returns the cascaded value and hides markers,
+locale variants, and empty values. The write runs with fixed arguments, an absolute
+`--file`, `--group`, `--key`, `--type bool` or `--delete`, a pinned environment with
+an environment that holds only the proven `HOME` and `LC_ALL=C`, and a fixed
+timeout longer than KConfig's 45-second lock wait. A timeout fails the mutation, and
+the existing rollback reads fresh state. The tool takes KConfig's own file lock and
+merges the entry. It exits 0 when its write
+fails, so only the engine's fresh read after the write decides success. KDE
+programs rewrite the whole file on any write, so the boundary preserves co-resident
+values, not bytes. A missing tool reports the desktop runtime unavailable. The tool
+reads the globals cascade for `kdeglobals`, so that file needs its own boundary and
+is not a valid target here. A KDE write of the same key between Endstate's read and
+the tool's write is overwritten, and revert restores the older prior; this residual
+matches the GNOME cached-writer residual.
+
+The user value is the one entry for the group and key in `${xdg.config}/<file>`,
+without a locale or option marker. Everything else that the session reads is
+inherited and stays outside the payload. A missing file or entry is absence. An
+empty value, a value other than `true` or `false`, an option marker other than
+`[$i]`, a locale variant in the user file, a key in the target group whose raw text
+contains a backslash, or a second entry is unsupported and never becomes absence. The reader trims only the ASCII whitespace that Qt trims and
+reports the file unsupported when KConfig's KF6 parse-error limit is reached at or
+before the target line; a mutation is refused when the limit is reached anywhere in
+the file, because the tool's rewrite would drop the later entries. A system file that sets the key is ordinary inheritance;
+absence removes only the user entry and never writes `[$d]`. The profile is
+unsupported when a `[$i]` lock on the file, group, or key appears anywhere in the
+cascade that the session reads, including the user file, or when a system cascade
+file sets a localized variant of the key, because KDE then ignores the user value. A cascade file that cannot be read
+leaves the scope unproven. A symbolic link may be read for capture and verification
+but is never written; a non-regular file, a file that another user owns, or an
+unreadable or oversized file reports unavailable.
+
+Before each read and write, prove that the session process that reads the target
+file uses the same file. For `kwinrc`, that process owns `org.kde.KWin` on the
+session bus; find the owner without activation and read its user ID and process ID.
+Read its complete initial environment. Upstream installs `kwin_wayland` with a file
+capability, so the kernel refuses that read to the same user; then read the
+initial environment of the owner's parent process instead. Require the same user
+for the parent, the same parent after the read, and the same bus owner afterward.
+If the parent owns `org.freedesktop.systemd1` on the session bus, its environment is
+stale, so report unavailable; report any other unreadable environment unavailable as well. Require
+the same user and the same resolved configuration directory. On the Qt 6 tier, skip
+relative and empty `XDG_CONFIG_DIRS` entries as Qt does; on the Qt 5 tier, refuse a
+relative `XDG_CONFIG_HOME` or a relative or empty `XDG_CONFIG_DIRS` entry. Take
+`XDG_CONFIG_DIRS` for the cascade scan and `KDE_SESSION_VERSION` for version
+evidence from the proven environment. The existing generation version selectors
+bound the supported Plasma majors.
+
+Build this proof in the KDE adapter and reuse the session-bus and `/proc` readers.
+Share only the reason codes now; extract a shared proof only after both adapters
+pass their native gates. KConfig writers merge only the entries they changed, so
+they keep the edit unless they change this key; such a write shows as drift. The
+session applies the value at its next configuration reload or login, and results
+say so. A filesystem target at the KDE file or a parent directory conflicts with
+its values, and distinct keys in one file coexist. A Home Manager activation that
+writes KDE keys outside `home-files` makes no claim, as decision 28 states; task
+10.7 names that residual.
 Keep both desktop capabilities dark until their separate native session gates
 pass. No new CLI command, manifest version, combined profile, or permission is
 introduced by this technical refinement.

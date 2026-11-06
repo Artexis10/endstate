@@ -411,7 +411,7 @@ GNOME and KDE value operations SHALL extend a shared durable configuration trans
 
 The first implementation SHALL extend the existing configuration transaction with boolean preference `org.gnome.desktop.interface/clock-show-date` at `/org/gnome/desktop/interface/clock-show-date`. Canonical bounded payloads SHALL distinguish explicit absence from `false`, reject unsupported or contradictory state, and keep effective defaults separate from user overrides. Trusted generation declarations SHALL supply target authority; payloads SHALL supply only desired state. An unavailable or schema-filtered wrong-type read SHALL NOT become absence.
 
-The declaration grammar SHALL use a `desktop` instance detector with a `desktop` target, `capture.desktopValues` entries with `target` and `dest`, and `desktop-value` restores with `source` and `desktop`. Each target SHALL declare `schema`, an absolute backing directory `path` ending in `/`, `key`, and `type: "boolean"`. The payload SHALL contain `type`, `present`, and a boolean `value` exactly when present, in that field order with one final newline, within 1024 bytes. It SHALL contain no target or scope authority.
+The declaration grammar SHALL use a `desktop` instance detector with a `desktop` target, `capture.desktopValues` entries with `target` and `dest`, and `desktop-value` restores with `source` and `desktop`. Each GNOME target SHALL declare `schema`, an absolute backing directory `path` ending in `/`, `key`, and `type: "boolean"`. A KDE target SHALL instead declare `file`, `group`, `key`, and `type: "boolean"`, where `file` is one file name under `${xdg.config}` other than `kdeglobals`; its identity SHALL be `kconfig:<file>[<group>]<key>`. The payload SHALL contain `type`, `present`, and a boolean `value` exactly when present, in that field order with one final newline, within 1024 bytes. It SHALL contain no target or scope authority.
 
 Desktop-bearing journals SHALL use a new format version. Existing filesystem and registry journal encodings, digests, readers, and offline inspection SHALL remain compatible without rewriting history. A private desktop snapshot SHALL bind the resolved backend/profile namespace and preserve case-sensitive target identity. Recovery SHALL refuse an unrelated third value or a changed runtime scope rather than overwrite it.
 
@@ -454,6 +454,8 @@ The initial native scope SHALL require proven dconf fallback `user-db:user` afte
 
 Before it treats an empty read as absence, the engine SHALL establish that the user database is missing, or is a readable regular file, not a symbolic link, with a header that the dconf writer accepts. An unreadable file or a rejected header SHALL report unavailable. The engine SHALL NOT parse database tables. Before each read and mutation, the engine SHALL prove that the actual writer's user ID and resolved configuration directory equal the reader's. Unprovable or mismatched scope SHALL report unavailable without mutation. A writer change during a mutation SHALL fail that mutation and SHALL be reported. Rollback and recovery SHALL prove the writer again before each read and write. Ephemeral identities MAY support this check but SHALL NOT become durable recovery identities.
 
+The KDE boundary SHALL read and classify the user KConfig file in the engine and SHALL write through the maintained KConfig writer tool for the proven Plasma major with fixed arguments and an absolute file path. Success SHALL depend on the engine's fresh read after the write, not on the tool's exit status. The user value SHALL be the single entry for the target group and key in `${xdg.config}/<file>` without a locale or option marker. A missing file or entry SHALL be absence. An empty value, a value other than `true` or `false`, an option marker other than `[$i]`, a locale variant in the user file, a key in the target group whose raw text contains a backslash, or a duplicate entry SHALL be unsupported. A `[$i]` lock on the file, group, or key in the cascade that the session reads, including the user file, or a localized variant of the key in a system cascade file SHALL report the profile unsupported. The writer tool SHALL run with only the proven `HOME` and `LC_ALL=C` in its environment and under a fixed timeout. Absence SHALL remove only the user entry. Before each read and mutation, the engine SHALL prove that the session process that reads the target file runs as the same user and resolves the same configuration directory. When the kernel refuses that process's environment, the engine MAY use its parent's initial environment after it proves the same user and parentage. Any other unreadable environment SHALL report unavailable.
+
 #### Scenario: The backing database cannot be read
 - **WHEN** the user database exists but cannot be read, is not a regular file, or has a header that the dconf writer rejects
 - **THEN** inspection SHALL report unavailable instead of an absent key
@@ -477,7 +479,31 @@ Before it treats an empty read as absence, the engine SHALL establish that the u
 #### Scenario: KDE key round-trip
 - **WHEN** a selected KDE module captures and applies one allowlisted file/group/key
 - **THEN** apply SHALL merge only that key while preserving co-resident values
-- **AND** verify and revert SHALL operate on the named value rather than replacing the whole file
+- **AND** verify and revert SHALL operate on the named value rather than restoring a captured copy of the whole file
+
+#### Scenario: A KDE entry holds an empty or marked value
+- **WHEN** the user entry is empty, non-canonical, marked with an option other than `[$i]`, localized, escaped, or duplicated
+- **THEN** inspection SHALL report unsupported state
+- **AND** apply and revert SHALL leave the file unchanged
+
+#### Scenario: KDE ignores the user value
+- **WHEN** a cascade file, including the user file, marks the file, group, or key `[$i]`, or a system cascade file sets a localized variant of the key
+- **THEN** inspection SHALL report the profile unsupported
+- **AND** apply SHALL NOT write the user file
+
+#### Scenario: A system file sets the KDE key
+- **WHEN** only a system cascade file sets the key
+- **THEN** capture SHALL record absence
+- **AND** revert SHALL remove only the user entry without writing `[$d]`
+
+#### Scenario: The KDE writer reports success but the file differs
+- **WHEN** the writer tool exits successfully but the fresh read does not show the desired value
+- **THEN** the mutation SHALL fail verification and use the existing rollback
+- **AND** the result SHALL NOT report the value applied
+
+#### Scenario: The KDE session reads another configuration directory
+- **WHEN** the proven session environment and the engine resolve different configuration directories
+- **THEN** apply SHALL report unavailable before any write
 
 #### Scenario: Desktop session is unavailable
 - **WHEN** a GNOME or KDE operation requires a usable user session and none is available
