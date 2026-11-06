@@ -89,5 +89,31 @@ func desktopDatabaseCovered(desktop, filesystem Claim) bool {
 	if err != nil {
 		return false
 	}
-	return filesystemOverlap(CanonicalFilesystem(database), filesystem.Canonical)
+	return databaseCovered(database, filesystem.Canonical)
+}
+
+// databaseCovered is the one rule for "covers the dconf user database": the
+// resolved database path and a canonical filesystem path are equal or nested.
+func databaseCovered(database, canonical string) bool {
+	return filesystemOverlap(CanonicalFilesystem(database), canonical)
+}
+
+// authoringEnvironment is the fixed Linux layout under which module validation
+// resolves both the database and an authored path. The verdict then depends on
+// the module alone, not on the validating host's home, XDG variables or OS.
+var authoringEnvironment = config.PathEnvironment{GOOS: "linux", Home: "/home/authoring", Env: map[string]string{}}
+
+// AuthoredPathCoversDesktopDatabase reports whether an authored Linux host path
+// is the dconf user database or a directory above it, judged in the fixed
+// authoring environment. A path that does not resolve there covers nothing.
+func AuthoredPathCoversDesktopDatabase(authored string) bool {
+	database, err := config.ResolveEnginePath(desktopsettings.UserDatabaseCoordinate, authoringEnvironment)
+	if err != nil {
+		return false
+	}
+	resolved, err := config.ResolveEnginePath(authored, authoringEnvironment)
+	if err != nil {
+		return false
+	}
+	return databaseCovered(database, CanonicalFilesystem(resolved))
 }

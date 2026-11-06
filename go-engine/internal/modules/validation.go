@@ -597,20 +597,17 @@ func validateTemplatePlaceholders(value string) error {
 // validateNotDconfDatabase refuses a Linux capture source or restore target that
 // is the dconf user database or a directory above it. The session's dconf writer
 // undoes such a restore, so GNOME settings travel as values, never as whole
-// databases. It applies the planner's own collision rule to the authored path.
-// A path that does not resolve on this host (another platform's coordinate, or a
-// template path) is left to the plan-time check, which sees every concrete target.
+// databases. It judges the authored path in a fixed Linux environment, so a
+// module is valid or not whatever host loads it. A Linux variant authors only
+// engine coordinates (${instance.root} is rejected before this check), so every
+// path resolves. A custom XDG_CONFIG_HOME moves the host's real database, so a
+// path that covers only that one passes here. Plan time still collides a restore
+// target with a planned desktop value there; a capture source gets no such check.
 func validateNotDconfDatabase(mod *Module, authored string) error {
 	if mod.Platform != "linux" {
 		return nil
 	}
-	resolved, err := config.ResolveHostEnginePath(authored)
-	if err != nil {
-		return nil
-	}
-	// The desktop claim's identity does not matter: any desktop value shares the database.
-	database := configtarget.Claim{Kind: configtarget.Desktop}
-	if configtarget.ClaimsOverlap(database, configtarget.Claim{Kind: configtarget.Filesystem, Canonical: configtarget.CanonicalFilesystem(resolved)}) {
+	if configtarget.AuthoredPathCoversDesktopDatabase(authored) {
 		return fmt.Errorf("%q covers the dconf user database; capture and restore GNOME settings as desktop values", authored)
 	}
 	return nil
