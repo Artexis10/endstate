@@ -893,7 +893,12 @@ This count measures query attempts, not process starts or inventory rows.
 All-source failure retains source statuses and warnings. A fatal capture error
 uses product language and puts the normalized discovery object in `error.detail`.
 Managed-profile fallback retains failed discovery health in `data.discovery` and
-adds `ordinary_discovery_failed`. All-failed and fallback aggregate discovery
+adds `ordinary_discovery_failed`. The `endstate-profile` source reports `not_available`
+when the Nix executable cannot be started, whether it is missing or cannot run.
+Other profile read failures stay `failed`. When `endstate-profile` is
+`not_available`, capture uses neither the profile-only path nor the managed-profile
+fallback. A machine without Nix whose discovery yields nothing capturable gets the
+zero-useful-state `CAPTURE_FAILED` error, never `REALIZER_UNAVAILABLE`. All-failed and fallback aggregate discovery
 counts describe incomplete coverage, never a complete empty machine inventory.
 
 The additive schema-v1 `discovery-source` and `discovery-item` events project the

@@ -239,6 +239,7 @@ After independent review, run the first tranche boundary:
 `cd go-engine && GOCACHE=/tmp/endstate-boundary-capture-gocache go test ./...`.
 
 - [x] 6.1 Route Linux capture through ordinary-machine discovery without Nix bootstrap and reconcile Endstate-profile evidence
+  - Correction under task 12.5 (`24c5ec8`): acceptance exercised a missing realizer only. Production always supplies the Nix backend, so a machine without a Nix executable returned `REALIZER_UNAVAILABLE` when discovery resolved nothing, and `endstate-profile` reported `failed`. Task 12.5 fixes both and adds a required check that runs the built binary.
 - [x] 6.2 Emit only reviewed resolved intents while preserving unresolved/settings-only state and allowing validated settings-only artifacts
 - [x] 6.3 Expose initial discovery, platform-module, source-adapter, and immutable-input capabilities
 - [x] 6.4 Implement the normative raw-source versus unique-candidate count model and independently checkable equations
