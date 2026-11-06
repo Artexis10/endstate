@@ -293,7 +293,7 @@ Nix resolves each requested installable through its own parser and evaluator. Th
 
 One input-free metadata flake exposes the frozen derivations through native derivation imports and preserves each package's priority. Its immutable source supplies every reference in one atomic profile addition. The engine records the source/attribute pair and observed output paths alongside the original application identity. Current inventory verifies that pair and restores the original identity before plan, verify, prune, discovery, or capture. Native removal keys remain unchanged. Capture never exports the metadata flake or labels floating provenance reproducible.
 
-Generated Home Manager work resolves and builds its frozen activation before package mutation. Native roots retain prepared derivations and activation outputs through finalization. Activation uses the existing store-script mechanism with the native backup environment. External ownership remains explicit. New ownership evidence compares the active output with the recorded output, rather than trusting a generation number alone.
+Explicit Home Manager inputs resolve and build their frozen activation before package mutation. Captured Home Manager sets require final post-install target detection; decision 29 freezes their combined activation before any settings writer runs. Native roots retain prepared derivations and activation outputs through finalization. Activation uses the existing store-script mechanism with the native backup environment. External ownership remains explicit. New ownership evidence compares the active output with the recorded output, rather than trusting a generation number alone.
 
 New provisioning records retain configuration identity and effective inputs without storing settings payloads. A settings-generated record may reference the declared source manifest and its settings digest. Capture recovers declared settings only when that source still matches the recorded digest. Otherwise it reports the unavailable declaration and preserves independent live-settings discovery. Legacy embedded settings remain readable. Generated machine-local flakes never become portable capture input.
 
@@ -927,6 +927,82 @@ overlapping claims only. The outcome proof covers the reproduced overlap,
 parent/child overlap, preview, native XDG placement, existing symlink leaves,
 independent outcomes, and an external import action. No new classifier, store,
 generic provider framework, or human approval is required.
+
+### 29. Route captured settings through their trusted declared writer
+
+A command probe captures a trusted Linux variant declaring `home-manager`.
+Both apply and standalone restore copy its files directly, without activation.
+The declared strategy must select the settings writer after compatibility
+resolution and shared staging. A refusal alone does not complete the apply flow.
+
+Keep generation captures for both strategies in `ConfigCaptures`. Use the same
+selected observed-file fence, payload manifest, and immutable module snapshot.
+Do not also serialize those files into `homeManager.settings.files`.
+Read the writer from the selected current trusted module, never its snapshot.
+Missing or unsupported strategy authority must not select direct restore.
+
+Retain each successful stage until its consumer finishes. Share payload
+integrity, migration, source containment, optional-source handling, target
+expansion, and boundary checks. Only direct sets enter direct materialization
+and transactions. Preserve their recovery-before-materialization ordering.
+Home Manager placements use a separate leaf policy that permits its existing
+symlink leaves; direct mutation safety remains unchanged.
+
+Start this bridge with validated regular-file `copy` declarations. Report an
+unsupported operation locally with `settings_strategy_unavailable`; do not
+reinterpret merges, deletion, trees, registry operations, or desktop values.
+This does not complete the typed-roundtrip framework or adapter cohorts.
+
+Keep both the trusted target expression and its resolved instance target.
+Compile staged bytes through the existing generated-module and flake writers.
+Use explicit private placements or a proven home-relative translation; never
+send resolved absolute paths through the existing leading-slash normalization.
+Native preparation must confirm that each placement matches its resolved target.
+Do not guess XDG directories or claim targets that Home Manager cannot represent.
+An absent optional source contributes no placement or content expectation.
+
+Reject duplicate captured and explicit ownership before map insertion can
+discard a claim. Reuse decision 28 for concrete Home Manager/direct collisions.
+Captured placements belong to one atomic Home Manager owner, not a second
+direct writer. Preserve independent direct restores and package outcomes.
+
+Keep explicit Home Manager preparation before package mutation. Captured sets
+consume required final post-install target detection. Stage and freeze their
+combined activation before any settings writer runs. Do not move final
+detection earlier or invent future target/version evidence. A later settings
+failure preserves committed package provenance and reports that partial outcome.
+Potential selected Home Manager work retains the initial ownership observation
+before package mutation and the fresh check immediately before activation.
+
+Clone explicit settings privately before combining them with captured placements.
+Compose an explicit configuration file and generated placements through wrapper
+imports without editing the source. Do not silently compose an explicit flake.
+Generate an inspectable import module for those captured sets while preserving
+independent explicit activation. Report them as skipped with
+`home_manager_import_required`, retaining their resolved compatibility value.
+Put the stable module reference in existing per-set remediation, not target
+paths or the explicit flake's ownership action. A private execution field may
+retain that reference through result projection; no public artifact field is needed.
+
+An observed external owner still uses the existing inactive ownership action.
+Never label an engine-owned advanced flake external. Standalone restore reports
+Home Manager sets unavailable with remediation to use apply or rebuild, while
+independent direct sets continue. Missing Nix never selects direct copying.
+Preview stages and validates, generates the inspectable module, and prepares
+without building or claiming activation or verified contents.
+
+Reuse frozen activation, ownership observations, file expectations, provisioning
+finalization, verification, and rollback. Do not persist temporary stage paths as
+recoverable declarations or add another settings store. A captured row reports
+restored only after its actual Home Manager outcome proves completed contents.
+Imports and failed activations cannot borrow success from another input.
+
+The outcome proof drives trusted capture through actual apply, then reapply over
+Home Manager symlinks, content drift, reconciliation, and rollback. Prove no
+direct transaction for those targets. Cover tampering, optional absence, XDG
+placement, duplicate owners, independent direct work, external and explicit-flake
+imports, standalone restore, and preview. Reuse the accepted collision evidence.
+Native activation and the full task outcomes remain open until their proof exists.
 
 ## Risks / Trade-offs
 

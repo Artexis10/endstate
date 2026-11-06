@@ -3,6 +3,8 @@
 ### Requirement: Engine-generated Home Manager configuration uses immutable compatible inputs
 Release-default generated Home Manager configurations SHALL use revision-locked, mutually compatible Nixpkgs and Home Manager inputs owned by the Endstate release. The engine SHALL record the effective inputs used for activation. Environment overrides MAY replace them for advanced use, but the effective resolved inputs SHALL remain inspectable and SHALL NOT be reported as release defaults. If an override source remains mutable, the engine SHALL distinguish that source from its frozen activation derivation and effective lock graph. The engine SHALL NOT claim that the original source became immutable.
 
+Explicit Home Manager inputs SHALL retain preparation before package mutation. Captured Home Manager sets SHALL consume final post-install target detection, then freeze their combined activation before any settings writer runs. A later settings preparation failure SHALL preserve committed package outcomes and provenance.
+
 #### Scenario: Release-default catalog activation
 - **WHEN** Endstate compiles and activates `homeManager.settings` under release defaults
 - **THEN** the generated flake SHALL reference the release's immutable Nixpkgs and Home Manager revisions
@@ -12,6 +14,11 @@ Release-default generated Home Manager configurations SHALL use revision-locked,
 - **WHEN** a release includes curated Home Manager settings mappings
 - **THEN** required CI SHALL evaluate and activate the full curated corpus against the exact embedded input pair
 - **AND** release SHALL fail if an option mapping is incompatible
+
+#### Scenario: Captured target selection follows package installation
+- **WHEN** a captured Home Manager set requires final target or version detection after package work
+- **THEN** the engine SHALL retain that final detection boundary and freeze the combined activation before settings mutation
+- **AND** it SHALL NOT infer future target evidence or discard package provenance after a later settings failure
 
 ### Requirement: External Home Manager ownership is preserved
 The engine SHALL distinguish an Endstate-owned generated Home Manager activation from an externally owned activation using Endstate provisioning provenance. It SHALL NOT automatically replace, edit, or compose into an externally owned configuration. A requested Endstate-generated activation on such a target SHALL return an inspectable ownership action, including an importable generated module or an explicitly supported safe-restore fallback.

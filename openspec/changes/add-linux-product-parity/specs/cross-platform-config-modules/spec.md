@@ -87,6 +87,33 @@ Each executable platform variant SHALL explicitly declare `home-manager` or `end
 - **WHEN** a platform variant omits its realization strategy
 - **THEN** catalog validation SHALL reject the executable settings lane
 
+#### Scenario: Captured Home Manager files use their declared writer
+- **WHEN** apply selects a compatible trusted `home-manager` generation with supported file placements
+- **THEN** shared staging SHALL validate its captured payload before the generated Home Manager input consumes it
+- **AND** direct restore SHALL NOT copy those targets or create their direct transaction
+- **AND** successful result rows SHALL require the actual activation and target-content outcome
+
+#### Scenario: Capture preserves generation authority for either writer
+- **WHEN** a selected bound Linux adapter captures settings for either declared strategy
+- **THEN** capture SHALL preserve its generation payload, source platform, and immutable module snapshot
+- **AND** it SHALL NOT create duplicate ownership through a second serialized file declaration
+
+#### Scenario: Unsupported placement does not infer another strategy
+- **WHEN** a captured Home Manager generation contains an operation that its placement bridge cannot represent
+- **THEN** that set SHALL report `settings_strategy_unavailable` without direct mutation
+- **AND** independent supported settings and package work SHALL remain eligible
+
+#### Scenario: Explicit flake does not inherit captured module ownership
+- **WHEN** captured placements require composition into an explicitly declared Home Manager flake
+- **THEN** their result rows SHALL report skipped with `home_manager_import_required` and a stable module reference in remediation
+- **AND** the engine SHALL NOT edit the flake or label its owner external without observed evidence
+- **AND** an independent explicit activation SHALL NOT make those captured rows successful
+
+#### Scenario: Standalone restore cannot substitute a direct writer
+- **WHEN** standalone restore selects a captured Home Manager set without an activation backend
+- **THEN** it SHALL skip that set with remediation to use apply or rebuild
+- **AND** independent direct restore sets SHALL continue normally
+
 ### Requirement: Selected settings writers reject known flat-target collisions
 The engine SHALL include selected flat Home Manager targets in its existing concrete-claim collision check alongside direct restore owners. Known exact and parent/child overlaps SHALL prevent both conflicting settings owners from mutating their targets. A blocked Home Manager target SHALL suppress the whole selected activation while preserving unrelated direct restore and package outcomes.
 
