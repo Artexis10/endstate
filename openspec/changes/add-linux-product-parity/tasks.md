@@ -280,6 +280,7 @@ rollback, and collision prevention. It does not add app-specific codecs.
   - Decision 26 replaces lossy getters with one error-bearing native observation. Check before package mutation and immediately before generated activation. Unknown state is an error; preserve exact-output ownership, wholly legacy compatibility, and committed package provenance after a late failure. Keep task 7.6 and the remaining task 7.8 obligations separate.
 - [x] 7.5 Refuse silent generated activation over an external Home Manager owner and return an ownership action
 - [ ] 7.6 Produce a stable importable artifact and prove Endstate never edits the owner's source graph
+  - Decision 27 gives every generated flake its own persistent directory, preserving older imports before ownership classification. One import entry composes the copied module and optional secret references. Prove preserved payloads, concurrent generation, failed-write cleanup, and a representative native import. Keep arbitrary source-graph export and native activation outside this artifact proof.
 - [ ] 7.7 Reject strategy inference, undeclared fallbacks, and duplicate ownership across Home Manager, direct restore, shared modules, and existing files
 - [ ] 7.8 Record effective inputs and platform/config identity in Home Manager/direct-restore verification, rollback, and Provisioning Generation output
 

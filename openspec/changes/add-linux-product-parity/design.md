@@ -832,6 +832,49 @@ and retained package provenance after a late failure. Use isolated XDG paths
 and the existing injected native runner. Task 7.6's import-artifact proof and
 the remaining verification, rollback, native, and release obligations stay open.
 
+### 27. Preserve generated imports through later configuration runs
+
+Task 7.6 gives each generated flake a distinct persistent directory beneath
+the existing Home Manager state directory. Reuse `os.MkdirTemp` and the existing
+atomic file writer. Return the flakeref only after every generated file exists;
+remove only that run's directory on failure. Generate from the supplied module
+bytes, staged file map, and compiled secret references, without scanning an
+older generated directory or the owner's source graph.
+
+Apply this rule to every generated flake, including previews and ordinary
+Endstate-owned activations. An external owner may already import an older
+generated path. Rewriting that path before classifying ownership would edit
+the owner's graph. Separate directories also prevent concurrent runs from
+overwriting one another and prevent stale files from entering a later artifact.
+
+Preserve the copied `home.nix` and add one import entry that composes it with
+the optional secret-reference module. Both the wrapper flake and the existing
+ownership action use that entry. Keep the action schema, configuration identity,
+native ownership checks, activation path, and provisioning history unchanged.
+Do not introduce content addressing, reuse lookup, a source parser, graph export,
+a second ownership store, or a retention framework.
+
+Later generation leaves earlier generated modules and payloads unchanged.
+Retaining those directories costs disk space; automatic pruning cannot establish
+whether an owner still imports them. Fresh artifacts no longer reuse a shared
+`flake.lock`. Release defaults remain revision-pinned; mutable developer overrides
+resolve for each fresh artifact. Do not copy locks between runs.
+
+Configuration-file input retains its existing copied-file semantics. The engine
+does not relocate relative imports or other dependencies of an arbitrary source
+graph. State that limitation instead of adding live absolute imports or copying
+the graph. Secret declarations remain references; generation never reads their
+material. An external action does not claim completed activation or verification.
+
+Reuse the reproduced later-generation payload overwrite as the baseline.
+Prove preserved earlier bytes, independent concurrent generations, cleanup after
+failed writes, complete secret-reference composition, and unchanged owner files
+and native profile links. Update mutation checks that assume the old directory
+depth to use the returned flakeref and assert that the mutation occurred.
+Prove one representative import through a pure owner flake with an explicit
+non-flake input. This does not prove arbitrary graph export, native activation,
+or final release acceptance.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.

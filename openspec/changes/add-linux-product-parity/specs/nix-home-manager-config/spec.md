@@ -60,6 +60,29 @@ The engine SHALL distinguish an Endstate-owned generated Home Manager activation
 - **AND** capture SHALL report unavailable provenance while retaining independent capture results
 - **AND** unreadable post-activation identity SHALL remain an uncertain committed outcome
 
+#### Scenario: Later generation preserves an owner's existing import
+- **WHEN** an owner imports an earlier generated configuration and Endstate generates another configuration
+- **THEN** the later run SHALL leave the earlier module and staged payloads unchanged
+- **AND** previews and ordinary generated activations SHALL follow the same rule
+- **AND** the engine SHALL NOT edit the owner's source files or native profile during generation
+
+#### Scenario: Import entry includes the complete generated declaration
+- **WHEN** the engine returns an external ownership action for generated configuration
+- **THEN** its existing module path SHALL identify one entry that composes the copied module and any generated secret-reference module
+- **AND** the artifact SHALL include its declared staged file payloads without reading secret material
+- **AND** the generated wrapper flake SHALL use the same entry
+
+#### Scenario: Concurrent or failed generation cannot replace another artifact
+- **WHEN** generated configurations overlap or a generated write fails
+- **THEN** each run SHALL write only its own distinct directory
+- **AND** a failed run SHALL return no usable artifact and remove only its incomplete directory
+- **AND** a fresh run SHALL NOT inherit stale files from an earlier artifact
+
+#### Scenario: Configuration-file dependencies remain explicit
+- **WHEN** an input configuration depends on relative imports or other source-graph files
+- **THEN** copied-file generation SHALL NOT claim to relocate that graph
+- **AND** the engine SHALL NOT replace copied-file semantics with live absolute imports or copy the owner's graph automatically
+
 ### Requirement: Home Manager adapter metadata is derived from the same immutable input pair
 The release SHALL generate its Home Manager settings-adapter metadata from the exact Home Manager revision and compatible Nixpkgs revision embedded for realization. Generation SHALL use the upstream option JSON and pure evaluated module outputs to identify candidate program options and managed home-file targets, then freeze source hashes and reviewed dispositions into a runtime registry. Runtime discovery SHALL consume the frozen registry without evaluating arbitrary user Nix or requiring the Home Manager CLI.
 
