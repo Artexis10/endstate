@@ -1067,6 +1067,34 @@ When the manifest uses `homeManager.config`, the engine generates a wrapper flak
 
 The apply result carries a `homeManager` object when the config stage runs: `{ "flake": "<flakeref>", "generated": <bool>, "activated": <bool> }` — `generated` is `true` for an engine-generated input (`homeManager.settings` or `homeManager.config`) and `false` for a direct `homeManager.flake`; `activated` is `false` on `--dry-run`. (Optional, omitted when no config stage runs; additive in schema 1.x.)
 
+#### Generated activation ownership
+
+Before package mutation, the engine observes the native Home Manager generation
+and its exact activation output together. It checks ownership again immediately
+before generated activation. Only a missing native profile establishes absence.
+Malformed, unreadable, incomplete, or changing profiles produce an error.
+Unreadable provisioning history also leaves ownership unknown.
+
+An exact activation-output match in Endstate history establishes ownership.
+Generation-only matching remains available when all Home Manager history lacks
+output identity. A generation-only record cannot override conflicting output
+history. A failed activation record establishes ownership, but cannot establish
+successful settings completion.
+
+An established external owner receives `homeManager.ownershipAction` with
+`owner: "external"`, `action: "import_generated_module"`, `required: true`,
+`modulePath`, `message`, and the observed `activeGeneration` when present.
+The engine does not activate that generated configuration or edit the owner's
+source graph. Clients present the action without treating it as completed activation.
+
+Unknown ownership returns `INPUT_PROVENANCE_UNRESOLVED` with
+`error.detail.subcode: "home-ownership"`. Native permission and availability
+failures retain `PERMISSION_DENIED` and `REALIZER_UNAVAILABLE`. A late error
+preserves any package work already committed. If activation ran but its resulting
+identity cannot be observed, the error includes `stage: "commit"` and
+`committed: true`; this does not establish a successful activation identity.
+A known process-start failure does not claim that activation ran.
+
 #### Declarative catalog (the `homeManager.settings` input)
 
 When the manifest uses `homeManager.settings`, the engine compiles the declaration into a `home.nix` and then wraps + activates it exactly like `homeManager.config` above (same generated flake, pinning, identity, recording, inspectability, and `--dry-run` reveal). The user declares configuration in Endstate's own format and never writes Nix.
@@ -1435,6 +1463,12 @@ New `homeManager` records distinguish `kind` (`settings`, `config`, or `flake`) 
 Settings-generated records add `sourceManifest` and `settingsDigest`; they omit the settings payload. Capture reloads that source through the manifest loader, including its includes. It recovers settings only when their digest and active output match. Legacy embedded settings remain readable.
 
 Missing or changed declarations produce `home_manager_provenance_unavailable`; independent package and live-settings evidence remains usable.
+
+Unavailable native ownership also produces a capture provenance warning.
+Verification distinguishes native absence (`missing`), unavailable observation
+or history (`unreadable`), and conflicting observed identity (`config_drift`).
+An uncertain failed retry can invalidate completion of a previously recorded
+output without claiming that its historical generation is the new native state.
 
 Apply returns `INPUT_PROVENANCE_UNRESOLVED` before mutation when native evaluation cannot establish an exact target. Committed package state remains recorded when a later configuration stage fails. A provenance write failure returns `PROVENANCE_WRITE_FAILED` with `error.detail.committed: true`; it never reports complete success.
 
