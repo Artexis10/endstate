@@ -31,6 +31,35 @@ The engine SHALL distinguish an Endstate-owned generated Home Manager activation
 - **THEN** the plan SHALL identify the ownership conflict and generated import artifact or fallback
 - **AND** it SHALL make no configuration changes
 
+#### Scenario: Native ownership cannot be established
+- **WHEN** the profile is unreadable, malformed, incomplete, changes during observation, or requires unreadable provisioning history
+- **THEN** generated activation SHALL stop with an ownership observation error
+- **AND** the engine SHALL NOT report absence or an established external owner
+- **AND** the initial ownership check SHALL precede package mutation
+
+#### Scenario: Native identity is observed together
+- **WHEN** the engine observes a Home Manager profile
+- **THEN** it SHALL obtain the generation and exact output from that specific native generation link
+- **AND** it SHALL reject a detected profile change before accepting the observation
+- **AND** only a missing profile SHALL establish absence
+
+#### Scenario: Ownership changes after preparation
+- **WHEN** the profile becomes externally owned or unreadable before generated activation
+- **THEN** the engine SHALL stop that activation after a fresh ownership check
+- **AND** it SHALL return the external ownership action only for an established external owner
+- **AND** it SHALL retain provisioning evidence for any package work already committed
+
+#### Scenario: Legacy history cannot override output identity
+- **WHEN** provisioning history contains output identity and the active output has no matching record
+- **THEN** a matching generation-only record SHALL NOT grant Endstate ownership
+- **AND** wholly legacy history MAY match a successfully observed native generation
+
+#### Scenario: Unavailable ownership remains visible to other commands
+- **WHEN** verify or capture cannot observe native Home Manager identity
+- **THEN** verify SHALL report unreadable state rather than missing state
+- **AND** capture SHALL report unavailable provenance while retaining independent capture results
+- **AND** unreadable post-activation identity SHALL remain an uncertain committed outcome
+
 ### Requirement: Home Manager adapter metadata is derived from the same immutable input pair
 The release SHALL generate its Home Manager settings-adapter metadata from the exact Home Manager revision and compatible Nixpkgs revision embedded for realization. Generation SHALL use the upstream option JSON and pure evaluated module outputs to identify candidate program options and managed home-file targets, then freeze source hashes and reviewed dispositions into a runtime registry. Runtime discovery SHALL consume the frozen registry without evaluating arbitrary user Nix or requiring the Home Manager CLI.
 

@@ -277,6 +277,7 @@ rollback, and collision prevention. It does not add app-specific codecs.
 - [ ] 7.2 Complete typed/file Home Manager generation and target-placement round-trip tests through the inspectable generated flake
 - [ ] 7.3 Route explicit Linux `endstate-restore` variants through consent, backup, staging validation, durable journal, target verification, and revert
 - [ ] 7.4 Fully classify external Home Manager ownership from live activation plus exact Endstate provisioning provenance
+  - Decision 26 replaces lossy getters with one error-bearing native observation. Check before package mutation and immediately before generated activation. Unknown state is an error; preserve exact-output ownership, wholly legacy compatibility, and committed package provenance after a late failure. Keep task 7.6 and the remaining task 7.8 obligations separate.
 - [x] 7.5 Refuse silent generated activation over an external Home Manager owner and return an ownership action
 - [ ] 7.6 Produce a stable importable artifact and prove Endstate never edits the owner's source graph
 - [ ] 7.7 Reject strategy inference, undeclared fallbacks, and duplicate ownership across Home Manager, direct restore, shared modules, and existing files

@@ -790,6 +790,48 @@ options, failed probes after known changes, and unchanged input/disk on failure.
 Retain target-derivation proof and verify successful explicit acceptance with
 the normal frozen-registry parser. Final runtime and delivery gates stay open.
 
+### 26. Observe Home Manager identity before classifying ownership
+
+Task 7.4 replaces separate lossy generation and output getters with one internal
+`HomeObserver`. Its observation records presence, a positive native generation,
+and the exact activation output. A missing profile establishes absence.
+Unreadable, malformed, incomplete, or changing state returns an error.
+The command layer joins that observation to existing provisioning history;
+no new ownership store, public schema, dependency, or profile framework is needed.
+
+Reuse the native profile links, fixed-argv Nix inspection, and existing history.
+Read the profile link, resolve its specific generation link, inspect that link's
+output, then reread the profile link. Reject a detected change instead of joining
+facts from different profile states. This does not provide a cross-client lock
+or an atomic ownership transaction.
+
+Only proven absence or matching Endstate provenance permits generated activation.
+Readable active state without matching provenance returns the existing external
+ownership action. Observation or required history errors remain unknown and
+never produce an import instruction. Exact output identity takes precedence;
+generation-only matching remains available only for wholly legacy history.
+Failed activation records invalidate completion, without erasing native ownership.
+
+Check ownership before package mutation and again immediately before generated
+activation. A late failure prevents that activation while existing finalization
+retains any committed package work. Use the existing provenance error code with
+a `home-ownership` subcode and an accurate message. Preserve native permission
+and availability classifications.
+
+Migrate activation, rollback, verify, capture, and the discovery capture bridge
+to the same observation. Verify distinguishes absent, unreadable, and drifted
+state. Capture reports unavailable provenance while retaining independent results.
+An unreadable post-activation identity remains an uncertain committed outcome.
+Preserve stored history and existing external-action fields. The GUI presents
+unknown ownership as an error, without offering automatic replacement.
+
+The baseline command probe reproduces activation through malformed and
+non-symlink profiles. Prove their rejection, native inspection failure, detected
+profile changes, late ownership changes, exact identity, legacy compatibility,
+and retained package provenance after a late failure. Use isolated XDG paths
+and the existing injected native runner. Task 7.6's import-artifact proof and
+the remaining verification, rollback, native, and release obligations stay open.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.
