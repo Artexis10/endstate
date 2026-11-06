@@ -275,7 +275,8 @@ rollback, and collision prevention. It does not add app-specific codecs.
 
 - [ ] 7.1 Match and collect live settings only through trusted schema-v3 Linux variants after package/evidence reconciliation
 - [ ] 7.2 Complete typed/file Home Manager generation and target-placement round-trip tests through the inspectable generated flake
-- [ ] 7.3 Route explicit Linux `endstate-restore` variants through consent, backup, staging validation, durable journal, target verification, and revert
+- [x] 7.3 Route explicit Linux `endstate-restore` variants through consent, backup, staging validation, durable journal, target verification, and revert
+  - Independent acceptance at `22d234f` reuses the full passing run at `dd8d49e`; all relevant source and tests remain unchanged. The production Linux module proves capture, direct restore, content verification, drift repair, and revert. Shared runtime evidence proves consent, preview, snapshots, staging validation, durable intent, process-death recovery, and explicit failure outcomes. Task 7.7 collisions and remaining task 7.8 provenance stay separate; this does not accept cross-platform mappings or native release environments.
 - [ ] 7.4 Fully classify external Home Manager ownership from live activation plus exact Endstate provisioning provenance
   - Decision 26 replaces lossy getters with one error-bearing native observation. Check before package mutation and immediately before generated activation. Unknown state is an error; preserve exact-output ownership, wholly legacy compatibility, and committed package provenance after a late failure. Keep task 7.6 and the remaining task 7.8 obligations separate.
 - [x] 7.5 Refuse silent generated activation over an external Home Manager owner and return an ownership action
