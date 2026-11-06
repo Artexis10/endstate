@@ -347,7 +347,7 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 			staged[stagedRel] = content
 			stmts = append(stmts, fmt.Sprintf("%s.%s.source = ./%s;", placement, nixString(placementTarget), stagedRel))
 			expectations = append(expectations, fmt.Sprintf(`(let file = config.%s.%s; in {
-      target = if lib.hasPrefix "/" file.target then file.target else "${config.home.homeDirectory}/${file.target}";
+      target = toString (/. + (if lib.hasPrefix "/" file.target then file.target else "${config.home.homeDirectory}/${file.target}"));
       sha256 = builtins.hashFile "sha256" file.source;
     })`, placement, nixString(placementTarget)))
 		}

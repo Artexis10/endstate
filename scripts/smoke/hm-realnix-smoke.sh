@@ -66,6 +66,8 @@ echo "    built: ${ENGINE_BIN}"
 
 phase "Writing smoke manifest"
 
+printf '%s\n' 'declared dot target' > "${TMP_ROOT}/dot-file-source"
+
 cat > "${SMOKE_MANIFEST}" << 'MANIFEST'
 {
   "version": 1,
@@ -73,6 +75,7 @@ cat > "${SMOKE_MANIFEST}" << 'MANIFEST'
   "apps": [],
   "homeManager": {
     "settings": {
+      "files": { "./dot/file": "./dot-file-source" },
       "git": {
         "userName": "Smoke Test User",
         "userEmail": "smoke@endstate-ci.example",
@@ -139,6 +142,10 @@ echo "    apply output written to ${APPLY_OUT}"
 # ---------------------------------------------------------------------------
 
 phase "Asserting managed config is present"
+
+if ! cmp -s "${TMP_ROOT}/dot-file-source" "${SMOKE_HOME}/dot/file"; then
+  fail "The declared ./dot/file target did not activate with its source bytes."
+fi
 
 GIT_CFG_CANDIDATES=(
   "${SMOKE_HOME}/.config/git/config"
