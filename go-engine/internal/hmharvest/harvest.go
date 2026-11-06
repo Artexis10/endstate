@@ -7,6 +7,7 @@
 package hmharvest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -18,6 +19,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
@@ -40,98 +42,154 @@ type TargetProber interface {
 	ProbeTargets(ctx context.Context, program string, values map[string]any) ([]string, error)
 }
 
-// Refresh replaces every harvested fact, evaluated target, and review
-// fingerprint while preserving the human-reviewed disposition, codec, and
-// exclusions. A normal check exposes these replacements as registry drift;
-// only the CLI's explicit review-accepting write mode persists them.
-func Refresh(ctx context.Context, registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, inputs releaseinputs.Inputs, prober TargetProber) error {
+// Refresh observes pinned metadata on a deep copy. Only a complete result has
+// a candidate; prior review fingerprints remain untouched until CLI acceptance.
+func Refresh(ctx context.Context, registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, inputs releaseinputs.Inputs, prober TargetProber) (result Result, returnErr error) {
+	observation := Observation{Field: SchemaVersionField}
+	defer func() {
+		result.Report.sort()
+		if returnErr != nil {
+			result.Candidate = nil
+			result.Report.Stopped = &observation
+			returnErr = &ObservationError{Observation: observation, Err: returnErr}
+		}
+	}()
 	if err := ctx.Err(); err != nil {
-		return err
+		return result, err
 	}
 	if registry == nil {
-		return fmt.Errorf("Home Manager registry is nil")
+		return result, fmt.Errorf("Home Manager registry is nil")
 	}
+	data, err := json.Marshal(registry)
+	if err != nil {
+		return result, fmt.Errorf("copy Home Manager registry: %w", err)
+	}
+	var candidate hmregistry.Registry
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&candidate); err != nil {
+		return result, fmt.Errorf("copy Home Manager registry: %w", err)
+	}
+	observation = Observation{Field: DocsHashField}
 	var rawOptions map[string]json.RawMessage
 	if err := json.Unmarshal(docsJSON, &rawOptions); err != nil {
-		return fmt.Errorf("parse pinned Home Manager docs-json: %w", err)
+		return result, fmt.Errorf("parse pinned Home Manager docs-json: %w", err)
 	}
-	root, err := filepath.Abs(sourceRoot)
-	if err != nil {
-		return fmt.Errorf("resolve Home Manager source root: %w", err)
+	if rawOptions == nil {
+		return result, fmt.Errorf("pinned Home Manager docs-json must be an option object")
 	}
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		return fmt.Errorf("Home Manager source root is unavailable")
-	}
-
-	registry.SchemaVersion = hmregistry.SchemaVersion
-	registry.Inputs = hmregistry.InputIdentity{
+	candidate.SchemaVersion = hmregistry.SchemaVersion
+	result.Report.change("", SchemaVersionField, "", present(strconv.Itoa(registry.SchemaVersion)), present(strconv.Itoa(candidate.SchemaVersion)))
+	candidate.Inputs = hmregistry.InputIdentity{
 		NixpkgsRevision: inputs.Nixpkgs.Revision, HomeManagerRevision: inputs.HomeManager.Revision,
 	}
+	result.Report.change("", NixpkgsField, "", present(registry.Inputs.NixpkgsRevision), present(candidate.Inputs.NixpkgsRevision))
+	result.Report.change("", HomeManagerField, "", present(registry.Inputs.HomeManagerRevision), present(candidate.Inputs.HomeManagerRevision))
 	docsHash := sha256.Sum256(docsJSON)
-	registry.DocsJSONSHA256 = hex.EncodeToString(docsHash[:])
-	registry.Programs = programIndex(rawOptions)
+	candidate.DocsJSONSHA256 = hex.EncodeToString(docsHash[:])
+	result.Report.change("", DocsHashField, "", present(registry.DocsJSONSHA256), present(candidate.DocsJSONSHA256))
+	candidate.Programs = programIndex(rawOptions)
+	result.Report.members("", ProgramField, registry.Programs, candidate.Programs)
 
-	for entryIndex := range registry.Entries {
+	observation = Observation{Field: SourceHashField, Subject: "."}
+	root, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		return result, fmt.Errorf("resolve Home Manager source root: %w", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return result, fmt.Errorf("Home Manager source root is unavailable: %w", err)
+	}
+	if !info.IsDir() {
+		return result, fmt.Errorf("Home Manager source root is not a directory")
+	}
+
+	sort.Slice(candidate.Entries, func(i, j int) bool { return candidate.Entries[i].ID < candidate.Entries[j].ID })
+	for entryIndex := range candidate.Entries {
+		entry := &candidate.Entries[entryIndex]
+		observation = Observation{Adapter: entry.ID, Field: OptionField}
 		if err := ctx.Err(); err != nil {
-			return err
+			return result, err
 		}
-		entry := &registry.Entries[entryIndex]
 		sort.Slice(entry.Options, func(i, j int) bool { return entry.Options[i].Name < entry.Options[j].Name })
 		sort.Slice(entry.Targets, func(i, j int) bool { return entry.Targets[i].Coordinate < entry.Targets[j].Coordinate })
 		sourceHashes := make(map[string]string)
 		for optionIndex := range entry.Options {
 			option := &entry.Options[optionIndex]
+			observation = Observation{Adapter: entry.ID, Field: OptionField, Subject: option.Name}
+			if err := ctx.Err(); err != nil {
+				return result, err
+			}
 			raw, ok := rawOptions[option.Name]
 			if !ok {
-				return fmt.Errorf("Home Manager adapter %q option %q is absent from pinned docs-json", entry.ID, option.Name)
+				result.Report.change(entry.ID, OptionField, option.Name, present(option.Name), Value{})
+				return result, fmt.Errorf("tracked option is absent from pinned docs-json")
 			}
 			var documented docsOption
 			if err := json.Unmarshal(raw, &documented); err != nil {
-				return fmt.Errorf("decode Home Manager option %q: %w", option.Name, err)
+				return result, fmt.Errorf("decode Home Manager option: %w", err)
 			}
 			if strings.TrimSpace(documented.Type) == "" || len(documented.Declarations) == 0 {
-				return fmt.Errorf("Home Manager option %q has no type or declaration", option.Name)
+				return result, fmt.Errorf("Home Manager option has no type or declaration")
 			}
+			result.Report.change(entry.ID, OptionTypeField, option.Name, present(option.Type), present(documented.Type))
 			option.Type = documented.Type
-			option.Declarations = option.Declarations[:0]
+			observation.Field = DeclarationField
+			declarations := make([]string, 0, len(documented.Declarations))
 			for _, declaration := range documented.Declarations {
 				relative, err := normalizeDeclaration(declaration.Name)
 				if err != nil {
-					return fmt.Errorf("Home Manager option %q: %w", option.Name, err)
+					return result, err
 				}
-				option.Declarations = append(option.Declarations, relative)
+				declarations = append(declarations, relative)
 			}
-			sort.Strings(option.Declarations)
-			option.Declarations = uniqueStrings(option.Declarations)
+			sort.Strings(declarations)
+			declarations = uniqueStrings(declarations)
+			before, _ := json.Marshal(option.Declarations)
+			after, _ := json.Marshal(declarations)
+			result.Report.change(entry.ID, DeclarationField, option.Name, present(string(before)), present(string(after)))
+			option.Declarations = declarations
 			for _, declaration := range option.Declarations {
 				if _, exists := sourceHashes[declaration]; exists {
 					continue
 				}
+				observation = Observation{Adapter: entry.ID, Field: SourceHashField, Subject: declaration}
 				hash, err := hashSourceAuthority(root, declaration)
 				if err != nil {
-					return fmt.Errorf("Home Manager option %q declaration %q: %w", option.Name, declaration, err)
+					return result, err
 				}
+				old, existed := entry.SourceHashes[declaration]
+				result.Report.change(entry.ID, SourceHashField, declaration, Value{Present: existed, Value: old}, present(hash))
 				sourceHashes[declaration] = hash
+			}
+		}
+		for declaration, hash := range entry.SourceHashes {
+			if _, exists := sourceHashes[declaration]; !exists {
+				result.Report.change(entry.ID, SourceHashField, declaration, present(hash), Value{})
 			}
 		}
 		entry.SourceHashes = sourceHashes
 		if entry.Disposition != hmregistry.Excluded {
+			observation = Observation{Adapter: entry.ID, Field: ProbeTargetField, Subject: entry.Program}
 			if prober == nil {
-				return fmt.Errorf("Home Manager adapter %q requires a pure target prober", entry.ID)
+				return result, fmt.Errorf("Home Manager adapter requires a pure target prober")
 			}
 			if entry.Probe == nil {
-				return fmt.Errorf("Home Manager adapter %q has no reviewed target probe", entry.ID)
+				return result, fmt.Errorf("Home Manager adapter has no reviewed target probe")
 			}
 			observed, err := prober.ProbeTargets(ctx, entry.Program, entry.Probe.Values)
 			if err != nil {
-				return fmt.Errorf("probe Home Manager adapter %q targets: %w", entry.ID, err)
+				return result, err
+			}
+			if err := ctx.Err(); err != nil {
+				return result, err
 			}
 			coordinates, err := normalizeProbeTargets(observed)
 			if err != nil {
-				return fmt.Errorf("probe Home Manager adapter %q targets: %w", entry.ID, err)
+				return result, err
 			}
-			entry.Probe.Targets = append(entry.Probe.Targets[:0], coordinates...)
+			result.Report.members(entry.ID, ProbeTargetField, entry.Probe.Targets, coordinates)
+			entry.Probe.Targets = coordinates
 			if entry.Disposition == hmregistry.FileRoundTrip {
 				optionalByCoordinate := make(map[string]bool, len(entry.Targets))
 				for _, target := range entry.Targets {
@@ -143,21 +201,26 @@ func Refresh(ctx context.Context, registry *hmregistry.Registry, docsJSON []byte
 					if !existed {
 						optional = true
 					}
-					entry.Targets = append(entry.Targets, hmregistry.Target{
-						Coordinate: coordinate,
-						Optional:   optional,
-					})
+					entry.Targets = append(entry.Targets, hmregistry.Target{Coordinate: coordinate, Optional: optional})
+					before := Value{}
+					if existed {
+						before = present("optional=" + strconv.FormatBool(optionalByCoordinate[coordinate]))
+					}
+					result.Report.change(entry.ID, TargetField, coordinate, before, present("optional="+strconv.FormatBool(optional)))
+					delete(optionalByCoordinate, coordinate)
+				}
+				for coordinate, optional := range optionalByCoordinate {
+					result.Report.change(entry.ID, TargetField, coordinate, present("optional="+strconv.FormatBool(optional)), Value{})
 				}
 			}
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return result, err
 	}
-	if err := hmregistry.AcceptReviews(registry); err != nil {
-		return err
-	}
-	return hmregistry.Validate(registry, inputs)
+	result.Report.Complete = true
+	result.Candidate = &candidate
+	return result, nil
 }
 
 func programIndex(options map[string]json.RawMessage) []string {

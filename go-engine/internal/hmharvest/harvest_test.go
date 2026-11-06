@@ -5,6 +5,7 @@ package hmharvest
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,7 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
 
-func TestRefreshBindsDocsDeclarationsSourcesAndReview(t *testing.T) {
+func TestRefreshBindsDocsDeclarationsSourcesWithoutAcceptingReview(t *testing.T) {
 	inputs, err := releaseinputs.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -48,9 +49,19 @@ func TestRefreshBindsDocsDeclarationsSourcesAndReview(t *testing.T) {
 	prober := fakeTargetProber{targets: map[string][]string{
 		"ripgrep": {"/home/endstate-probe/.config/ripgrep/ripgreprc"},
 	}}
-	if err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober); err != nil {
+	original, err := json.Marshal(registry)
+	if err != nil {
 		t.Fatal(err)
 	}
+	result, err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := json.Marshal(registry)
+	if err != nil || string(original) != string(unchanged) {
+		t.Fatalf("complete refresh changed caller data: %v", err)
+	}
+	registry = result.Candidate
 	if registry.Inputs.NixpkgsRevision != inputs.Nixpkgs.Revision || registry.DocsJSONSHA256 == "" {
 		t.Fatalf("release identity = %+v docs=%q", registry.Inputs, registry.DocsJSONSHA256)
 	}
@@ -64,14 +75,20 @@ func TestRefreshBindsDocsDeclarationsSourcesAndReview(t *testing.T) {
 	if hash := registry.Entries[0].SourceHashes[option.Declarations[0]]; len(hash) != 64 || strings.Trim(hash, "0123456789abcdef") != "" {
 		t.Fatalf("source hash = %q", hash)
 	}
-	if registry.Entries[0].ReviewFingerprint == strings.Repeat("0", 64) {
-		t.Fatal("stale review fingerprint was retained")
+	if registry.Entries[0].ReviewFingerprint != strings.Repeat("0", 64) {
+		t.Fatal("refresh accepted a new review fingerprint")
 	}
 	if !reflect.DeepEqual(registry.Entries[0].Probe.Targets, []string{"${xdg.config}/ripgrep/ripgreprc"}) {
 		t.Fatalf("frozen probe targets = %#v", registry.Entries[0].Probe.Targets)
 	}
+	if err := hmregistry.Validate(registry, inputs); err == nil {
+		t.Fatal("changed metadata retained valid review authority")
+	}
+	if err := hmregistry.AcceptReviews(registry); err != nil {
+		t.Fatal(err)
+	}
 	if err := hmregistry.Validate(registry, inputs); err != nil {
-		t.Fatalf("refreshed registry did not validate: %v", err)
+		t.Fatalf("explicitly accepted registry did not validate: %v", err)
 	}
 }
 
@@ -85,7 +102,7 @@ func TestRefreshRejectsOptionMissingFromPinnedDocs(t *testing.T) {
 		Disposition: hmregistry.Excluded, ExclusionReason: "not portable",
 		Options: []hmregistry.Option{{Name: "programs.missing.enable"}},
 	}}}
-	if err := Refresh(context.Background(), registry, []byte(`{}`), t.TempDir(), inputs, fakeTargetProber{}); err == nil {
+	if _, err := Refresh(context.Background(), registry, []byte(`{}`), t.TempDir(), inputs, fakeTargetProber{}); err == nil {
 		t.Fatal("missing pinned option was accepted")
 	}
 }
@@ -131,7 +148,10 @@ func TestRefreshDerivesTargetsFromPureProbeOutput(t *testing.T) {
 			{Name: "programs.helix.settings"},
 			{Name: "programs.helix.ignores"},
 		},
-		Targets: []hmregistry.Target{{Coordinate: "${xdg.config}/stale", Optional: true}},
+		Targets: []hmregistry.Target{
+			{Coordinate: "${xdg.config}/stale", Optional: true},
+			{Coordinate: "${xdg.config}/helix/config.toml", Optional: false},
+		},
 	}}}
 	prober := fakeTargetProber{targets: map[string][]string{
 		"helix": {
@@ -140,11 +160,13 @@ func TestRefreshDerivesTargetsFromPureProbeOutput(t *testing.T) {
 		},
 	}}
 
-	if err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober); err != nil {
+	result, err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober)
+	if err != nil {
 		t.Fatal(err)
 	}
+	registry = result.Candidate
 	want := []hmregistry.Target{
-		{Coordinate: "${xdg.config}/helix/config.toml", Optional: true},
+		{Coordinate: "${xdg.config}/helix/config.toml", Optional: false},
 		{Coordinate: "${xdg.config}/helix/ignore", Optional: true},
 	}
 	if got := registry.Entries[0].Targets; !reflect.DeepEqual(got, want) {
@@ -200,9 +222,11 @@ func TestRefreshPreservesCuratedAliasesAndFreezesObservedTargets(t *testing.T) {
 		},
 	}}
 
-	if err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober); err != nil {
+	result, err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober)
+	if err != nil {
 		t.Fatal(err)
 	}
+	registry = result.Candidate
 	if got := registry.Entries[0].Targets; len(got) != 5 || got[0].Coordinate != "${home}/.gitattributes" {
 		t.Fatalf("curated aliases were replaced: %#v", got)
 	}

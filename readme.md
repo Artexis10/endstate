@@ -427,7 +427,13 @@ has a two-minute deadline. Set `--probe-timeout` to a positive Go duration, such
 as `5m`, for a slower environment. Interrupt or termination cancels the active
 evaluation. A failed or cancelled refresh does not write the registry.
 Runtime capture reads the frozen registry without running this tool or Nix
-evaluation. Registry writes still require `--write --accept-reviews`.
+evaluation. Checks report confirmed metadata changes without accepting review
+fingerprints. Reports show at most 128 change rows and 256 bytes per displayed
+value, with explicit omission and shortening notices. Incomplete refreshes retain
+observed changes and identify where observation stopped; failed reads do not
+mean removal. The registry does not track every upstream option, so docs hash
+drift can include additions that the report cannot localize. Only a complete
+refresh with `--write --accept-reviews` validates and publishes new fingerprints.
 
 Endstate uses Go's standard `testing` package for deterministic, offline-capable testing.
 

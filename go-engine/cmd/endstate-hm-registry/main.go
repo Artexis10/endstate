@@ -6,7 +6,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -74,19 +73,32 @@ func run(ctx context.Context, registryPath, docsPath, sourceRoot, system string,
 	if err != nil {
 		return err
 	}
-	original, err := json.MarshalIndent(registry, "", "  ")
-	if err != nil {
-		return err
-	}
 	docsJSON, err := os.ReadFile(docsPath)
 	if err != nil {
 		return err
 	}
 	prober := hmharvest.NewNixTargetProber(inputs, system, probeTimeout)
-	if err := hmharvest.Refresh(ctx, registry, docsJSON, sourceRoot, inputs, prober); err != nil {
-		return err
+	result, err := hmharvest.Refresh(ctx, registry, docsJSON, sourceRoot, inputs, prober)
+	if err != nil {
+		return &reportedError{report: result.Report, err: err}
 	}
-	refreshed, err := json.MarshalIndent(registry, "", "  ")
+	if !write {
+		if len(result.Report.Changes) != 0 {
+			return &reportedError{report: result.Report, err: fmt.Errorf("registry drift detected; review the pinned diff, then rerun with --write --accept-reviews")}
+		}
+		if err := hmregistry.Validate(registry, inputs); err != nil {
+			return &reportedError{report: result.Report, err: err}
+		}
+		fmt.Println("Home Manager adapter registry matches the pinned docs and source")
+		return nil
+	}
+	if err := hmregistry.AcceptReviews(result.Candidate); err != nil {
+		return &reportedError{report: result.Report, err: err}
+	}
+	if err := hmregistry.Validate(result.Candidate, inputs); err != nil {
+		return &reportedError{report: result.Report, err: err}
+	}
+	refreshed, err := json.MarshalIndent(result.Candidate, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -94,19 +106,23 @@ func run(ctx context.Context, registryPath, docsPath, sourceRoot, system string,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !write {
-		if !bytes.Equal(append(original, '\n'), refreshed) {
-			return fmt.Errorf("registry drift detected; review the pinned diff, then rerun with --write --accept-reviews")
-		}
-		fmt.Println("Home Manager adapter registry matches the pinned docs and source")
-		return nil
-	}
 	if err := writeAtomic(ctx, registryPath, refreshed); err != nil {
 		return err
 	}
 	fmt.Printf("wrote %s\n", registryPath)
 	return nil
 }
+
+type reportedError struct {
+	report hmharvest.Report
+	err    error
+}
+
+func (e *reportedError) Error() string {
+	return e.report.String() + "\n" + hmharvest.DisplayValue(e.err.Error())
+}
+
+func (e *reportedError) Unwrap() error { return e.err }
 
 func defaultNixSystem() string {
 	switch runtime.GOARCH {
