@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/migration"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
@@ -182,13 +183,19 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 }
 
 type preparedHomeManager struct {
-	flake            string
-	generated        bool
-	ownershipAction  *HomeManagerOwnershipAction
-	previousHome     *provision.HomeGenRef
-	resolution       *realizer.InputResolution
-	flatTargets      []string
-	fileExpectations *provision.HomeFileExpectations
+	flake                    string
+	generated                bool
+	ownershipAction          *HomeManagerOwnershipAction
+	previousHome             *provision.HomeGenRef
+	resolution               *realizer.InputResolution
+	flatTargets              []string
+	fileExpectations         *provision.HomeFileExpectations
+	prepareCaptured          func(*planner.ConfigPlan, []preparedConfigRestoreExecution) []string
+	capturedStages           []*migration.StageResult
+	capturedFiles            map[string]*provision.HomeFileExpectations
+	capturedPreparationError error
+	forceBlocked             bool
+	activationAttempted      bool
 }
 
 func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer) (*preparedHomeManager, *envelope.Error) {
@@ -444,11 +451,12 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	}
 	var configFields *ConfigResultFields
 	var homeBlocked bool
-	preparedHome, homePreparationErr := prepareHomeManager(flags, mf, r)
+	preparedHome, homePreparationErr := prepareApplyHomeManager(flags, mf, r, configSession)
 	if homePreparationErr != nil {
 		return nil, homePreparationErr
 	}
 
+	defer closeCapturedHomeStages(preparedHome)
 	if flags.DryRun {
 		var configErr *envelope.Error
 		configFields, homeBlocked, configErr = executePreparedApplyConfigRestore(
@@ -479,7 +487,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		// Config stage preview (home-manager, realizer-only): generate the
 		// inspectable flake and REVEAL what would activate; activate nothing.
 		var hmPreview *ApplyHomeManager
-		if preparedHome != nil {
+		if preparedHome != nil && preparedHome.flake != "" {
 			emitter.EmitPhase("config")
 			if preparedHome.ownershipAction != nil {
 				emitter.EmitItem(preparedHome.flake, driverName, "action_required", "external_home_manager", preparedHome.ownershipAction.Message, "home-manager")
@@ -552,6 +560,31 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			for i := range actions {
 				if el, ok := installedElement(cur, realizer.Installable{ID: actions[i].ID, Ref: derefRef(actions[i].Ref)}); ok && el.Resolution != nil {
 					actions[i].Resolution = el.Resolution
+				}
+			}
+		}
+		activated := homeRef != nil && !homeRef.ActivationFailed
+		if preparedHome != nil && preparedHome.prepareCaptured != nil {
+			fields, contentErr := finalizeCapturedHomeManager(configSession, preparedHome, activated, homeBlocked, emitter)
+			if fields != nil {
+				configFields = fields
+			}
+			if contentErr != nil {
+				resultErr = contentErr
+				if homeRef != nil {
+					homeRef.ActivationFailed = true
+				}
+			}
+			if current, ok := result.(*ApplyResult); ok {
+				current.ConfigResultFields = configFields
+			} else if resultErr != nil && configSession.lastExecution != nil {
+				// The summary counts brew and unsupported apps, so the list names them too.
+				lateActions := append(append(append([]ApplyAction{}, actions...), brew.brewActions()...), unsupportedActions...)
+				result = &ApplyResult{
+					Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name}, Actions: lateActions,
+					Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+					ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreScope.modules(),
+					ConfigResultFields: configFields,
 				}
 			}
 		}
@@ -738,7 +771,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	// envelope error, anything else INSTALL_FAILED with raw text confined to
 	// error.detail (the moat).
 	var homeResult *ApplyHomeManager
-	if activator, ok := r.(realizer.HomeActivator); ok && preparedHome != nil {
+	if activator, ok := r.(realizer.HomeActivator); ok && preparedHome != nil && preparedHome.flake != "" {
 		flake, generated := preparedHome.flake, preparedHome.generated
 		if preparedHome.ownershipAction == nil {
 			if ownershipErr := preparedHome.observeOwnership(r); ownershipErr != nil {
@@ -761,6 +794,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		} else {
 			emitter.EmitPhase("config")
 			emitter.EmitItem(flake, driverName, "configuring", "", "Activating home-manager configuration", "home-manager")
+			preparedHome.activationAttempted = true
 			var hmGen int
 			var aerr error
 			if preparer, ok := r.(realizer.HomePreparer); ok && preparedHome.resolution != nil {
@@ -940,9 +974,12 @@ func homeGenerationReference(flags ApplyFlags, mf *manifest.Manifest, home *prep
 	}
 	if home.generated {
 		result.Kind = "config"
-		result.Config = mf.HomeManager.Config
-		result.Secrets = mf.HomeManager.Secrets
-		if mf.HomeManager.Settings != nil {
+		// Captured placements are disposable: a composed record keeps only the explicit declaration, if any.
+		if mf.HomeManager != nil {
+			result.Config = mf.HomeManager.Config
+			result.Secrets = mf.HomeManager.Secrets
+		}
+		if mf.HomeManager != nil && mf.HomeManager.Settings != nil {
 			result.Kind = "settings"
 			result.SourceManifest, _ = filepath.Abs(flags.Manifest)
 			result.SettingsDigest = settingsDigest(mf.HomeManager.Settings)

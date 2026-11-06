@@ -90,6 +90,9 @@ type capturedManifestFile struct {
 		Refs    map[string]string `json:"refs"`
 		Version string            `json:"version"`
 	} `json:"apps"`
+	ConfigCaptures []struct {
+		ModuleID string `json:"moduleId"`
+	} `json:"configCaptures"`
 	HomeManager *struct {
 		Flake    string          `json:"flake"`
 		Config   string          `json:"config"`

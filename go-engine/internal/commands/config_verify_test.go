@@ -6,6 +6,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -310,6 +311,13 @@ func TestVerifyCapturedContentDetectsDriftAndRepairRevertRestoresDrift(t *testin
 }
 
 func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.ConfigCapture) {
+	return configVerifyCaptureFixtureWithModule(t, nil, nil)
+}
+
+// configVerifyCaptureFixtureWithModule captures the ripgrep module, optionally
+// reshaped by configure, together with any independent modules that siblings
+// builds from the source home.
+func configVerifyCaptureFixtureWithModule(t *testing.T, configure func(*modules.Module, string), siblings func(string) []*modules.Module) (string, string, string, manifest.ConfigCapture) {
 	t.Helper()
 	root := t.TempDir()
 	sourceHome := filepath.Join(root, "source-home")
@@ -329,7 +337,32 @@ func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := modules.FilterCatalogForPlatform(map[string]*modules.Module{mod.ID: mod}, "linux")
+	if configure != nil {
+		configure(mod, sourceHome)
+		encoded, err := json.Marshal(mod)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mod, err = modules.ParseModuleJSON(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	authored := map[string]*modules.Module{mod.ID: mod}
+	only := mod.ID
+	var siblingCandidates []discovery.SettingsCandidate
+	if siblings != nil {
+		for _, sibling := range siblings(sourceHome) {
+			authored[sibling.ID] = sibling
+			only += "," + sibling.ID
+			// Discovery detects registry adapters only, so the unregistered sibling is announced here.
+			siblingCandidates = append(siblingCandidates, discovery.SettingsCandidate{
+				ID: sibling.ID, ModuleID: sibling.ID, DisplayName: sibling.DisplayName,
+				Actions: []discovery.SettingsAction{discovery.SettingsCapture, discovery.SettingsRestore},
+			})
+		}
+	}
+	catalog := modules.FilterCatalogForPlatform(authored, "linux")
 	repo, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatal(err)
@@ -344,13 +377,20 @@ func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.
 		}()
 		resolveRepoRootFn = func() string { return repo }
 		loadCaptureModuleCatalogFn = modules.GetCatalogWithDiagnostics
+		if configure != nil || siblings != nil {
+			loadCaptureModuleCatalogFn = func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+				return authored, nil, nil
+			}
+		}
 		newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
 		discoverLinuxFn = func(ctx context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
 			request.SelectedSources = []string{discovery.HomeManagerSettingsSource}
-			return discovery.Discover(ctx, request)
+			result, err := discovery.Discover(ctx, request)
+			result.Settings = append(result.Settings, siblingCandidates...)
+			return result, err
 		}
 		withFakeGenerations(nil, errors.New("no managed profile"), func() {
-			if _, err := RunCapture(CaptureFlags{Out: outputPath, Only: "apps.ripgrep"}); err != nil {
+			if _, err := RunCapture(CaptureFlags{Out: outputPath, Only: only}); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -361,10 +401,16 @@ func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(extracted)) })
 	loaded, err := manifest.LoadManifest(extracted)
-	if err != nil || len(loaded.ConfigCaptures) != 1 {
+	if err != nil || len(loaded.ConfigCaptures) != len(authored) {
 		t.Fatalf("capture manifest: %+v, %v", loaded, err)
 	}
-	if loaded.HomeManager != nil || loaded.ConfigCaptures[0].SourceGeneration != "g2" {
+	var primary manifest.ConfigCapture
+	for _, capture := range loaded.ConfigCaptures {
+		if capture.ModuleID == mod.ID {
+			primary = capture
+		}
+	}
+	if loaded.HomeManager != nil || primary.SourceGeneration != "g2" {
 		t.Fatal("reviewed native settings lost generation authority or received duplicate Home Manager placement")
 	}
 	targetHome := filepath.Join(root, "target-home")
@@ -389,7 +435,7 @@ func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.
 		return catalog, nil, nil
 	}
 	t.Cleanup(func() { resolveRepoRootFn, captureGOOSFn, loadConfigRestoreCatalogFn = oldRoot, oldGOOS, oldLoader })
-	return extracted, root, targetHome, loaded.ConfigCaptures[0]
+	return extracted, root, targetHome, primary
 }
 
 func assertConfigVerify(t *testing.T, manifestPath, captureID, status, reason string) {

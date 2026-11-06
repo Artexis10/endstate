@@ -38,10 +38,16 @@ func executePreparedApplyConfigRestore(
 	}
 	inputs := flags.configRestoreRuntime.inputs
 	options := applyConfigRestoreExecutionOptions(flags, runID, flags.configRestoreRepoRoot, emitter)
-	if home != nil && home.ownershipAction == nil {
-		options.HomeManagerTargets = home.flatTargets
+	if home != nil {
+		options.PrepareHomeManager = home.prepareCaptured
+		if home.ownershipAction == nil {
+			options.HomeManagerTargets = home.flatTargets
+		}
 	}
 	execution, envErr := session.Execute(ctx, options)
+	if home != nil {
+		execution.HomeManagerBlocked = execution.HomeManagerBlocked || home.forceBlocked
+	}
 	if !inputs.hasConfigPayloads {
 		return nil, execution.HomeManagerBlocked, envErr
 	}

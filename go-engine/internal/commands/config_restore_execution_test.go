@@ -1700,7 +1700,8 @@ func configRestoreExecutionFixture(t *testing.T, captureIDs ...string) (*configR
 		}
 		generation := &modules.GenerationDef{ID: "g1", Order: 1, Fingerprint: digest}
 		set := planner.PlanSet{
-			Source: source, TargetInstances: []planner.TargetInstance{target}, TargetGenerationDef: generation,
+			SettingsStrategy: "endstate-restore",
+			Source:           source, TargetInstances: []planner.TargetInstance{target}, TargetGenerationDef: generation,
 			Resolution: planner.ConfigResolution{
 				CaptureID: captureID, ModuleID: source.ModuleID, ConfigSetID: source.ConfigSetID,
 				TargetInstanceID: target.ID, SourceGeneration: "g1", TargetGeneration: "g1",

@@ -14,12 +14,10 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
-// configStageApplies reports whether the home-manager config stage would run this
-// apply: it is realizer-only and gated by --enable-restore plus a declared
-// home-manager input. It mirrors resolveHomeFlake's guard and is used to decide
-// whether the Nix backend is NEEDED (so an absent Nix is offered for bootstrap).
+// configStageApplies reports explicit or captured Home Manager work that can
+// require Nix. Restore consent still selects the settings stage.
 func configStageApplies(flags ApplyFlags, mf *manifest.Manifest) bool {
-	return flags.EnableRestore && mf.HomeManager != nil
+	return flags.EnableRestore && (mf.HomeManager != nil || flags.configRestoreRuntime.hasHomeManagerSources())
 }
 
 // runApplyBrewOnly is the apply path taken when the Nix realizer lane is NOT

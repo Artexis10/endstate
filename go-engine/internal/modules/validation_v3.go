@@ -17,6 +17,12 @@ const (
 	DiagnosticInvalidAdapterBinding     = "invalid_home_manager_adapter_binding"
 )
 
+// The module schema closes the settings writers a platform variant may declare.
+const (
+	RealizationEndstateRestore = "endstate-restore"
+	RealizationHomeManager     = "home-manager"
+)
+
 func validateModuleV3(mod *Module, filePath string) error {
 	if len(mod.Platforms) == 0 {
 		return validationError(mod, filePath, DiagnosticMissingPlatform, "schema-v3 module must declare at least one platform variant")
@@ -36,7 +42,7 @@ func validateModuleV3(mod *Module, filePath string) error {
 		if !manifest.IsSupportedConfigPlatform(platform) {
 			return validationError(mod, filePath, DiagnosticMissingPlatform, "platform %q is not supported", platform)
 		}
-		if variant.Realization != "home-manager" && variant.Realization != "endstate-restore" {
+		if variant.Realization != RealizationHomeManager && variant.Realization != RealizationEndstateRestore {
 			return validationError(mod, filePath, DiagnosticInvalidRealization, "platform %q must declare realization home-manager or endstate-restore", platform)
 		}
 		if binding := variant.HomeManagerAdapter; binding != nil {

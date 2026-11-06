@@ -14,6 +14,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
@@ -123,7 +124,6 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 		}
 	}
 	if !flags.Sanitize {
-		flags.linuxHomeManagerFiles = make([]bundle.HomeManagerFileCapturePlan, 0, len(result.SettingsFiles))
 		flags.linuxConfigFiles = make([]bundle.SettingsFileCapturePlan, 0, len(result.SettingsFiles))
 		for _, plan := range result.SettingsFiles {
 			file := bundle.SettingsFileCapturePlan{
@@ -131,10 +131,8 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 				Optional: plan.Optional, ObservedSize: plan.ObservedSize, ObservedSHA256: plan.ObservedSHA256,
 			}
 			switch plan.Realization {
-			case "endstate-restore":
+			case modules.RealizationEndstateRestore, modules.RealizationHomeManager:
 				flags.linuxConfigFiles = append(flags.linuxConfigFiles, file)
-			case "home-manager":
-				flags.linuxHomeManagerFiles = append(flags.linuxHomeManagerFiles, file)
 			}
 		}
 	}

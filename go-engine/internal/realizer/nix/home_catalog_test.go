@@ -4,6 +4,7 @@
 package nix
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -504,5 +505,75 @@ func TestGenerateHomeFlakeFromSettings_WritesSelfContainedFlake(t *testing.T) {
 	hn, _ := os.ReadFile(filepath.Join(wantDir, "home.nix"))
 	if !strings.Contains(string(hn), `"name" = "Hugo"`) {
 		t.Errorf("generated home.nix missing the git mapping:\n%s", hn)
+	}
+}
+
+// TestGenerateHomeFlakeWithPlacementsJoinsStagedFilesWithoutEditingExplicitInputs
+// proves the captured-settings bridge: staged bytes join explicit settings and an
+// explicit home.nix by composition, never by editing the caller's declarations.
+func TestGenerateHomeFlakeWithPlacementsJoinsStagedFilesWithoutEditingExplicitInputs(t *testing.T) {
+	orig := homeIdentityFn
+	homeIdentityFn = func() (HomeIdentity, error) {
+		return HomeIdentity{Username: "tester", HomeDir: "/home/tester", StateVersion: "24.05"}, nil
+	}
+	defer func() { homeIdentityFn = orig }()
+
+	manifestDir, stateDir := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(manifestDir, "bar.conf"), []byte("explicit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	explicitModule := []byte("{ ... }: { programs.git.enable = true; }\n")
+	if err := os.WriteFile(filepath.Join(manifestDir, "home.nix"), explicitModule, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(t.TempDir(), "staged")
+	if err := os.WriteFile(staged, []byte("captured"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settings := &manifest.HomeManagerSettings{Files: map[string]string{".config/bar.conf": "./bar.conf"}}
+
+	ref, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/home/tester/.config/ripgrep/config"}}, "home.nix", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, _, _ := strings.Cut(ref, "#")
+	placements, _ := os.ReadFile(filepath.Join(directory, "placements.nix"))
+	copied, _ := os.ReadFile(filepath.Join(directory, "explicit.nix"))
+	if !strings.Contains(string(placements), `".config/ripgrep/config"`) || !strings.Contains(string(placements), `".config/bar.conf"`) || string(copied) != string(explicitModule) {
+		t.Fatalf("composed flake lost an input:\nplacements=%s\nexplicit=%s", placements, copied)
+	}
+	if len(settings.Files) != 1 {
+		t.Fatalf("explicit settings were edited: %+v", settings.Files)
+	}
+	// The generated flake owns its bytes: deleting the disposable stage keeps it valid.
+	if err := os.Remove(staged); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "files")); err != nil {
+		t.Fatalf("staged bytes were not copied into the generated flake: %v", err)
+	}
+}
+
+func TestGenerateHomeFlakeWithPlacementsRejectsDuplicateAndOutsideHomeTargets(t *testing.T) {
+	orig := homeIdentityFn
+	homeIdentityFn = func() (HomeIdentity, error) {
+		return HomeIdentity{Username: "tester", HomeDir: "/home/tester", StateVersion: "24.05"}, nil
+	}
+	defer func() { homeIdentityFn = orig }()
+	manifestDir, stateDir := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(manifestDir, "bar.conf"), []byte("explicit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settings := &manifest.HomeManagerSettings{Files: map[string]string{".config/bar.conf": "./bar.conf"}}
+	staged := filepath.Join(manifestDir, "bar.conf")
+
+	if _, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/home/tester/.config/bar.conf"}}, "", nil); !errors.Is(err, ErrHomeFileCollision) {
+		t.Fatalf("duplicate explicit target was not rejected: %v", err)
+	}
+	if _, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/etc/bar.conf"}}, "", nil); err == nil || errors.Is(err, ErrHomeFileCollision) {
+		t.Fatalf("outside-home target was accepted: %v", err)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(stateDir, "home-manager")); len(entries) != 0 {
+		t.Fatalf("a rejected placement still wrote a flake: %v", entries)
 	}
 }

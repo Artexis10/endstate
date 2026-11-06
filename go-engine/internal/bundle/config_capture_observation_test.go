@@ -77,6 +77,22 @@ func TestObservedConfigCaptureRejectsChangedAndUnsupportedContent(t *testing.T) 
 	}
 }
 
+// A same-size replacement defeats the size check, so only the SHA-256 of the
+// discovery observation keeps the bundle from publishing unreviewed bytes.
+func TestObservedConfigCaptureRejectsSameSizeReplacement(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	source := filepath.Join(root, ".ripgreprc")
+	observed := []byte("--hidden\n")
+	writeCaptureFile(t, source, []byte("--follow\n"))
+	plan := testConfigSetCapturePlan(root, &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "${home}/.ripgreprc", Dest: "config"}}})
+	sum := sha256.Sum256(observed)
+	plan.ObservedFiles = []SettingsFileCapturePlan{{CandidateID: plan.Module.ID, Codec: settingscodec.RipgrepPortableArgumentsV1, Target: "${home}/.ripgreprc", Source: source, ObservedSize: int64(len(observed)), ObservedSHA256: hex.EncodeToString(sum[:])}}
+	if _, err := CollectConfigSet(plan, t.TempDir()); ConfigCaptureDiagnosticCode(err) != ConfigCaptureIO {
+		t.Fatalf("same-size replacement was captured or misreported: %v", err)
+	}
+}
+
 func TestObservedConfigCaptureRejectsLinkedParent(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", root)

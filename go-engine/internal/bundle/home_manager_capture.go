@@ -6,19 +6,14 @@ package bundle
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
-	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
-	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 const maxHomeManagerCaptureFileSize = settingscodec.MaxContentSize
@@ -35,90 +30,7 @@ type SettingsFileCapturePlan struct {
 	ObservedSHA256 string
 }
 
-// HomeManagerFileCapturePlan preserves the existing placement caller API.
-type HomeManagerFileCapturePlan = SettingsFileCapturePlan
-
-func stageHomeManagerFiles(base *manifest.Manifest, plans []HomeManagerFileCapturePlan, stagingRoot string, context *validationmode.Context) (int, []string, error) {
-	if len(plans) == 0 {
-		return 0, nil, nil
-	}
-	if base == nil {
-		return 0, nil, fmt.Errorf("capture bundle: Home Manager file capture has no manifest")
-	}
-	if base.HomeManager != nil && (base.HomeManager.Flake != "" || base.HomeManager.Config != "") {
-		return 0, []string{"Live settings were detected but not added because the captured manifest already names a Home Manager configuration owned outside the settings catalog."}, nil
-	}
-
-	ordered := append([]HomeManagerFileCapturePlan(nil), plans...)
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].Target != ordered[j].Target {
-			return ordered[i].Target < ordered[j].Target
-		}
-		if ordered[i].CandidateID != ordered[j].CandidateID {
-			return ordered[i].CandidateID < ordered[j].CandidateID
-		}
-		return ordered[i].Source < ordered[j].Source
-	})
-	for index, plan := range ordered {
-		if err := validateHomeManagerCapturePlan(plan); err != nil {
-			return 0, nil, err
-		}
-		if index > 0 && ordered[index-1].Target == plan.Target {
-			return 0, nil, fmt.Errorf("capture bundle: duplicate Home Manager target %q", plan.Target)
-		}
-	}
-
-	createdHomeManager := base.HomeManager == nil
-	if createdHomeManager {
-		base.HomeManager = &manifest.HomeManagerConfig{}
-	}
-	if base.HomeManager.Settings == nil {
-		base.HomeManager.Settings = &manifest.HomeManagerSettings{}
-	}
-	if base.HomeManager.Settings.Files == nil {
-		base.HomeManager.Settings.Files = make(map[string]string)
-	}
-
-	included := 0
-	warnings := make([]string, 0)
-	for _, plan := range ordered {
-		data, err := readStableHomeManagerSource(plan)
-		if errors.Is(err, os.ErrNotExist) && plan.Optional {
-			warnings = append(warnings, "A detected optional settings file disappeared before it could be bundled.")
-			continue
-		}
-		if err != nil {
-			return 0, nil, err
-		}
-		data, err = settingscodec.Transform(plan.Codec, plan.Target, data)
-		if err != nil {
-			return 0, nil, fmt.Errorf("capture bundle: transform Home Manager settings: %w", err)
-		}
-		relative := homeManagerStagedPath(plan)
-		destination, err := resolveCapturePortable(context, plan.CandidateID, "homeManager.settings.files", stagingRoot, relative)
-		if err != nil {
-			return 0, nil, err
-		}
-		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-			return 0, nil, fmt.Errorf("capture bundle: create Home Manager settings directory: %w", err)
-		}
-		if err := ensureNoLinksInExistingPath(filepath.Dir(destination)); err != nil {
-			return 0, nil, fmt.Errorf("capture bundle: unsafe Home Manager settings destination: %w", err)
-		}
-		if err := os.WriteFile(destination, data, 0o600); err != nil {
-			return 0, nil, fmt.Errorf("capture bundle: stage Home Manager settings: %w", err)
-		}
-		base.HomeManager.Settings.Files[plan.Target] = "./" + relative
-		included++
-	}
-	if included == 0 && createdHomeManager {
-		base.HomeManager = nil
-	}
-	sort.Strings(warnings)
-	return included, warnings, nil
-}
-
-func validateHomeManagerCapturePlan(plan HomeManagerFileCapturePlan) error {
+func validateHomeManagerCapturePlan(plan SettingsFileCapturePlan) error {
 	if strings.TrimSpace(plan.CandidateID) == "" || sanitizeConfigDirSegment(plan.CandidateID) == "" {
 		return fmt.Errorf("capture bundle: Home Manager settings candidate id is invalid")
 	}
@@ -146,7 +58,7 @@ func validateHomeManagerCapturePlan(plan HomeManagerFileCapturePlan) error {
 	return nil
 }
 
-func readStableHomeManagerSource(plan HomeManagerFileCapturePlan) ([]byte, error) {
+func readStableHomeManagerSource(plan SettingsFileCapturePlan) ([]byte, error) {
 	info, err := os.Lstat(plan.Source)
 	if err != nil {
 		return nil, fmt.Errorf("capture bundle: inspect Home Manager settings source: %w", err)
@@ -180,14 +92,4 @@ func readStableHomeManagerSource(plan HomeManagerFileCapturePlan) ([]byte, error
 		}
 	}
 	return data, nil
-}
-
-func homeManagerStagedPath(plan HomeManagerFileCapturePlan) string {
-	id := sanitizeConfigDirSegment(strings.TrimPrefix(plan.CandidateID, "apps."))
-	sum := sha256.Sum256([]byte(plan.Target))
-	leaf := sanitizeConfigDirSegment(path.Base(strings.TrimRight(plan.Target, "/")))
-	if leaf == "" {
-		leaf = "settings"
-	}
-	return path.Join("configs", "home-manager", id, hex.EncodeToString(sum[:6])+"-"+leaf)
 }

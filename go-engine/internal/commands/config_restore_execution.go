@@ -23,6 +23,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -54,8 +55,9 @@ var materializeConfigRestoreSetFn = configrestore.Materialize
 var executeLiveConfigRestoreSetFn = executeLiveConfigRestoreSet
 
 type configRestoreExecutionSession struct {
-	runtime     *configRestoreRuntime
-	coordinator configRestoreCoordinator
+	runtime       *configRestoreRuntime
+	coordinator   configRestoreCoordinator
+	lastExecution *configRestoreExecutionResult
 }
 
 type configRestoreDetectionFailureProvider interface {
@@ -78,6 +80,7 @@ type configRestoreExecutionOptions struct {
 	ValidationContext  *validationmode.Context
 	HostBoundary       configrestore.HostBoundary
 	HomeManagerTargets []string
+	PrepareHomeManager func(*planner.ConfigPlan, []preparedConfigRestoreExecution) []string
 }
 
 type configRestoreExecutionResult struct {
@@ -94,6 +97,8 @@ type preparedConfigRestoreExecution struct {
 	stage           *migration.StageResult
 	materialized    *configrestore.MaterializedSet
 	transactionRoot string
+	home            bool
+	homeFiles       []configrestore.HomeFile
 }
 
 func newConfigRestoreExecutionSession(
@@ -117,6 +122,9 @@ func (session *configRestoreExecutionSession) Execute(
 	options configRestoreExecutionOptions,
 ) (result configRestoreExecutionResult, envErr *envelope.Error) {
 	ctx = desktopSettingsContext(ctx)
+	if session != nil {
+		session.lastExecution = &result
+	}
 	result = configRestoreExecutionResult{
 		Plan: emptyConfigRestorePlan(), RestoreItems: []restore.RestoreResult{}, Results: []restore.RestoreResult{},
 		EventResults: []restore.RestoreResult{},
@@ -155,6 +163,10 @@ func (session *configRestoreExecutionSession) Execute(
 	if options.DryRun {
 		prepared := session.stageAndMaterialize(ctx, &result.Plan, options)
 		defer closePreparedConfigRestoreExecutions(prepared)
+		if options.PrepareHomeManager != nil {
+			options.HomeManagerTargets = options.PrepareHomeManager(&result.Plan, prepared)
+		}
+		prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 		collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
 		result.HomeManagerBlocked = collisions.homeManagerBlocked
 		applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
@@ -229,6 +241,17 @@ func (session *configRestoreExecutionSession) Execute(
 	// merge and append strategies may read the live target to derive desired bytes.
 	prepared := session.stageAndMaterialize(ctx, &result.Plan, options)
 	defer closePreparedConfigRestoreExecutions(prepared)
+	if options.PrepareHomeManager != nil {
+		options.HomeManagerTargets = options.PrepareHomeManager(&result.Plan, prepared)
+	}
+	// The Home Manager consumer emits the one final resolution for each set it accepted.
+	consumerOwned := map[int]bool{}
+	for _, item := range prepared {
+		if item.home && selectedConfigRestorePlanSet(result.Plan.Sets[item.setIndex]) {
+			consumerOwned[item.setIndex] = true
+		}
+	}
+	prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 	collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
 	result.HomeManagerBlocked = collisions.homeManagerBlocked
 	applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
@@ -363,7 +386,7 @@ func (session *configRestoreExecutionSession) Execute(
 		}
 	}
 	for index, set := range result.Plan.Sets {
-		if !emittedResolutions[index] {
+		if !emittedResolutions[index] && !consumerOwned[index] {
 			emitGenerationConfigResolution(options.Emitter, set)
 		}
 	}
@@ -562,7 +585,9 @@ func markSelectedConfigRestoreSetsPlanned(plan *planner.ConfigPlan) {
 
 func closePreparedConfigRestoreExecutions(prepared []preparedConfigRestoreExecution) {
 	for _, item := range prepared {
-		_ = item.stage.Close()
+		if !item.home {
+			_ = item.stage.Close()
+		}
 	}
 }
 
@@ -595,6 +620,15 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 		if !selectedConfigRestorePlanSet(*set) {
 			continue
 		}
+		// The planner pins the current trusted strategy on every resolved set; a missing or unknown one never means direct copying.
+		if set.SettingsStrategy != modules.RealizationEndstateRestore && set.SettingsStrategy != modules.RealizationHomeManager {
+			markConfigRestoreFailure(set, planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
+			continue
+		}
+		if set.SettingsStrategy == modules.RealizationHomeManager && options.PrepareHomeManager == nil {
+			markConfigRestoreFailure(set, planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
+			continue
+		}
 		if !stageParentReady {
 			markConfigRestoreFailure(set, planner.ReasonStagingValidationFailed, planner.StatusFailed)
 			continue
@@ -617,6 +651,23 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 				reason = planner.ReasonPayloadIntegrityFailed
 			}
 			markConfigRestoreFailure(set, reason, planner.StatusFailed)
+			continue
+		}
+		if set.SettingsStrategy == modules.RealizationHomeManager {
+			files, resolveErr := configrestore.ResolveHomeFiles(ctx, configrestore.Request{
+				Stage: stage, Plan: *set, ProcessPatterns: session.runtime.processPatterns(set.Source.ModuleID),
+				ProcessObserver: options.ProcessObserver, Boundary: options.HostBoundary,
+			})
+			if resolveErr != nil {
+				_ = stage.Close()
+				reason := planner.ReasonSettingsStrategyUnavailable
+				if configrestore.CodeOf(resolveErr) == configrestore.CodeTargetOverlap {
+					reason = planner.ReasonTargetCollision
+				}
+				markConfigRestoreFailure(set, reason, planner.StatusSkipped)
+				continue
+			}
+			prepared = append(prepared, preparedConfigRestoreExecution{setIndex: index, stage: stage, home: true, homeFiles: files})
 			continue
 		}
 		materialized, err := materializeConfigRestoreSetFn(ctx, configrestore.Request{
@@ -655,7 +706,7 @@ func executablePreparedConfigRestoreSets(
 ) []preparedConfigRestoreExecution {
 	result := make([]preparedConfigRestoreExecution, 0, len(prepared))
 	for _, item := range prepared {
-		if selectedConfigRestorePlanSet(plan.Sets[item.setIndex]) {
+		if !item.home && selectedConfigRestorePlanSet(plan.Sets[item.setIndex]) {
 			result = append(result, item)
 		}
 	}

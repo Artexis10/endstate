@@ -6,6 +6,8 @@ package nix
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -239,6 +241,72 @@ func GenerateHomeFlakeFromSettings(stateDir string, s *manifest.HomeManagerSetti
 	homeNix, staged, err := CompileHomeNix(s, manifestDir)
 	if err != nil {
 		return "", err
+	}
+	return writeHomeFlake(stateDir, homeNix, staged, secrets)
+}
+
+// HomeFilePlacement carries one staged regular file to its resolved target.
+type HomeFilePlacement struct{ Source, Target string }
+
+var ErrHomeFileCollision = errors.New("Home Manager file placements overlap")
+
+// HomeRelativeTarget proves a resolved placement is representable below home.
+func HomeRelativeTarget(target string) (string, error) {
+	identity, err := homeIdentityFn()
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(target) {
+		return "", fmt.Errorf("Home Manager target is not absolute")
+	}
+	relative, err := filepath.Rel(identity.HomeDir, target)
+	// These tokens describe path containment, never a settings vocabulary.
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("Home Manager target is outside its home directory")
+	}
+	return filepath.ToSlash(relative), nil
+}
+
+// GenerateHomeFlakeWithPlacements clones explicit settings before joining staged
+// files. The persistent wrapper owns bytes, never disposable staging paths.
+func GenerateHomeFlakeWithPlacements(stateDir string, settings *manifest.HomeManagerSettings, manifestDir string, files []HomeFilePlacement, configPath string, secrets []manifest.HomeManagerSecret) (string, error) {
+	owned := &manifest.HomeManagerSettings{}
+	if settings != nil {
+		data, err := json.Marshal(settings)
+		if err != nil {
+			return "", err
+		}
+		if err := json.Unmarshal(data, owned); err != nil {
+			return "", err
+		}
+	}
+	if owned.Files == nil {
+		owned.Files = map[string]string{}
+	}
+	for _, file := range files {
+		relative, err := HomeRelativeTarget(file.Target)
+		if err != nil {
+			return "", err
+		}
+		if _, exists := owned.Files[relative]; exists {
+			return "", ErrHomeFileCollision
+		}
+		owned.Files[relative] = file.Source
+	}
+	homeNix, staged, err := CompileHomeNix(owned, manifestDir)
+	if err != nil {
+		return "", err
+	}
+	if configPath != "" {
+		if !filepath.IsAbs(configPath) {
+			configPath = filepath.Join(manifestDir, configPath)
+		}
+		explicit, err := os.ReadFile(configPath)
+		if err != nil {
+			return "", err
+		}
+		staged["explicit.nix"], staged["placements.nix"] = explicit, homeNix
+		homeNix = []byte("{ ... }: { imports = [ ./explicit.nix ./placements.nix ]; }\n")
 	}
 	return writeHomeFlake(stateDir, homeNix, staged, secrets)
 }

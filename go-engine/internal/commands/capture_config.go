@@ -598,7 +598,6 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		EndstateVersion:        config.ReadVersion(prepared.RepoRoot),
 		Modules:                planning.Modules,
 		GenerationPlans:        planning.GenerationPlans,
-		HomeManagerFiles:       request.Flags.linuxHomeManagerFiles,
 		RequireUsefulPayload:   request.Platform == "linux" && request.Flags.linuxDiscoveryCounts != nil && !request.Flags.Update && len(request.Apps) == 0,
 		PreplanningDiagnostics: planning.PreplanningDiagnostics,
 		Share:                  request.Flags.Share,
