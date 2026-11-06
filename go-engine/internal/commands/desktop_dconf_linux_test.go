@@ -270,29 +270,47 @@ func TestDesktopSessionUnavailableIsScoped(t *testing.T) {
 		}
 	})
 
-	t.Run("apply and verify", func(t *testing.T) {
-		offline := dconftest.New(t)
-		offline.NoBus = true
-		useDesktop(offline)
-		applied, err := RunApply(ApplyFlags{Manifest: extracted, EnableRestore: true, RestoreFilter: gnomeModuleID, NoBootstrap: true})
-		if err != nil {
-			t.Fatalf("RunApply: %+v", err)
-		}
-		resolutions := applied.(*ApplyResult).ConfigResolutions
-		if len(resolutions) != 1 || resolutions[0].Status != planner.StatusSkipped || resolutions[0].Remediation == nil {
-			t.Fatalf("apply did not skip with remediation: %+v", resolutions)
-		}
-		verified, err := RunVerify(VerifyFlags{Manifest: extracted})
-		if err != nil {
-			t.Fatalf("RunVerify: %+v", err)
-		}
-		if items := verified.(*VerifyResult).Results; len(items) != 1 || items[0].Status != "skipped" || items[0].Reason != "target_detection_failed" {
-			t.Fatalf("verify did not skip: %+v", items)
-		}
-		if offline.Writes != 0 {
-			t.Fatalf("wrote %d times without a session", offline.Writes)
-		}
-	})
+	// Both refusals skip the lane; the output must also say which one it was.
+	for _, test := range []struct {
+		name   string
+		change func(*dconftest.Session)
+		cause  string
+		other  string
+	}{
+		{"no session bus", func(s *dconftest.Session) { s.NoBus = true }, "desktop_runtime_unavailable", "desktop_value_unsupported"},
+		{"stored value of another type", func(s *dconftest.Session) { s.Values[gnomeClockKey] = "'yes'" }, "desktop_value_unsupported", "desktop_runtime_unavailable"},
+	} {
+		t.Run("apply and verify with "+test.name, func(t *testing.T) {
+			desktop := dconftest.New(t)
+			test.change(desktop)
+			useDesktop(desktop)
+			applied, err := RunApply(ApplyFlags{Manifest: extracted, EnableRestore: true, RestoreFilter: gnomeModuleID, NoBootstrap: true})
+			if err != nil {
+				t.Fatalf("RunApply: %+v", err)
+			}
+			resolutions := applied.(*ApplyResult).ConfigResolutions
+			if len(resolutions) != 1 || resolutions[0].Status != planner.StatusSkipped || resolutions[0].Remediation == nil {
+				t.Fatalf("apply did not skip with remediation: %+v", resolutions)
+			}
+			if message := resolutions[0].Message; !strings.Contains(message, test.cause) || strings.Contains(message, test.other) {
+				t.Fatalf("apply message does not name the cause %s: %q", test.cause, message)
+			}
+			verified, err := RunVerify(VerifyFlags{Manifest: extracted})
+			if err != nil {
+				t.Fatalf("RunVerify: %+v", err)
+			}
+			items := verified.(*VerifyResult).Results
+			if len(items) != 1 || items[0].Status != "skipped" || items[0].Reason != "target_detection_failed" {
+				t.Fatalf("verify did not skip: %+v", items)
+			}
+			if !strings.Contains(items[0].Message, test.cause) || strings.Contains(items[0].Message, test.other) {
+				t.Fatalf("verify message does not name the cause %s: %q", test.cause, items[0].Message)
+			}
+			if desktop.Writes != 0 {
+				t.Fatalf("wrote %d times without a usable session", desktop.Writes)
+			}
+		})
+	}
 }
 
 // The execution-time check sees concrete targets after variable expansion. A file

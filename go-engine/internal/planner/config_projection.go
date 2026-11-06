@@ -56,6 +56,9 @@ func ProjectConfigResolution(set PlanSet) ConfigResolution {
 
 	projected.Label = resolutionLabel(projected.Resolution)
 	projected.Message, projected.Remediation = resolutionPresentation(projected)
+	if set.DetectionDetail != "" && projected.Reason != nil && *projected.Reason == ReasonTargetDetectionFailed {
+		projected.Message += " Cause: " + set.DetectionDetail
+	}
 	if set.ExecutionRemediation != "" {
 		projected.Remediation = presentationRemediation(set.ExecutionRemediation)
 	}
