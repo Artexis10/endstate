@@ -22,7 +22,7 @@ const (
 // Registry review still decides which codec may own each target.
 func Supported(codec string) bool {
 	switch codec {
-	case BoundedRegularFileV1, GitConfigSafeV1:
+	case BoundedRegularFileV1, GitConfigSafeV1, RipgrepPortableArgumentsV1:
 		return true
 	default:
 		return false
@@ -35,6 +35,8 @@ func TargetSupported(codec, target string) bool {
 	switch codec {
 	case BoundedRegularFileV1:
 		return true
+	case RipgrepPortableArgumentsV1:
+		return ripgrepTargetSupported(target)
 	case GitConfigSafeV1:
 		switch target {
 		case "${home}/.gitattributes", "${home}/.gitconfig",
@@ -61,6 +63,8 @@ func Transform(codec, target string, data []byte) ([]byte, error) {
 	switch codec {
 	case BoundedRegularFileV1:
 		return append([]byte(nil), data...), nil
+	case RipgrepPortableArgumentsV1:
+		return portableRipgrepArguments(data)
 	case GitConfigSafeV1:
 		switch target {
 		case "${home}/.gitconfig", "${xdg.config}/git/config":
