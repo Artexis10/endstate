@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
@@ -220,8 +223,15 @@ func TestOrchestratorFailsOnlyWithoutTrustworthySelectedSource(t *testing.T) {
 		fakeAdapter{id: "missing", err: ErrNotAvailable},
 		fakeAdapter{id: "broken", err: errors.New("permission denied")},
 	}}
-	if _, err := orchestrator.Discover(context.Background(), Request{}); err == nil {
+	result, err := orchestrator.Discover(context.Background(), Request{})
+	if err == nil {
 		t.Fatal("Discover accepted a run with no trustworthy source")
+	}
+	if len(result.Sources) != 2 || result.Sources[0].State != SourceFailed || result.Sources[1].State != SourceNotAvailable || len(result.Warnings) != 1 {
+		t.Fatalf("failed discovery lost source health: %+v", result)
+	}
+	if len(result.Resolved)+len(result.Settings)+len(result.Unresolved)+len(result.SettingsFiles) != 0 {
+		t.Fatalf("failed discovery published candidates or execution plans: %+v", result)
 	}
 
 	orchestrator.Adapters = append(orchestrator.Adapters, fakeAdapter{id: "empty-but-readable", result: AdapterInventory{}})
@@ -282,5 +292,55 @@ func TestOrchestratorPrefersEndstateProfileOverDuplicateUserProfileIntent(t *tes
 	}
 	if len(result.Resolved) != 1 || result.Resolved[0].Installable != "github:NixOS/nixpkgs/endstate#ripgrep" || len(result.Resolved[0].Evidence) != 2 {
 		t.Fatalf("reconciled profile intent = %+v", result.Resolved)
+	}
+}
+
+// This checks the public boundary, including wrapped failures and exit code zero.
+func TestDiscoveryDiagnosticsKeepOnlyTypedFacts(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		failure error
+		want    string
+	}{
+		{name: "command", failure: &CommandError{Path: "/private/command", ExitCode: 0}, want: `{"code":"command_failed","exitCode":0}`},
+		{name: "output bound", failure: fmt.Errorf("raw wrapper: %w", &OutputLimitError{Path: "/private/command", Limit: 1024}), want: `{"code":"output_limit_exceeded","limit":1024}`},
+		{name: "unknown", failure: errors.New("raw backend /private/command"), want: `{"code":"source_failed"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := (Orchestrator{Adapters: []Adapter{fakeAdapter{id: "failed", err: test.failure}}}).Discover(context.Background(), Request{})
+			if err == nil || len(result.Sources) != 1 {
+				t.Fatalf("missing failed source: result=%+v err=%v", result, err)
+			}
+			data, marshalErr := json.Marshal(result)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			var body struct {
+				Sources []struct {
+					Diagnostic json.RawMessage `json:"diagnostic"`
+				} `json:"sources"`
+			}
+			if err := json.Unmarshal(data, &body); err != nil {
+				t.Fatal(err)
+			}
+			var diagnostic, expected map[string]any
+			if err := json.Unmarshal(body.Sources[0].Diagnostic, &diagnostic); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(test.want), &expected); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(diagnostic, expected) || strings.Contains(string(data), "raw") || strings.Contains(string(data), "/private/") {
+				t.Fatalf("unsafe or missing typed diagnostic: %s", data)
+			}
+		})
+	}
+}
+
+func TestDiscoverWithAdaptersPreservesFailedSourceHealth(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	result, err := DiscoverWithAdapters(context.Background(), Request{SelectedSources: []string{"failed"}}, fakeAdapter{id: "failed", err: errors.New("unreadable")})
+	if err == nil || len(result.Sources) != 1 || result.Sources[0].State != SourceFailed || len(result.Warnings) != 1 {
+		t.Fatalf("discovery entry point erased source health: result=%+v err=%v", result, err)
 	}
 }

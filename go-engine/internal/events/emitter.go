@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
@@ -159,6 +160,34 @@ func (e *Emitter) EmitItemWithReboot(id, driver, status, reason, message, name s
 		Message:        message,
 		RebootRequired: rebootRequired,
 	})
+}
+
+// EmitDiscoverySources preserves the authoritative normalized source order,
+// including failed and unavailable sources, without projecting private plans.
+func (e *Emitter) EmitDiscoverySources(sources []discovery.SourceStatus) {
+	if !e.enabled {
+		return
+	}
+	for _, source := range sources {
+		e.emit(DiscoverySourceEvent{BaseEvent: e.base("discovery-source"), Source: source})
+	}
+}
+
+// EmitDiscoveryItems projects reconciled public rows, independently of capture
+// selection. The event contract fixes the row kinds and array ordering.
+func (e *Emitter) EmitDiscoveryItems(result discovery.Result) {
+	if !e.enabled {
+		return
+	}
+	for _, row := range result.Resolved {
+		e.emit(DiscoveryItemEvent{BaseEvent: e.base("discovery-item"), Kind: "resolved", Resolved: &row})
+	}
+	for _, row := range result.Settings {
+		e.emit(DiscoveryItemEvent{BaseEvent: e.base("discovery-item"), Kind: "settings", Settings: &row})
+	}
+	for _, row := range result.Unresolved {
+		e.emit(DiscoveryItemEvent{BaseEvent: e.base("discovery-item"), Kind: "unresolved", Unresolved: &row})
+	}
 }
 
 // EmitSummary emits a summary event at the end of a phase.

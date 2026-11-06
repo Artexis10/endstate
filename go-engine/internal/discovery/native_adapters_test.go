@@ -52,6 +52,53 @@ func TestRPMAdapterReportsFailureAfterBoundedFallback(t *testing.T) {
 	}
 }
 
+// This catches fallback attempts disappearing from both successful and failed source reports.
+func TestRPMSourceReportsBoundedFallbackAttempts(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		results []sequenceResult
+		state   SourceState
+		retries int
+		queries int
+	}{
+		{name: "first success", results: []sequenceResult{{output: []byte("ripgrep\t14\tx86_64\n")}}, state: SourceSucceeded, queries: 1},
+		{name: "absent then success", results: []sequenceResult{{err: ErrNotAvailable}, {output: []byte("ripgrep\t14\tx86_64\n")}}, state: SourceSucceeded, retries: 1, queries: 2},
+		{name: "failed then success", results: []sequenceResult{{err: &CommandError{Path: "dnf5", ExitCode: 1}}, {}}, state: SourceSucceeded, retries: 1, queries: 2},
+		{name: "exhausted", results: []sequenceResult{{err: &CommandError{Path: "dnf5", ExitCode: 1}}, {err: &CommandError{Path: "dnf", ExitCode: 2}}}, state: SourceFailed, retries: 1, queries: 2},
+		{name: "both unavailable", results: []sequenceResult{{err: ErrNotAvailable}, {err: ErrNotAvailable}}, state: SourceNotAvailable, retries: 1, queries: 2},
+		{name: "output bound", results: []sequenceResult{{err: &OutputLimitError{Path: "dnf5", Limit: MaxCommandOutputBytes}}}, state: SourceFailed, queries: 1},
+		{name: "malformed", results: []sequenceResult{{output: []byte("malformed\n")}}, state: SourceFailed, queries: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &sequenceRunner{results: test.results}
+			result, err := (Orchestrator{Adapters: []Adapter{RPMAdapter{Runner: runner}}}).Discover(context.Background(), Request{})
+			if (err != nil) != (test.state != SourceSucceeded) {
+				t.Fatalf("source state %s: error=%v", test.state, err)
+			}
+			if len(result.Sources) != 1 || result.Sources[0].State != test.state || result.Sources[0].Retries != test.retries {
+				t.Errorf("source report = %+v, want state=%s retries=%d", result.Sources, test.state, test.retries)
+			}
+			want := []Command{
+				{Path: "dnf5", Args: []string{"repoquery", "--installed", "--userinstalled", `--queryformat=%{name}\t%{evr}\t%{arch}\n`}, MaxOutputBytes: MaxCommandOutputBytes},
+				{Path: "dnf", Args: []string{"repoquery", "--installed", "--userinstalled", `--qf=%{name}\t%{evr}\t%{arch}\n`}, MaxOutputBytes: MaxCommandOutputBytes},
+			}
+			if !reflect.DeepEqual(runner.commands, want[:test.queries]) {
+				t.Fatalf("query sequence = %+v, want %+v", runner.commands, want[:test.queries])
+			}
+		})
+	}
+}
+
+func TestRPMCancellationStopsBeforeFallback(t *testing.T) {
+	for _, canceled := range []error{context.Canceled, context.DeadlineExceeded} {
+		runner := &sequenceRunner{results: []sequenceResult{{err: canceled}, {}}}
+		inventory, err := (RPMAdapter{Runner: runner}).Inventory(context.Background())
+		if !errors.Is(err, canceled) || len(runner.commands) != 1 || inventory.Retries != 0 || len(inventory.Items) != 0 {
+			t.Fatalf("cancellation tried another query or returned inventory: commands=%+v inventory=%+v err=%v", runner.commands, inventory, err)
+		}
+	}
+}
+
 func TestArchAdapterDiscoversExplicitPackages(t *testing.T) {
 	runner := &fixtureRunner{outputs: map[string][]byte{
 		"pacman": []byte("ripgrep 14.1.1-1\nfd 10.2.0-1\n"),

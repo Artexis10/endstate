@@ -23,6 +23,8 @@ type AdapterInventory struct {
 	SettingsFiles []SettingsFilePlan
 	Warnings      []Warning
 	Ignored       int
+	// Retries counts additional source-specific fallback queries attempted.
+	Retries int
 }
 
 // Adapter is one read-only, source-specific inventory boundary.
@@ -79,7 +81,7 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
-		status := SourceStatus{ID: adapter.ID()}
+		status := SourceStatus{ID: adapter.ID(), Retries: inventory.Retries}
 		switch {
 		case errors.Is(err, ErrNotAvailable):
 			status.State = SourceNotAvailable
@@ -88,7 +90,8 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 		case err != nil:
 			status.State = SourceFailed
 			status.Reason = "source_failed"
-			status.Message = "This application source could not be read; results from other sources were kept."
+			status.Diagnostic = sourceDiagnostic(err)
+			status.Message = "This application source could not be read."
 			result.Warnings = append(result.Warnings, Warning{
 				Code: "source_failed", Source: adapter.ID(), Message: status.Message,
 			})
@@ -133,7 +136,7 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 	}
 
 	if selectedAdapters > 0 && succeeded == 0 {
-		return Result{}, fmt.Errorf("no trustworthy selected Linux application source could be read")
+		return result, fmt.Errorf("no trustworthy selected Linux application source could be read")
 	}
 	for _, candidate := range settings {
 		// Config presence enriches an independently resolved package; it cannot
@@ -221,6 +224,19 @@ func (orchestrator Orchestrator) Discover(ctx context.Context, request Request) 
 	})
 	result.Counts = countCandidates(result, only, !request.SkipSettingsCapture)
 	return result, nil
+}
+
+// sourceDiagnostic reads typed failures only; unknown errors disclose no text.
+func sourceDiagnostic(err error) *SourceDiagnostic {
+	var outputLimit *OutputLimitError
+	if errors.As(err, &outputLimit) {
+		return &SourceDiagnostic{Code: "output_limit_exceeded", Limit: outputLimit.Limit}
+	}
+	var commandError *CommandError
+	if errors.As(err, &commandError) {
+		return &SourceDiagnostic{Code: "command_failed", ExitCode: &commandError.ExitCode}
+	}
+	return &SourceDiagnostic{Code: "source_failed"}
 }
 
 // Namespaces keep an unassociated settings ID distinct from equal package text.

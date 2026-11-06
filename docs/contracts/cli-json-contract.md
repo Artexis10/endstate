@@ -828,6 +828,44 @@ settings remain visible but cannot satisfy a capture selection.
 
 > **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), which is not the token `--only` matches. Each entry additionally carries `manifestId` (e.g. `git-git`) — the app's id in the written manifest, and the value to pass to `capture --only`, `apply --only`, and `rebuild --only`. Clients building a selection UI should use `manifestId`. The field is additive; `id` is unchanged.
 
+### Linux Discovery Source Health
+
+Each `data.discovery.sources[]` row reports `id`, `state`, `discovered`, and
+`ignored`, with optional `retries`, `reason`, `message`, and `diagnostic`.
+The source state is `succeeded`, `failed`, or `not_available`.
+
+`discovered` and `ignored` count accepted normalized observations. When a source
+fails or is unavailable, coverage is unknown or unavailable. The integer fields
+remain for compatibility. Clients show the state and suppress inventory count
+labels unless `state` is `succeeded`.
+
+Optional `diagnostic` contains only typed technical facts:
+
+| `code` | Additional fields | Meaning |
+|--------|-------------------|---------|
+| `command_failed` | `exitCode` integer | A command reported a recognized process exit. |
+| `output_limit_exceeded` | `limit` integer, in bytes | A source exceeded its reviewed output bound. |
+| `source_failed` | None | The source failed without recognized technical metadata. |
+
+Primary messages use product language. Diagnostics never contain arbitrary error
+text, stdout, stderr, or host command paths.
+
+`retries` counts additional source-specific fallback queries attempted after the
+first query. Zero is omitted. RPM attempts at most `dnf5`, then `dnf`: first
+success reports zero; fallback reports one, including when `dnf5` is unavailable.
+Exhausting both queries also reports one. Cancellation, an output-limit failure,
+or malformed output stops before fallback. No other adapter adds a retry here.
+This count measures query attempts, not process starts or inventory rows.
+
+All-source failure retains source statuses and warnings. A fatal capture error
+uses product language and puts the normalized discovery object in `error.detail`.
+Managed-profile fallback retains failed discovery health in `data.discovery` and
+adds `ordinary_discovery_failed`. All-failed and fallback aggregate discovery
+counts describe incomplete coverage, never a complete empty machine inventory.
+
+The additive schema-v1 `discovery-source` and `discovery-item` events project the
+same normalized rows. Their exact wire shape appears in `event-contract.md`.
+
 ### Linux Discovery Counts
 
 Linux capture retains the complete `data.discovery` inventory when `--only`

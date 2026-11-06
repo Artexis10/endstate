@@ -9,7 +9,10 @@
 // authoritative stdout JSON envelope.
 package events
 
-import "github.com/Artexis10/endstate/go-engine/internal/planner"
+import (
+	"github.com/Artexis10/endstate/go-engine/internal/discovery"
+	"github.com/Artexis10/endstate/go-engine/internal/planner"
+)
 
 // BaseEvent contains the required fields that every event MUST include per
 // schema v1. Concrete event structs embed this type.
@@ -17,7 +20,7 @@ type BaseEvent struct {
 	Version   int    `json:"version"` // Always 1
 	RunID     string `json:"runId"`
 	Timestamp string `json:"timestamp"` // RFC3339 UTC
-	Event     string `json:"event"`     // "phase" | "progress" | "item" | "summary" | "error" | "artifact"
+	Event     string `json:"event"`     // Concrete event type in schema v1
 }
 
 // PhaseEvent signals a transition between engine phases.
@@ -45,6 +48,22 @@ type ItemEvent struct {
 	Reason         string `json:"reason"`
 	Message        string `json:"message,omitempty"`
 	RebootRequired bool   `json:"rebootRequired,omitempty"`
+}
+
+// DiscoverySourceEvent projects one normalized Linux source outcome.
+type DiscoverySourceEvent struct {
+	BaseEvent
+	Source discovery.SourceStatus `json:"source"`
+}
+
+// DiscoveryItemEvent projects one reconciled public row. The schema fixes Kind
+// to resolved/settings/unresolved and includes only its corresponding typed row.
+type DiscoveryItemEvent struct {
+	BaseEvent
+	Kind       string                       `json:"kind"`
+	Resolved   *discovery.ResolvedIntent    `json:"resolved,omitempty"`
+	Settings   *discovery.SettingsCandidate `json:"settings,omitempty"`
+	Unresolved *discovery.UnresolvedItem    `json:"unresolved,omitempty"`
 }
 
 // SummaryEvent is emitted at the end of each phase with aggregate counts.

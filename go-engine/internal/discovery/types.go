@@ -64,15 +64,25 @@ type Request struct {
 	SkipSettingsCapture bool `json:"-"`
 }
 
-// SourceStatus reports one adapter's bounded outcome.
+// SourceDiagnostic contains only recognized bounded technical facts. Command
+// paths and arbitrary error/output text deliberately have no representation.
+type SourceDiagnostic struct {
+	Code     string `json:"code"`
+	ExitCode *int   `json:"exitCode,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+// SourceStatus reports one adapter's bounded outcome. Counts describe accepted
+// normalized observations; failed/unavailable coverage is not an empty success.
 type SourceStatus struct {
-	ID         string      `json:"id"`
-	State      SourceState `json:"state"`
-	Discovered int         `json:"discovered"`
-	Ignored    int         `json:"ignored"`
-	Retries    int         `json:"retries,omitempty"`
-	Reason     string      `json:"reason,omitempty"`
-	Message    string      `json:"message,omitempty"`
+	ID         string            `json:"id"`
+	State      SourceState       `json:"state"`
+	Discovered int               `json:"discovered"`
+	Ignored    int               `json:"ignored"`
+	Retries    int               `json:"retries,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+	Message    string            `json:"message,omitempty"`
+	Diagnostic *SourceDiagnostic `json:"diagnostic,omitempty"`
 }
 
 // Evidence is normalized inventory provenance. Raw command output and

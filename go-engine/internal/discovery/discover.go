@@ -91,7 +91,7 @@ func DiscoverWithAdapters(ctx context.Context, request Request, extraAdapters ..
 		NixpkgsInput: inputs.Nixpkgs.FlakeRef,
 	}).Discover(ctx, request)
 	if err != nil {
-		return Result{}, err
+		return result, err
 	}
 	if catalogUnavailable {
 		result.Warnings = append(result.Warnings, Warning{

@@ -5,6 +5,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -61,16 +62,17 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 		IncludeRuntimes:     flags.IncludeRuntimes,
 		SkipSettingsCapture: flags.Sanitize,
 	}, r)
+	emitter.EmitDiscoverySources(result.Sources)
 	if err != nil {
-		if r != nil {
+		if r != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			fallback := discovery.Result{
 				SchemaVersion: discovery.SchemaVersion,
-				Sources:       []discovery.SourceStatus{}, Resolved: []discovery.ResolvedIntent{},
+				Sources:       result.Sources, Resolved: []discovery.ResolvedIntent{},
 				Settings: []discovery.SettingsCandidate{}, Unresolved: []discovery.UnresolvedItem{},
-				Warnings: []discovery.Warning{{
+				Warnings: append(result.Warnings, discovery.Warning{
 					Code:    "ordinary_discovery_failed",
 					Message: "Ordinary Linux application sources could not be read; the Endstate-managed profile was captured on its own.",
-				}},
+				}),
 			}
 			raw, captureErr := runCaptureRealizerSelected(flags, r, emitter, realizerCaptureSelection{nix: true})
 			if captureErr == nil {
@@ -80,12 +82,13 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 		}
 		return nil, envelope.NewError(
 			envelope.ErrCaptureFailed,
-			fmt.Sprintf("Linux application discovery could not read any trustworthy source: %v", err),
-		)
+			"Linux application discovery could not read a trustworthy application source.",
+		).WithDetail(result)
 	}
 	if result.SchemaVersion == "" {
 		result.SchemaVersion = discovery.SchemaVersion
 	}
+	emitter.EmitDiscoveryItems(result)
 	flags.linuxDiscoveryCounts = &result.Counts
 	flags.linuxSettingsApps = make(map[string]bool)
 	flags.linuxSettingsModules = make(map[string]bool)

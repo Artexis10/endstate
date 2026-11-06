@@ -46,7 +46,7 @@ Every event **MUST** include:
 | `version` | integer | Event schema version (always `1` for this contract) |
 | `runId` | string | Run identifier, unique per run (e.g., `"apply-20250101-120000-123-9f3a1c2e"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
-| `event` | string | Event type: `"phase"`, `"progress"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"`, `"config-resolution"`, `"config-migration"` |
+| `event` | string | Event type: `"phase"`, `"progress"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"`, `"config-resolution"`, `"config-migration"`, `"discovery-source"`, `"discovery-item"` |
 
 ### Event Types
 
@@ -83,6 +83,46 @@ Capture MAY emit additive schema-v1 progress events with no invented percentage:
 ```
 
 `stage` is `inventory`, `settings`, or `packaging`. The applicable subset is monotonic: `inventory` precedes package-source enumeration; `settings` appears only when matched configuration collection begins; `packaging` precedes final artifact publication. The opening capture phase remains first and summary remains last. Capture package items use `status:"present"` and `reason:"detected"`.
+
+---
+
+#### Linux Discovery Events
+
+Linux discovery projections can precede the existing inventory progress stage.
+Linux capture emits `discovery-source` after normalized source enumeration and
+before any discovery item or fallback. Each event contains `source`, exactly one
+row from `discovery.sources[]` with the same state, counts, retries, and diagnostics.
+
+```json
+{"version":1,"runId":"capture-...","timestamp":"2026-11-06T12:00:00Z","event":"discovery-source","source":{"id":"rpm-explicit","state":"failed","discovered":0,"ignored":0,"retries":1,"reason":"source_failed","message":"This application source could not be read.","diagnostic":{"code":"command_failed","exitCode":1}}}
+```
+
+Source order follows the authoritative discovery result. Failed and unavailable
+source counts do not mean empty inventory. Clients show the source state and
+suppress inventory count labels unless `state` is `succeeded`.
+
+After successful reconciliation, Linux capture emits `discovery-item` for every
+public row, including rows outside `--only`. The closed `kind` vocabulary is
+`resolved`, `settings`, or `unresolved`. Exactly one corresponding field contains
+the unchanged typed row from `discovery.resolved[]`, `discovery.settings[]`, or
+`discovery.unresolved[]`. Other row fields are absent. Rows follow array order:
+resolved first, then settings, then unresolved.
+
+```json
+{"version":1,"runId":"capture-...","timestamp":"2026-11-06T12:00:00Z","event":"discovery-item","kind":"settings","settings":{"id":"settings.editor","displayName":"Editor settings","portability":"config_only","actions":[]}}
+```
+
+All-source failure emits available source statuses without candidate events.
+Managed-profile fallback keeps these statuses and warnings in `data.discovery`.
+All-failed and fallback aggregate counts describe incomplete coverage, never a
+complete empty inventory. A fatal discovery error keeps the normalized discovery
+object in `error.detail`.
+
+These events report observations. They do not grant execution, claim artifact
+publication, or replace the final envelope. Existing package `item`, opening
+`phase`, and terminal `summary` semantics remain unchanged. Disabled events emit
+nothing. Raw output, arbitrary error text, and host command paths never enter
+discovery diagnostics. See `cli-json-contract.md` for diagnostic and retry semantics.
 
 ---
 

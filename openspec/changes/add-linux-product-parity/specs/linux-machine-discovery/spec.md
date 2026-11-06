@@ -129,12 +129,34 @@ The capture result SHALL include an additive `discovery` object that reports sou
 #### Scenario: Primary errors use product language
 - **WHEN** a discovery source fails or an item cannot be mapped
 - **THEN** the user-facing message SHALL explain the application-source or portability problem without requiring backend knowledge
-- **AND** backend names, commands, and raw output SHALL appear only in inspectable details
+- **AND** inspectable diagnostics SHALL contain only typed technical codes, exit codes, or output bounds
+- **AND** arbitrary error text, raw command output, and host command paths SHALL NOT enter public discovery data
+
+### Requirement: Discovery events preserve normalized source health and candidates
+Linux capture SHALL emit additive schema-v1 `discovery-source` events from normalized source statuses before error or fallback handling. After successful reconciliation, it SHALL emit `discovery-item` events for resolved, settings, and unresolved rows in authoritative array order. Selection SHALL NOT truncate this public inventory. Events SHALL remain observations, without granting execution or claiming publication.
+
+#### Scenario: All selected sources fail
+- **WHEN** no selected application source succeeds
+- **THEN** discovery SHALL return an error with its normalized source statuses and warnings
+- **AND** capture SHALL emit those source statuses without incomplete candidate events
+- **AND** a fatal capture error SHALL retain the normalized discovery object in inspectable structured details
+- **AND** clients SHALL treat aggregate counts as incomplete coverage rather than a complete empty inventory
+
+#### Scenario: Managed-profile capture follows discovery failure
+- **WHEN** ordinary discovery fails and the existing managed-profile fallback succeeds
+- **THEN** the capture discovery object SHALL retain failed source statuses and warnings
+- **AND** clients SHALL treat its aggregate discovery coverage as incomplete
+
+#### Scenario: RPM attempts its bounded fallback
+- **WHEN** RPM attempts a second user-installed query after `dnf5` fails or is unavailable
+- **THEN** its source status SHALL report one retry on success, failure, or unavailability
+- **AND** first-query success or stopping before fallback SHALL report zero retries
+- **AND** cancellation, output-limit failures, and malformed output SHALL stop without another query
 
 ### Requirement: Discovery counts are independently reconcilable
 Discovery SHALL distinguish per-source raw observations from unique reconciled user-facing candidates. `sourceDiscovered` SHALL be reported per source and MAY overlap. Top-level `discovered`, `resolved`, `settingsOnly`, and `unresolved` SHALL count unique portable/user-facing candidates after reconciliation; ignored dependency/runtime observations SHALL remain outside that unique denominator. The backward-compatible `settings` count SHALL count unique candidates with at least one supported settings action and MAY overlap `resolved`; `settingsOnly` SHALL be the subset of `settings` without a resolved package intent. `selected` SHALL count unique candidates selected for at least one supported package or settings action and SHALL NOT be inferred to equal `resolved`.
 
-For every result, `discovered = resolved + settingsOnly + unresolved`, `settingsOnly <= settings <= discovered`, and `selected <= discovered` SHALL hold after assigning a candidate that has both resolved package and settings evidence to `resolved`. Source failures and unavailable sources SHALL affect source status, not alter these identities by being treated as empty successful inventories.
+For every result, `discovered = resolved + settingsOnly + unresolved`, `settingsOnly <= settings <= discovered`, and `selected <= discovered` SHALL hold after assigning a candidate that has both resolved package and settings evidence to `resolved`. Source failures and unavailable sources SHALL affect source status, not alter these identities by being treated as empty successful inventories. Per-source integer counts SHALL describe accepted normalized observations. Clients SHALL show source state and suppress inventory count labels unless the source succeeded.
 
 #### Scenario: Two sources observe the same application
 - **WHEN** dpkg and an XDG desktop entry resolve to the same portable application

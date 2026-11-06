@@ -32,8 +32,21 @@ func (adapter RPMAdapter) Inventory(ctx context.Context) (AdapterInventory, erro
 		{Path: "dnf", Args: []string{"repoquery", "--installed", "--userinstalled", `--qf=%{name}\t%{evr}\t%{arch}\n`}, MaxOutputBytes: MaxCommandOutputBytes},
 	}
 	var failures []error
-	for _, query := range queries {
+	inventory := AdapterInventory{}
+	for index, query := range queries {
+		if err := ctx.Err(); err != nil {
+			return inventory, err
+		}
+		inventory.Retries = index
 		output, err := runner.Run(ctx, query)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return inventory, ctxErr
+		}
+		var outputLimit *OutputLimitError
+		// Cancellation and breached parser bounds cannot become a fallback success.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, &outputLimit) {
+			return inventory, err
+		}
 		if errors.Is(err, ErrNotAvailable) {
 			continue
 		}
@@ -43,14 +56,15 @@ func (adapter RPMAdapter) Inventory(ctx context.Context) (AdapterInventory, erro
 		}
 		items, ignored, parseErr := parseRPMExplicit(output)
 		if parseErr != nil {
-			return AdapterInventory{}, parseErr
+			return inventory, parseErr
 		}
-		return AdapterInventory{Items: items, Ignored: ignored}, nil
+		inventory.Items, inventory.Ignored = items, ignored
+		return inventory, nil
 	}
 	if len(failures) > 0 {
-		return AdapterInventory{}, errors.Join(failures...)
+		return inventory, errors.Join(failures...)
 	}
-	return AdapterInventory{}, ErrNotAvailable
+	return inventory, ErrNotAvailable
 }
 
 func parseRPMExplicit(output []byte) ([]InventoryItem, int, error) {
