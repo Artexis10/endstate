@@ -244,11 +244,13 @@ After independent review, run the first tranche boundary:
   - Independent review accepts `9f32b03`: complete inventories, typed candidate identities, overlapping source observations, settings-only partition, and selected-candidate union. Selected/update/share/sanitize workflows preserve unselected inventory and scope private plans. Remaining historical Home Manager and catalog-backed collection guarantees stay with 6.5.
 - [x] 6.5 Complete `--only`, `--update`, `--sanitize`, and share behavior without leaking unselected path-only settings
   - Independent review accepts `1fd680d`. Live collection and historical declarations obey selection, update, sanitization, and share boundaries. Retained declarations do not grant file-read authority or duplicate ownership. Failed collection preserves the previous artifact. Integrated regression checks pass at `f2f7de7`; fresh-host acceptance remains separate.
-- [ ] 6.6 Add stable discovery source/item events, product-language messages, reason codes, and details-only backend diagnostics
+- [x] 6.6 Add stable discovery source/item events, product-language messages, reason codes, and details-only backend diagnostics
+  - Independent review accepts `70e974d`, integrated as `3d506d1`, and the GUI contract mirror. Events reuse normalized rows; fatal errors and fallback retain source health without raw diagnostics. The integrated full suite passes with 5,493 named tests, 41 skips, and no failures. Rendered GUI acceptance remains separate.
 - [x] 6.7 Prove repeated identical discovery preserves stable discovery, payload, and bundle structure with safe source provenance
   - Keep honest capture timestamps. Exclude only documented capture-time and archive-entry-time fields from equivalence checks; compare all other metadata and payload bytes. This requires no replay or frozen-time behavior.
   - Independent review accepts `TestLinuxCaptureIdenticalDiscoveryPreservesPortableBundle` at `1fd680d`. The production registry and native file capture preserve serialized discovery, archive structure, metadata, and payload. Capture timestamps fall within each observed run window; portable metadata excludes the source home. The integrated full suite passes at `f2f7de7`.
-- [ ] 6.8 Implement and test source-specific bounded retry reporting while retaining the zero-useful-state contract
+- [x] 6.8 Implement and test source-specific bounded retry reporting while retaining the zero-useful-state contract
+  - Independent review accepts the existing RPM fallback's zero-or-one additional-query accounting on success and failure. Cancellation, malformed output, and output limits stop fallback. Independent adversarial probes preserve private details and publication refusal. The integrated full suite passes at `3d506d1`; this adds no generic retry policy or native provider claim.
 
 ## 7. Settings realization and ownership
 
