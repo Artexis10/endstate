@@ -76,12 +76,14 @@ type RollbackResult struct {
 // On --dry-run it reports the target (recorded) generation that would be
 // re-activated; on a real run it also reports the new (forward) generation.
 type RollbackHomeResult struct {
-	TargetGeneration int    `json:"targetGeneration"`        // recorded home-manager generation being reverted to
-	NewGeneration    int    `json:"newGeneration,omitempty"` // new forward generation after re-activation (0 on dry-run)
-	Flake            string `json:"flake,omitempty"`         // the config that was/would be re-activated
-	Config           string `json:"config,omitempty"`        // the user's declared home.nix, when the recorded config was engine-generated
-	Reactivated      bool   `json:"reactivated"`             // true when the config was actually re-activated
-	ViaFallback      bool   `json:"viaFallback,omitempty"`   // true when re-activated from the recorded flake because the snapshot was unavailable
+	TargetGeneration   int    `json:"targetGeneration"`        // recorded home-manager generation being reverted to
+	NewGeneration      int    `json:"newGeneration,omitempty"` // new forward generation after re-activation (0 on dry-run)
+	Flake              string `json:"flake,omitempty"`         // the config that was/would be re-activated
+	Config             string `json:"config,omitempty"`        // the user's declared home.nix, when the recorded config was engine-generated
+	Reactivated        bool   `json:"reactivated"`             // true when the config was actually re-activated
+	ViaFallback        bool   `json:"viaFallback,omitempty"`   // true when re-activated from the recorded flake because the snapshot was unavailable
+	Verification       string `json:"verification,omitempty"`  // verified | unverified; declared-file bytes only
+	VerificationReason string `json:"verificationReason,omitempty"`
 }
 
 // RunRollback reverts the installed package set to a prior Provisioning
@@ -295,6 +297,16 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 	var homeResult *RollbackHomeResult
 	if flags.EnableRestore && homeRef != nil {
 		newGen, viaFallback, herr := rollbackHomeConfig(r, homeRef)
+		verification, verificationReason := "verified", ""
+		if herr == nil {
+			reason, message := checkHomeFileExpectations(homeRef.FileExpectations)
+			if reason == "file_expectations_unavailable" {
+				verification, verificationReason = "unverified", reason
+			} else if reason != "" {
+				herr = envelope.NewError(envelope.ErrRollbackFailed, "Home Manager reactivated, but its declared files did not verify.").
+					WithDetail(map[string]string{"reason": reason, "message": message, "stage": "verification"})
+			}
+		}
 		if newGen > 0 {
 			copyRef := *homeRef
 			copyRef.Generation = newGen
@@ -315,12 +327,14 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 			return nil, herr
 		}
 		homeResult = &RollbackHomeResult{
-			TargetGeneration: homeRef.Generation,
-			NewGeneration:    newGen,
-			Flake:            homeRef.Flake,
-			Config:           homeRef.Config,
-			Reactivated:      true,
-			ViaFallback:      viaFallback,
+			TargetGeneration:   homeRef.Generation,
+			NewGeneration:      newGen,
+			Flake:              homeRef.Flake,
+			Config:             homeRef.Config,
+			Reactivated:        true,
+			ViaFallback:        viaFallback,
+			Verification:       verification,
+			VerificationReason: verificationReason,
 		}
 	}
 

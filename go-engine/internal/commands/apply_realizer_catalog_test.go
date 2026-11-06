@@ -74,8 +74,9 @@ func TestRunApplyRealizer_HomeManagerSettings_GeneratesAndActivates(t *testing.T
 	if !strings.Contains(string(hn), `"name" = "Hugo"`) {
 		t.Errorf("compiled home.nix missing the git mapping:\n%s", hn)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "files", ".config_bar.conf")); err != nil {
-		t.Fatalf("declared file not staged into the flake dir: %v", err)
+	staged, err := filepath.Glob(filepath.Join(dir, "files", "*"))
+	if err != nil || len(staged) != 1 {
+		t.Fatalf("declared file not staged into the flake dir: %v %v", staged, err)
 	}
 
 	// Recorded + surfaced as a generated, activated config.

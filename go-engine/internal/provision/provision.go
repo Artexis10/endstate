@@ -77,6 +77,8 @@ type HomeGenRef struct {
 	SettingsDigest   string                    `json:"settingsDigest,omitempty"`
 	Resolution       *realizer.InputResolution `json:"resolution,omitempty"`
 	ActivationOutput string                    `json:"activationOutput,omitempty"`
+	// Nil means unavailable; a nonnil empty list proves no declared file scope.
+	FileExpectations *HomeFileExpectations `json:"fileExpectations,omitempty"`
 	// A failed settings attempt invalidates completion of its active output,
 	// including retries that do not advance the native profile.
 	ActivationFailed bool `json:"activationFailed,omitempty"`

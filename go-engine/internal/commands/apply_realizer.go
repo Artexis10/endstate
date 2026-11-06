@@ -181,10 +181,11 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 }
 
 type preparedHomeManager struct {
-	flake           string
-	generated       bool
-	ownershipAction *HomeManagerOwnershipAction
-	resolution      *realizer.InputResolution
+	flake            string
+	generated        bool
+	ownershipAction  *HomeManagerOwnershipAction
+	resolution       *realizer.InputResolution
+	fileExpectations *provision.HomeFileExpectations
 }
 
 func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer) (*preparedHomeManager, *envelope.Error) {
@@ -202,6 +203,14 @@ func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Real
 			return nil, inputResolutionError(prepareErr)
 		}
 		home.resolution = resolution
+		if !flags.DryRun && mf.HomeManager.Settings != nil {
+			// Missing evidence would make a new generated activation unverifiable.
+			// Refuse before package mutation; the caller can repair and retry apply.
+			home.fileExpectations, prepareErr = readHomeFileExpectations(resolution)
+			if prepareErr != nil {
+				return nil, inputResolutionError(prepareErr)
+			}
+		}
 	}
 	return home, nil
 }
@@ -852,6 +861,7 @@ func settingsDigest(settings *manifest.HomeManagerSettings) string {
 func homeGenerationReference(flags ApplyFlags, mf *manifest.Manifest, home *preparedHomeManager, generation int) *provision.HomeGenRef {
 	_, name, _ := strings.Cut(home.flake, "#")
 	result := &provision.HomeGenRef{Flake: home.flake, Generation: generation, Generated: home.generated, Platform: runtime.GOOS, System: nix.System(), ConfigIdentity: name, Resolution: home.resolution, Kind: "flake"}
+	result.FileExpectations = home.fileExpectations
 	if home.resolution != nil && len(home.resolution.Outputs) == 1 {
 		result.ActivationOutput = home.resolution.OutputPaths[home.resolution.Outputs[0]]
 	}

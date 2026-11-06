@@ -1031,7 +1031,11 @@ When the manifest uses `homeManager.settings`, the engine compiles the declarati
 - **A raw `programs` entry may not collide with a curated concept** (e.g. raw `programs.git` alongside curated `git`) — that fails to generate with a clear error rather than producing a double definition.
 - **`files` places arbitrary files (text or binary).** Each `target → source` (source resolved relative to the manifest) is **staged into the generated flake directory** (binary-safe; kept inside the flake tree so pure evaluation can read it) and placed via home-manager's `home.file`. This matches the breadth of the Windows module catalog. **Place/restore only**; capturing files back into `settings` is a separate, deferred capability.
 
-> **Rollback of an activated home-manager configuration is not yet supported** (a documented follow-on). home-manager keeps its own numbered generations; re-activating a prior one ships separately.
+Generated settings activations include `endstate-home-files.json` in their frozen Nix output. Nix evaluates each declared placement's absolute target and SHA-256 source hash. Apply reads this artifact before package mutation, with a 1 MiB metadata limit. It persists `homeManager.fileExpectations`: `{ "files": [{ "target": "/home/example/.toolrc", "sha256": "<64 lowercase hexadecimal characters>" }] }`. An empty `files` array proves an empty declared file scope. Absent evidence remains unavailable for legacy records, dry runs, and backends without frozen preparation. Arbitrary `homeManager.config` and direct flakes do not receive generated expectations.
+
+Ordinary verification checks activation ownership, activation failures, and these recorded file bytes. It follows Home Manager symlink leaves and reports `missing`, `config_drift`, or `unreadable` as distinct failure reasons. Absent expectations produce `status: "skip"` with `reason: "file_expectations_unavailable"`. Matching bytes do not certify typed settings or file modes.
+
+Opt-in configuration rollback reactivates the recorded frozen activation and checks the prior record's file expectations. Its `homeManager` result adds `verification: "verified"` for matching declared bytes. Legacy records remain reactivatable and report `verification: "unverified"` with `verificationReason: "file_expectations_unavailable"`. Dry runs omit these verification fields. A content mismatch returns `ROLLBACK_FAILED` and retains the committed forward generation as partial history. Current manifests and generated inputs cannot replace the prior expectations.
 
 ---
 

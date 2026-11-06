@@ -14,6 +14,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
@@ -188,11 +189,8 @@ func verifyBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *eve
 }
 
 // checkHomeManagerGeneration reads the active home-manager generation via hgr
-// and compares it to the most-recently recorded generation in the provisioning
-// history. It returns a VerifyItem of type "home-manager" with:
-//   - status "pass" when active == recorded
-//   - status "fail", reason "config_drift" when active > 0 and active != recorded
-//   - status "fail", reason "missing" when active == 0
+// and compares its identity, activation result, and declared file bytes with
+// provisioning history. Legacy records without file evidence remain unverified.
 //
 // It also emits a streaming item event via emitter. The listGenerationsFn seam
 // (shared with capture_realizer.go) is used so tests can inject a fake history.
@@ -212,16 +210,23 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 	recorded := 0
 	ownershipMatches := true
 	activationFailed := false
-	if gens, err := listGenerationsFn(); err == nil {
-		for _, g := range gens {
-			if g.HomeManager != nil {
-				recorded = g.HomeManager.Generation
-				activationFailed = g.HomeManager.ActivationFailed
-				if hasHomeOutputIdentity(g.HomeManager) {
-					ownershipMatches = homeManagerOwnsActive(hgr, g.HomeManager, active)
-				}
-				break
+	var expectations *provision.HomeFileExpectations
+	gens, err := listGenerationsFn()
+	if err != nil {
+		item.Status, item.Reason = "fail", "unreadable"
+		item.Message = "Recorded Home Manager state could not be read"
+		emitter.EmitItem("home-manager", "nix", "failed", item.Reason, item.Message, "home-manager")
+		return item
+	}
+	for _, g := range gens {
+		if g.HomeManager != nil {
+			recorded = g.HomeManager.Generation
+			activationFailed = g.HomeManager.ActivationFailed
+			expectations = g.HomeManager.FileExpectations
+			if hasHomeOutputIdentity(g.HomeManager) {
+				ownershipMatches = homeManagerOwnsActive(hgr, g.HomeManager, active)
 			}
+			break
 		}
 	}
 
@@ -245,10 +250,16 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 		item.Message = "The Home Manager profile matches, but its recorded settings activation failed"
 		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonConfigDrift, item.Message, "home-manager")
 	default:
-		item.Status = "pass"
 		item.Version = strconv.Itoa(active)
-		item.Message = fmt.Sprintf("home-manager generation %d matches recorded", active)
-		emitter.EmitItem("home-manager", "nix", "present", "", item.Message, "home-manager")
+		item.Reason, item.Message = checkHomeFileExpectations(expectations)
+		item.Status = "pass"
+		eventStatus := "present"
+		if item.Reason == "file_expectations_unavailable" {
+			item.Status, eventStatus = "skip", "skipped"
+		} else if item.Reason != "" {
+			item.Status, eventStatus = "fail", "failed"
+		}
+		emitter.EmitItem("home-manager", "nix", eventStatus, item.Reason, item.Message, "home-manager")
 	}
 
 	return item

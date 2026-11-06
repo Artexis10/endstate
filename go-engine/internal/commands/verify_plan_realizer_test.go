@@ -380,8 +380,9 @@ func seedHMGeneration(t *testing.T, hmGen int) {
 	if err := provision.Write(&provision.Generation{
 		Backend: "nix",
 		HomeManager: &provision.HomeGenRef{
-			Flake:      "/dot#me",
-			Generation: hmGen,
+			Flake:            "/dot#me",
+			Generation:       hmGen,
+			FileExpectations: &provision.HomeFileExpectations{Files: []provision.HomeFileExpectation{}},
 		},
 	}); err != nil {
 		t.Fatalf("seedHMGeneration: provision.Write: %v", err)

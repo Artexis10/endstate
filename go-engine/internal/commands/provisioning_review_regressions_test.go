@@ -293,7 +293,7 @@ func TestProvisioningReviewFailedRetryInvalidatesSameActiveHomeOutput(t *testing
 		t.Fatalf("failed retry left completed-settings evidence active: %+v; error=%+v", gens, failure)
 	}
 	current := gens[0].HomeManager
-	if current.Resolution.Source.URL != prior.Resolution.Source.URL || current.ActivationOutput != prior.ActivationOutput {
+	if current.Resolution.Source.URL != prior.Resolution.Source.URL || current.ActivationOutput != prior.ActivationOutput || current.FileExpectations == nil || !reflect.DeepEqual(current.FileExpectations, prior.FileExpectations) {
 		t.Fatalf("unchanged native identity acquired an unused source: prior=%+v current=%+v", prior, current)
 	}
 	details, ok := failure.Detail.(map[string]string)

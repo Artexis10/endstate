@@ -252,6 +252,7 @@ func GenerateHomeFlakeFromSettings(stateDir string, s *manifest.HomeManagerSetti
 func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte, map[string][]byte, error) {
 	staged := map[string][]byte{}
 	var stmts []string
+	var expectations []string
 
 	// A raw programs key must not collide with a curated concept.
 	for name := range s.Programs {
@@ -337,25 +338,33 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 			if err != nil {
 				return nil, nil, fmt.Errorf("homeManager.settings.files: read source %q: %w", srcRel, err)
 			}
-			placement, placementTarget, coordinate, err := homeManagerFilePlacement(target)
+			placement, placementTarget, err := homeManagerFilePlacement(target)
 			if err != nil {
 				return nil, nil, fmt.Errorf("homeManager.settings.files: target %q: %w", target, err)
 			}
-			stagedRel := "files/" + sanitizeTarget(placementTarget)
-			if coordinate {
-				sum := sha256.Sum256([]byte(target))
-				stagedRel = "files/coordinate-" + hex.EncodeToString(sum[:12])
-			}
+			sum := sha256.Sum256([]byte(target))
+			stagedRel := "files/" + hex.EncodeToString(sum[:])
 			staged[stagedRel] = content
 			stmts = append(stmts, fmt.Sprintf("%s.%s.source = ./%s;", placement, nixString(placementTarget), stagedRel))
+			expectations = append(expectations, fmt.Sprintf(`(let file = config.%s.%s; in {
+      target = if lib.hasPrefix "/" file.target then file.target else "${config.home.homeDirectory}/${file.target}";
+      sha256 = builtins.hashFile "sha256" file.source;
+    })`, placement, nixString(placementTarget)))
 		}
 	}
 
 	var b strings.Builder
-	b.WriteString("{ ... }:\n{\n")
+	b.WriteString("{ config, lib, pkgs, ... }:\n{\n")
 	for _, st := range stmts {
 		b.WriteString("  " + st + "\n")
 	}
+	// The activation output owns this evidence; later generated files are mutable.
+	b.WriteString(`  home.extraBuilderCommands = ''
+    cp ${pkgs.writeText "endstate-home-files.json" (builtins.toJSON {
+      files = [ ` + strings.Join(expectations, "\n    ") + ` ];
+    })} "$out/endstate-home-files.json"
+  '';
+`)
 	b.WriteString("}\n")
 	return []byte(b.String()), staged, nil
 }
@@ -419,12 +428,12 @@ func homeRelTarget(target string) string {
 	return target
 }
 
-func homeManagerFilePlacement(target string) (placement, relative string, coordinate bool, err error) {
+func homeManagerFilePlacement(target string) (placement, relative string, err error) {
 	if !strings.HasPrefix(target, "${") {
-		return "home.file", homeRelTarget(target), false, nil
+		return "home.file", homeRelTarget(target), nil
 	}
 	if err := config.ValidateEnginePath(target, "linux"); err != nil {
-		return "", "", true, err
+		return "", "", err
 	}
 	for prefix, namespace := range map[string]string{
 		"${home}":       "home.file",
@@ -434,19 +443,12 @@ func homeManagerFilePlacement(target string) (placement, relative string, coordi
 		if strings.HasPrefix(target, prefix) {
 			relative := strings.TrimLeft(strings.TrimPrefix(target, prefix), "/\\")
 			if relative == "" {
-				return "", "", true, fmt.Errorf("target must name a file below its coordinate")
+				return "", "", fmt.Errorf("target must name a file below its coordinate")
 			}
-			return namespace, filepath.ToSlash(relative), true, nil
+			return namespace, filepath.ToSlash(relative), nil
 		}
 	}
-	return "", "", true, fmt.Errorf("coordinate has no lossless Home Manager file placement")
-}
-
-// sanitizeTarget turns a home-relative target into a single staged filename by
-// replacing path separators with underscores (readable + collision-free for
-// distinct targets).
-func sanitizeTarget(homeRel string) string {
-	return strings.ReplaceAll(homeRel, "/", "_")
+	return "", "", fmt.Errorf("coordinate has no lossless Home Manager file placement")
 }
 
 // stringMapToAny lifts a map[string]string to map[string]any for nixValue.

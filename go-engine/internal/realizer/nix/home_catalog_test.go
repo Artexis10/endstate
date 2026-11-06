@@ -12,6 +12,29 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
+func TestCompileHomeNixKeepsDistinctTargetsWithCollidingSanitizedNames(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{"a/b": "nested", "a_b": "flat"}
+	for target, value := range files {
+		file := filepath.Join(dir, value)
+		if err := os.WriteFile(file, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+		files[target] = file
+	}
+	_, staged, err := CompileHomeNix(&manifest.HomeManagerSettings{Files: files}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, content := range staged {
+		seen[string(content)] = true
+	}
+	if len(staged) != 2 || !seen["nested"] || !seen["flat"] {
+		t.Fatalf("distinct file targets overwrote staged bytes: %+v", staged)
+	}
+}
+
 // TestNixValue covers the JSON→Nix value encoder the raw `programs` passthrough
 // depends on: bools, integer/float numbers, escaped strings, lists, and
 // deterministic (sorted-key) attrsets.
@@ -465,7 +488,15 @@ func TestGenerateHomeFlakeFromSettings_WritesSelfContainedFlake(t *testing.T) {
 		t.Errorf("ref = %q, want %q", ref, wantDir+"#tester")
 	}
 	// flake.nix + compiled home.nix + staged file all present and readable.
-	for _, rel := range []string{"flake.nix", "home.nix", "files/.config_bar.conf"} {
+	_, staged, compileErr := CompileHomeNix(s, manDir)
+	if compileErr != nil {
+		t.Fatal(compileErr)
+	}
+	artifacts := []string{"flake.nix", "home.nix"}
+	for rel := range staged {
+		artifacts = append(artifacts, rel)
+	}
+	for _, rel := range artifacts {
 		if _, err := os.Stat(filepath.Join(wantDir, rel)); err != nil {
 			t.Errorf("expected generated artifact %q to exist: %v", rel, err)
 		}

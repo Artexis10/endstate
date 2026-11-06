@@ -19,6 +19,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 type nativeFreezeFixture struct {
@@ -41,7 +42,7 @@ type nativeFreezeFixture struct {
 	removals        []string
 }
 
-// Only the native process boundary is injected. Package identity, planning,
+// Native process and store-file boundaries are injected. Package identity, planning,
 // mutation selection, provisioning persistence and capture use production code.
 func newNativeFreezeFixture(t *testing.T) *nativeFreezeFixture {
 	t.Helper()
@@ -49,6 +50,18 @@ func newNativeFreezeFixture(t *testing.T) *nativeFreezeFixture {
 	t.Setenv("ENDSTATE_ROOT", root)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "xdg"))
 	f := &nativeFreezeFixture{t: t, elements: map[string]any{}}
+	artifact := filepath.Join(root, "endstate-home-files.json")
+	if err := os.WriteFile(artifact, []byte(`{"files":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	previousReader := readHomeFilesArtifact
+	readHomeFilesArtifact = func(path string, limit int64) ([]byte, os.FileMode, error) {
+		if path == "/nix/store/home-output/endstate-home-files.json" {
+			return safepath.ReadRegularFileBounded(artifact, limit)
+		}
+		return previousReader(path, limit)
+	}
+	t.Cleanup(func() { readHomeFilesArtifact = previousReader })
 	f.backend = nix.New()
 	f.backend.Profile = filepath.Join(root, "profile")
 	f.backend.Run = f.run
