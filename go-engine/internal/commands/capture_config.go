@@ -294,6 +294,14 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 		authorities = hmregistry.Join(registry, catalog, packages.Entries())
 	}
 	catalog = modules.FilterCatalogForPlatform(catalog, platform)
+	// Selection names authored identities; ownership can withhold their execution.
+	if request.Selection.active() {
+		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		catalog = scoped
+	}
 	// Package matching and explicit selection cannot authorize a registry adapter.
 	for _, authority := range authorities {
 		observed := false
@@ -305,13 +313,6 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 		if !authority.Supports(hmregistry.Capture) || !observed {
 			delete(catalog, authority.ModuleID)
 		}
-	}
-	if request.Selection.active() {
-		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
-		if scopeErr != nil {
-			return nil, scopeErr
-		}
-		catalog = scoped
 	}
 	outputPath, err := captureBundleOutputPath(request.Flags, request.ManifestPath)
 	if err != nil {
