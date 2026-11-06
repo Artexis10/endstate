@@ -79,6 +79,8 @@ func filesystemOverlap(left, right string) bool {
 // persists its cached copy on the next write, so such a restore would be undone
 // and could revert unrelated keys; every GSettings value therefore conflicts
 // with it. The path is host-dependent, so an unresolvable one claims nothing.
+// Task 10.6 must restrict this to GSettings identities once KDE values exist;
+// today every desktop claim is a GSettings value.
 func desktopDatabaseCovered(desktop, filesystem Claim) bool {
 	if desktop.Kind != Desktop || filesystem.Kind != Filesystem {
 		return false

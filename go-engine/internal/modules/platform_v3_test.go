@@ -5,6 +5,7 @@ package modules
 
 import (
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -61,6 +62,37 @@ func TestPlatformV3RejectsMixedFlatDeclarationsAndMissingStrategy(t *testing.T) 
 				t.Fatal("invalid schema-v3 module was accepted")
 			}
 		})
+	}
+}
+
+// Whole dconf databases never travel: the desktop session's writer undoes the
+// restore. The catalog must refuse a module that captures or restores the user
+// database or a directory above it, and still accept its neighbours.
+func TestPlatformV3RejectsWholeDconfDatabases(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG coordinates are not valid on Windows")
+	}
+	t.Setenv("HOME", "/home/me")
+	t.Setenv("XDG_CONFIG_HOME", "/home/me/.config")
+	for _, test := range []struct {
+		path     string
+		rejected bool
+	}{
+		{"${xdg.config}/dconf/user", true},
+		{"${xdg.config}/dconf", true},
+		{"${xdg.config}", true},
+		{"${xdg.config}/dconf-keyfiles/clock.ini", false},
+		{"${xdg.config}/dconf/user.backup", false},
+	} {
+		for field, data := range map[string]string{
+			"capture source": strings.Replace(validPlatformV3Module, `"source": "${xdg.config}/ripgrep/ripgreprc", "dest"`, `"source": "`+test.path+`", "dest"`, 1),
+			"restore target": strings.Replace(validPlatformV3Module, `"target": "${xdg.config}/ripgrep/ripgreprc"`, `"target": "`+test.path+`"`, 1),
+		} {
+			_, err := ParseAndValidateModuleJSON([]byte(data), "module.jsonc")
+			if rejected := err != nil; rejected != test.rejected {
+				t.Errorf("%s %s: rejected=%v (%v), want %v", field, test.path, rejected, err, test.rejected)
+			}
+		}
 	}
 }
 
