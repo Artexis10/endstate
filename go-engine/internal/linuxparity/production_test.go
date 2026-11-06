@@ -45,9 +45,9 @@ func TestProductionMatrixAccountsForEveryExistingApplicationModule(t *testing.T)
 		statuses[row.ModuleID] = row.Status
 	}
 	for moduleID, want := range map[string]Status{
-		"apps.fastfetch": StatusSupported,
-		"apps.git":       StatusSupported,
-		"apps.ripgrep":   StatusSupported,
+		"apps.fastfetch": StatusAdapterRequired,
+		"apps.git":       StatusAdapterRequired,
+		"apps.ripgrep":   StatusAdapterRequired,
 		"apps.vscode":    StatusAdapterRequired,
 	} {
 		if got := statuses[moduleID]; got != want {

@@ -4,8 +4,11 @@
 package modules
 
 import (
-	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
 const validPlatformV3Module = `{
@@ -100,5 +103,71 @@ func TestAllLegacyModulesInertOnLinuxAndDarwin(t *testing.T) {
 	}
 	if legacy == 0 {
 		t.Fatal("production catalog contains no legacy modules")
+	}
+}
+
+func TestHomeManagerBindingProjectionAndFingerprint(t *testing.T) {
+	data := strings.Replace(validPlatformV3Module, `"realization": "home-manager",`, `"realization": "home-manager", "homeManagerAdapter":{"id":"ripgrep","reviewFingerprint":"`+strings.Repeat("a", 64)+`","configSetId":"default","generationId":"g1"},`, 1)
+	mod, err := ParseAndValidateModuleJSON([]byte(data), "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := ProjectModuleForPlatform(mod, "linux")
+	if projected.HomeManagerAdapter == nil || projected.HomeManagerAdapter.GenerationID != "g1" {
+		t.Fatalf("lost binding: %+v", projected)
+	}
+	fingerprint := projected.Config.Sets[0].Generations[0].Fingerprint
+	projected.HomeManagerAdapter.ID = "changed"
+	if mod.Platforms["linux"].HomeManagerAdapter.ID != "ripgrep" {
+		t.Fatal("projection mutated authored binding")
+	}
+	changed, err := ParseAndValidateModuleJSON([]byte(strings.Replace(data, strings.Repeat("a", 64), strings.Repeat("b", 64), 1)), "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ProjectModuleForPlatform(changed, "linux").Config.Sets[0].Generations[0].Fingerprint == fingerprint {
+		t.Fatal("binding omitted from generation fingerprint")
+	}
+	for name, invalid := range map[string]string{
+		"unknown field":      strings.Replace(data, `"generationId":"g1"`, `"generationId":"g1","actions":["capture"]`, 1),
+		"missing generation": strings.Replace(data, `"generationId":"g1"`, `"generationId":""`, 1),
+		"invalid hash":       strings.Replace(data, strings.Repeat("a", 64), "stale", 1),
+		"non Linux binding":  strings.ReplaceAll(data, `"linux"`, `"darwin"`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseAndValidateModuleJSON([]byte(invalid), "module.jsonc"); err == nil {
+				t.Fatal("invalid binding accepted")
+			}
+		})
+	}
+}
+
+func TestLinuxAdapterBindingDoesNotChangeWindowsFingerprint(t *testing.T) {
+	mod, err := ParseAndValidateModuleJSON([]byte(validPlatformV3Module), "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod.Platforms["windows"] = PlatformVariant{Realization: "endstate-restore", Matches: MatchCriteria{PathExists: []string{"${home}/prefs"}}, Capture: &CaptureDef{Files: []CaptureFile{{Source: "${home}/prefs", Dest: "prefs"}}}}
+	before, err := json.Marshal(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedBefore, err := ParseAndValidateModuleJSON(before, "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	variant := mod.Platforms["linux"]
+	variant.HomeManagerAdapter = &HomeManagerAdapterBinding{ID: "ripgrep", ReviewFingerprint: strings.Repeat("a", 64), ConfigSetID: "default", GenerationID: "g1"}
+	mod.Platforms["linux"] = variant
+	after, err := json.Marshal(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedAfter, err := ParseAndValidateModuleJSON(after, "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ProjectModuleForPlatform(parsedBefore, "windows").Config.Sets[0].Generations[0].Fingerprint != ProjectModuleForPlatform(parsedAfter, "windows").Config.Sets[0].Generations[0].Fingerprint {
+		t.Fatal("Linux binding changed Windows fingerprint")
 	}
 }

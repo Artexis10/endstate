@@ -14,6 +14,7 @@ const (
 	DiagnosticMixedPlatformDeclarations = "mixed_platform_declarations"
 	DiagnosticMissingPlatform           = "missing_platform"
 	DiagnosticInvalidRealization        = "invalid_realization"
+	DiagnosticInvalidAdapterBinding     = "invalid_home_manager_adapter_binding"
 )
 
 func validateModuleV3(mod *Module, filePath string) error {
@@ -29,6 +30,12 @@ func validateModuleV3(mod *Module, filePath string) error {
 		}
 		if variant.Realization != "home-manager" && variant.Realization != "endstate-restore" {
 			return validationError(mod, filePath, DiagnosticInvalidRealization, "platform %q must declare realization home-manager or endstate-restore", platform)
+		}
+		if binding := variant.HomeManagerAdapter; binding != nil {
+			// Binding fields are schema identifiers and a SHA-256, not inferred content.
+			if platform != "linux" || !stableIDPattern.MatchString(binding.ID) || !stableIDPattern.MatchString(binding.ConfigSetID) || !stableIDPattern.MatchString(binding.GenerationID) || !generationFingerprintPattern.MatchString(binding.ReviewFingerprint) {
+				return validationError(mod, filePath, DiagnosticInvalidAdapterBinding, "homeManagerAdapter requires a Linux variant, stable ids, and a lowercase SHA-256 reviewFingerprint")
+			}
 		}
 		if err := validatePlatformHostPaths(platform, variant); err != nil {
 			return validationError(mod, filePath, DiagnosticUnsafePath, "platform %q: %v", platform, err)

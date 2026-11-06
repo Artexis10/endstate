@@ -16,8 +16,10 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -265,7 +267,39 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 	if platform == "" {
 		platform = "windows"
 	}
+	var authorities []hmregistry.Authority
+	if platform == "linux" {
+		var registry *hmregistry.Registry
+		var packages *packagecatalog.Catalog
+		if repoRoot != "" {
+			registryPath := filepath.Join(repoRoot, "catalog", "home-manager", "registry.jsonc")
+			if _, err := os.Stat(registryPath); err == nil {
+				registry, err = hmregistry.Load(registryPath)
+				if err != nil {
+					return nil, err
+				}
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
+			packagePath := filepath.Join(repoRoot, "catalog", "packages")
+			if _, err := os.Stat(packagePath); err == nil {
+				packages, err = packagecatalog.Load(packagePath)
+				if err != nil {
+					return nil, err
+				}
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
+		authorities = hmregistry.Join(registry, catalog, packages.Entries())
+	}
 	catalog = modules.FilterCatalogForPlatform(catalog, platform)
+	// Package matching and explicit selection cannot authorize a registry adapter.
+	for _, authority := range authorities {
+		if !authority.Supports(hmregistry.Capture) {
+			delete(catalog, authority.ModuleID)
+		}
+	}
 	if request.Selection.active() {
 		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
 		if scopeErr != nil {

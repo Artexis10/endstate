@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -431,5 +432,106 @@ func TestRunCaptureLinux_FailsBeforeWritingWhenNothingUsefulWasFound(t *testing.
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Fatalf("empty artifact was written before failure: %v", err)
+	}
+}
+
+func TestRunCaptureLinuxPackageMatchCannotCollectIneligibleAdapter(t *testing.T) {
+	registry, err := os.ReadFile(filepath.Join("..", "..", "..", "catalog", "home-manager", "registry.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, home, bin := t.TempDir(), t.TempDir(), t.TempDir()
+	executable := "rg"
+	if runtime.GOOS == "windows" {
+		executable += ".cmd"
+	}
+	files := map[string][]byte{
+		"catalog/home-manager/registry.jsonc": registry,
+		"catalog/packages/ripgrep.jsonc":      []byte(`{"schemaVersion":1,"id":"ripgrep","displayName":"ripgrep","nix":{"attribute":"ripgrep"},"aliases":{"executable":["` + executable + `"]},"configModule":"apps.ripgrep"}`),
+		"modules/apps/ripgrep/module.jsonc":   []byte(`{"moduleSchemaVersion":3,"id":"apps.ripgrep","displayName":"ripgrep","sensitivity":"low","platforms":{"linux":{"realization":"endstate-restore","matches":{"pathExists":["${xdg.config}/ripgrep/ripgreprc"]},"capture":{"files":[{"source":"${xdg.config}/ripgrep/ripgreprc","dest":"apps/ripgrep/ripgreprc"}]},"restore":[{"type":"copy","source":"./payload/apps/ripgrep/ripgreprc","target":"${xdg.config}/ripgrep/ripgreprc","backup":true}]}}}`),
+	}
+	for relative, body := range files {
+		target := filepath.Join(root, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source := filepath.Join(home, ".config", "ripgrep", "ripgreprc")
+	if err := os.MkdirAll(filepath.Dir(source), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("payload must not be collected"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, executable), []byte("Never execute this file."), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENDSTATE_ROOT", root)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PATH", bin)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	oldGOOS, oldRealizer, oldDiscovery, oldBundle := captureGOOSFn, newRealizerFn, discoverLinuxFn, createCaptureBundleFn
+	t.Cleanup(func() {
+		captureGOOSFn, newRealizerFn, discoverLinuxFn, createCaptureBundleFn = oldGOOS, oldRealizer, oldDiscovery, oldBundle
+	})
+	captureGOOSFn = func() string { return "linux" }
+	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	discoverLinuxFn = func(ctx context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
+		request.SelectedSources = []string{"catalog-executables", discovery.HomeManagerSettingsSource}
+		return discovery.Discover(ctx, request)
+	}
+	publications := 0
+	createCaptureBundleFn = func(request bundle.CaptureBundleRequest) (*bundle.CaptureBundleResult, error) {
+		publications++
+		if len(request.Modules) != 0 || len(request.GenerationPlans) != 0 || len(request.HomeManagerFiles) != 0 {
+			t.Fatalf("ineligible payload reached collection: %+v", request)
+		}
+		return bundle.CreateCaptureBundle(request)
+	}
+	withFakeGenerations(nil, errors.New("no history"), func() {
+		out := filepath.Join(t.TempDir(), "package.endstate")
+		raw, captureErr := RunCapture(CaptureFlags{Out: out})
+		if captureErr != nil {
+			t.Fatalf("independent package capture failed: %+v", captureErr)
+		}
+		result := raw.(*CaptureResult)
+		if publications != 1 || len(result.AppsIncluded) != 1 || len(result.Discovery.Settings) != 1 || len(result.Discovery.Settings[0].Actions) != 0 {
+			t.Fatalf("package inventory or inert settings evidence lost: %+v", result)
+		}
+		selected := filepath.Join(t.TempDir(), "selected.endstate")
+		_, captureErr = RunCapture(CaptureFlags{Out: selected, Only: "ripgrep,apps.ripgrep"})
+		if captureErr == nil || publications != 1 {
+			t.Fatalf("explicit module selection bypassed adapter authority: %+v publications=%d", captureErr, publications)
+		}
+		if _, err := os.Stat(selected); !os.IsNotExist(err) {
+			t.Fatalf("ineligible explicit selection published output: %v", err)
+		}
+	})
+}
+
+func TestLinuxSettingsSelectionCannotBorrowPackageAuthority(t *testing.T) {
+	oldTiers := captureCatalogTiersFn
+	captureCatalogTiersFn = func() ([]string, error) { return []string{"apps"}, nil }
+	t.Cleanup(func() { captureCatalogTiersFn = oldTiers })
+	for _, test := range []struct {
+		name      string
+		settings  map[string]bool
+		wantError bool
+	}{
+		{"Windows retains package-backed selection", nil, false},
+		{"independent module retains selection", map[string]bool{}, false},
+		{"known ineligible adapter", map[string]bool{"apps.example": false}, true},
+		{"capturable settings", map[string]bool{"apps.example": true}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, captureErr := validateCaptureOnlyWithSettings("example,apps.example", []capturedApp{{ID: "example"}}, nil, test.settings)
+			if (captureErr != nil) != test.wantError {
+				t.Fatalf("selection error=%+v wantError=%v", captureErr, test.wantError)
+			}
+		})
 	}
 }

@@ -89,22 +89,22 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 		}
 	}
 	adapterByModule := make(map[string]hmregistry.Entry)
+	entriesByID := make(map[string]hmregistry.Entry)
 	if registry != nil {
 		for _, entry := range registry.Entries {
-			moduleID := entry.ModuleID
-			if moduleID == "" {
-				candidate := "apps." + entry.ID
-				if moduleCatalog[candidate] != nil {
-					moduleID = candidate
-				}
+			entriesByID[entry.ID] = entry
+		}
+	}
+	authorityByModule := make(map[string]hmregistry.Authority)
+	for _, authority := range hmregistry.Join(registry, moduleCatalog, packages) {
+		if authority.ModuleID == "" {
+			continue
+		}
+		authorityByModule[authority.ModuleID] = authority
+		if entry, ok := entriesByID[authority.AdapterID]; ok {
+			if _, present := adapterByModule[authority.ModuleID]; !present {
+				adapterByModule[authority.ModuleID] = entry
 			}
-			if moduleID == "" || moduleCatalog[moduleID] == nil {
-				continue
-			}
-			if previous, duplicate := adapterByModule[moduleID]; duplicate {
-				return Matrix{}, fmt.Errorf("module %q has multiple Home Manager adapters %q and %q", moduleID, previous.ID, entry.ID)
-			}
-			adapterByModule[moduleID] = entry
 		}
 	}
 
@@ -144,7 +144,8 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 		_, hasLinuxVariant := module.Platforms["linux"]
 		row.LinuxCapture = hasLinuxVariant && moduleCaptures(module, "linux")
 		row.LinuxRestore = hasLinuxVariant && moduleRestores(module, "linux")
-		linuxVariantSupportsParity := hasLinuxVariant &&
+		authority, registryLinked := authorityByModule[moduleID]
+		linuxVariantSupportsParity := hasLinuxVariant && (!registryLinked || (authority.Supports(hmregistry.Capture) && authority.Supports(hmregistry.Restore) && authority.Supports(hmregistry.Verify) && authority.Supports(hmregistry.Revert))) &&
 			(!row.WindowsCapture || row.LinuxCapture) &&
 			(!row.WindowsRestore || row.LinuxRestore)
 		adapter, hasAdapter := adapterByModule[moduleID]
@@ -171,9 +172,7 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 		switch {
 		case linuxVariantSupportsParity:
 			row.Status = StatusSupported
-		case hasAdapter && adapter.Disposition != hmregistry.Excluded:
-			row.Status = StatusSupported
-		case !row.WindowsCapture && !row.WindowsRestore && hasPackage:
+		case !row.WindowsCapture && !row.WindowsRestore && !row.LinuxCapture && !row.LinuxRestore && hasPackage:
 			// A Windows module with no settings surface promises installation
 			// only. A reviewed Linux package mapping already matches it.
 			row.Status = StatusSupported
@@ -182,9 +181,12 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 			row.Status = review.Status
 			row.Reason = review.Reason
 			row.Evidence = append(row.Evidence, EvidenceManualReview)
-		case hasAdapter:
+		case hasAdapter || registryLinked:
 			row.Status = StatusAdapterRequired
-			row.Reason = adapter.ExclusionReason
+			row.Reason = authority.Reason
+			if adapter.ExclusionReason != "" {
+				row.Reason = adapter.ExclusionReason
+			}
 		case hasLinuxVariant:
 			row.Status = StatusAdapterRequired
 			row.Reason = "Linux variant does not cover the Windows capture and restore surface."

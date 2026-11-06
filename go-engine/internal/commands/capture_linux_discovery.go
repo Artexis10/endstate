@@ -88,6 +88,16 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 	flags.linuxSettingsApps = make(map[string]bool)
 	flags.linuxSettingsModules = make(map[string]bool)
 	for _, candidate := range result.Settings {
+		if candidate.ModuleID != "" {
+			if _, known := flags.linuxSettingsModules[candidate.ModuleID]; !known {
+				flags.linuxSettingsModules[candidate.ModuleID] = false
+			}
+		}
+		if strings.HasPrefix(candidate.ID, "apps.") {
+			if _, known := flags.linuxSettingsModules[candidate.ID]; !known {
+				flags.linuxSettingsModules[candidate.ID] = false
+			}
+		}
 		// Presence alone cannot satisfy a requested settings capture.
 		if !slices.Contains(candidate.Actions, discovery.SettingsCapture) {
 			continue

@@ -45,26 +45,36 @@ type Module struct {
 	// of a schema-v3 module. The projected legacy/generation shape lets the
 	// established collectors run while provenance retains the authored schema
 	// and host variant.
-	SourceSchemaVersion int                  `json:"-"`
-	Platform            string               `json:"-"`
-	Realization         string               `json:"-"`
-	Mappings            []PlatformMappingDef `json:"-"`
+	SourceSchemaVersion int                        `json:"-"`
+	Platform            string                     `json:"-"`
+	Realization         string                     `json:"-"`
+	Mappings            []PlatformMappingDef       `json:"-"`
+	HomeManagerAdapter  *HomeManagerAdapterBinding `json:"-"`
 	// canonicalSnapshot pins the parsed declarative module bytes at catalog load.
 	// It is intentionally private so callers cannot mutate the catalog snapshot.
 	canonicalSnapshot []byte
 }
 
+// HomeManagerAdapterBinding links reviewed metadata to one Linux generation.
+type HomeManagerAdapterBinding struct {
+	ID                string `json:"id"`
+	ReviewFingerprint string `json:"reviewFingerprint"`
+	ConfigSetID       string `json:"configSetId"`
+	GenerationID      string `json:"generationId"`
+}
+
 // PlatformVariant owns every executable declaration for one host operating
 // system. Shared identity/presentation stays on Module.
 type PlatformVariant struct {
-	Mappings    []PlatformMappingDef `json:"mappings,omitempty"`
-	Realization string               `json:"realization"`
-	Matches     MatchCriteria        `json:"matches"`
-	Verify      []VerifyDef          `json:"verify,omitempty"`
-	Restore     []RestoreDef         `json:"restore,omitempty"`
-	Capture     *CaptureDef          `json:"capture,omitempty"`
-	Secrets     *SecretsDef          `json:"secrets,omitempty"`
-	Config      *ConfigDef           `json:"config,omitempty"`
+	HomeManagerAdapter *HomeManagerAdapterBinding `json:"homeManagerAdapter,omitempty"`
+	Mappings           []PlatformMappingDef       `json:"mappings,omitempty"`
+	Realization        string                     `json:"realization"`
+	Matches            MatchCriteria              `json:"matches"`
+	Verify             []VerifyDef                `json:"verify,omitempty"`
+	Restore            []RestoreDef               `json:"restore,omitempty"`
+	Capture            *CaptureDef                `json:"capture,omitempty"`
+	Secrets            *SecretsDef                `json:"secrets,omitempty"`
+	Config             *ConfigDef                 `json:"config,omitempty"`
 }
 
 // CurationDef carries repository-maintenance metadata used to reproduce and

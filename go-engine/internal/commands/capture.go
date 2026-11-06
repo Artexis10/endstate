@@ -193,10 +193,16 @@ func validateCaptureOnlyWithSettings(
 			selectedSettings = true
 			continue
 		}
-		if len(sel.appIDs) == 0 {
+		// A known unavailable settings candidate cannot borrow package authority.
+		_, knownSettings := settingsModules[id]
+		if len(sel.appIDs) == 0 || knownSettings {
+			message := fmt.Sprintf("--only references settings that were not detected on this machine: %s", id)
+			if knownSettings {
+				message = fmt.Sprintf("--only references settings unavailable for automatic capture: %s", id)
+			}
 			return sel, nil, envelope.NewError(
 				envelope.ErrManifestValidationError,
-				fmt.Sprintf("--only references settings that were not detected on this machine: %s", id)).
+				message).
 				WithRemediation("Run capture without --only to see the detected settings ids, then select from those.")
 		}
 	}

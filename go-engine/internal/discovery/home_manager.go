@@ -15,7 +15,8 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
-	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
 )
 
 const (
@@ -23,11 +24,13 @@ const (
 	maxHomeManagerSettingsFileSize int64 = 1 << 20
 )
 
-// HomeManagerAdapter inverts only the release-reviewed file targets in the
-// frozen Home Manager registry. It reads live files directly and never calls
+// HomeManagerAdapter observes reviewed registry targets and collects only
+// settings authorized by the bound Linux generation. It never calls
 // Nix, Home Manager, a shell, or the user configuration graph.
 type HomeManagerAdapter struct {
 	Registry    *hmregistry.Registry
+	Modules     map[string]*modules.Module
+	Packages    []*packagecatalog.Entry
 	Environment config.PathEnvironment
 	FS          homeManagerFilesystem
 }
@@ -62,20 +65,17 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 		filesystem = hostHomeManagerFilesystem{}
 	}
 	result := AdapterInventory{}
+	authorities := hmregistry.Join(adapter.Registry, adapter.Modules, adapter.Packages)
 	for _, entry := range adapter.Registry.Entries {
 		if err := ctx.Err(); err != nil {
 			return AdapterInventory{}, err
 		}
-		if entry.Disposition == hmregistry.Excluded {
-			continue
-		}
-		if !runtimeHomeManagerCodecSupported(entry.Disposition, entry.Codec) {
-			result.Ignored++
-			result.Warnings = append(result.Warnings, Warning{
-				Code: "settings_codec_unavailable", Source: HomeManagerSettingsSource, ItemID: entry.ID,
-				Message: "This reviewed settings surface requires a codec that is not available in this engine.",
-			})
-			continue
+		authority := hmregistry.Authority{}
+		for _, candidate := range authorities {
+			if candidate.AdapterID == entry.ID && (candidate.ModuleID == entry.ModuleID || entry.ModuleID == "") {
+				authority = candidate
+				break
+			}
 		}
 		candidateID := entry.ModuleID
 		if candidateID == "" {
@@ -86,7 +86,8 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 		for _, target := range entry.Targets {
 			source, err := config.ResolveEnginePath(target.Coordinate, adapter.Environment)
 			if err != nil {
-				return AdapterInventory{}, err
+				result.Warnings = append(result.Warnings, Warning{Code: "settings_path_unavailable", Source: HomeManagerSettingsSource, ItemID: entry.ID, Message: "A reviewed settings coordinate could not be resolved."})
+				continue
 			}
 			info, err := filesystem.Lstat(source)
 			if errors.Is(err, os.ErrNotExist) {
@@ -108,6 +109,10 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 				})
 				continue
 			}
+			evidence = append(evidence, Evidence{Source: HomeManagerSettingsSource, Kind: EvidenceConfig, Ref: target.Coordinate})
+			if !authority.Supports(hmregistry.Capture) {
+				continue
+			}
 			observedHash, err := observeHomeManagerSettingsFile(filesystem, source, info)
 			if err != nil {
 				result.Ignored++
@@ -122,15 +127,21 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 				Codec: entry.Codec, Target: target.Coordinate, Source: source, Optional: target.Optional,
 				ObservedSize: info.Size(), ObservedSHA256: observedHash,
 			})
-			evidence = append(evidence, Evidence{Source: HomeManagerSettingsSource, Kind: EvidenceConfig, Ref: target.Coordinate})
 		}
-		if len(plans) == 0 {
+		if len(evidence) == 0 {
 			continue
+		}
+		actions := make([]SettingsAction, 0, len(authority.Actions))
+		for _, action := range authority.Actions {
+			actions = append(actions, SettingsAction(action))
+		}
+		if authority.Reason != "" {
+			result.Warnings = append(result.Warnings, Warning{Code: authority.Reason, Source: HomeManagerSettingsSource, ItemID: entry.ID, Message: "This settings candidate is unavailable for automatic capture and restore under the current adapter authority."})
 		}
 		result.Settings = append(result.Settings, SettingsCandidate{
 			ID: candidateID, ModuleID: entry.ModuleID, DisplayName: entry.DisplayName + " settings",
 			PackageID: entry.PackageID, Portability: PortabilityConfigOnly,
-			Actions:  []SettingsAction{SettingsCapture, SettingsRestore, SettingsVerify, SettingsRevert},
+			Actions:  actions,
 			Evidence: evidence,
 		})
 		result.SettingsFiles = append(result.SettingsFiles, plans...)
@@ -143,11 +154,6 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 		return result.SettingsFiles[i].Target < result.SettingsFiles[j].Target
 	})
 	return result, nil
-}
-
-func runtimeHomeManagerCodecSupported(disposition hmregistry.Disposition, codec string) bool {
-	return (disposition == hmregistry.FileRoundTrip && codec == settingscodec.BoundedRegularFileV1) ||
-		(disposition == hmregistry.CuratedCodec && codec == settingscodec.GitConfigSafeV1)
 }
 
 func observeHomeManagerSettingsFile(filesystem homeManagerFilesystem, source string, before os.FileInfo) (string, error) {

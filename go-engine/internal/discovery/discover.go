@@ -11,6 +11,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
@@ -73,8 +74,12 @@ func DiscoverWithAdapters(ctx context.Context, request Request, extraAdapters ..
 		adapters = append(adapters, SnapAdapter{})
 	}
 	if registry != nil {
+		moduleCatalog, _, loadErr := modules.GetCatalogWithDiagnostics(root)
+		if loadErr != nil {
+			moduleCatalog = nil
+		}
 		adapters = append(adapters, HomeManagerAdapter{
-			Registry:    registry,
+			Registry: registry, Modules: moduleCatalog, Packages: catalog.Entries(),
 			Environment: environment,
 		})
 	}

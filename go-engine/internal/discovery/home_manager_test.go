@@ -6,6 +6,7 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,9 +15,10 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
-func TestHomeManagerAdapterFindsLiveSettingsWithoutNix(t *testing.T) {
+func TestHomeManagerAdapterObservesUnboundSettingsWithoutReadingPayload(t *testing.T) {
 	home := t.TempDir()
 	source := filepath.Join(home, ".config", "ripgrep", "ripgreprc")
 	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
@@ -32,8 +34,9 @@ func TestHomeManagerAdapterFindsLiveSettingsWithoutNix(t *testing.T) {
 		Disposition: hmregistry.FileRoundTrip, Codec: "bounded-regular-file-v1",
 		Targets: []hmregistry.Target{{Coordinate: "${xdg.config}/ripgrep/ripgreprc"}},
 	}}}
+	filesystem := &authorityObservationFS{}
 	inventory, err := (HomeManagerAdapter{
-		Registry: registry,
+		Registry: registry, FS: filesystem,
 		Environment: config.PathEnvironment{
 			GOOS: "linux", Home: home, Env: map[string]string{},
 		},
@@ -48,23 +51,16 @@ func TestHomeManagerAdapterFindsLiveSettingsWithoutNix(t *testing.T) {
 	if candidate.ID != "apps.ripgrep" || candidate.Portability != PortabilityConfigOnly {
 		t.Fatalf("candidate = %+v", candidate)
 	}
-	wantActions := []SettingsAction{SettingsCapture, SettingsRestore, SettingsVerify, SettingsRevert}
-	if !reflect.DeepEqual(candidate.Actions, wantActions) {
-		t.Fatalf("actions = %v, want %v", candidate.Actions, wantActions)
+	if len(candidate.Actions) != 0 || filesystem.opens != 0 {
+		t.Fatalf("unbound payload was authorized or read: actions=%v opens=%d", candidate.Actions, filesystem.opens)
 	}
 	if len(candidate.Evidence) != 1 || candidate.Evidence[0].Ref != "${xdg.config}/ripgrep/ripgreprc" {
 		t.Fatalf("evidence = %+v", candidate.Evidence)
 	}
-	if len(inventory.SettingsFiles) != 1 {
-		t.Fatalf("file plans = %+v", inventory.SettingsFiles)
+	if len(inventory.SettingsFiles) != 0 || len(inventory.Warnings) != 1 || inventory.Warnings[0].Code != "settings_adapter_unbound" {
+		t.Fatalf("unbound plans or diagnostics: %+v", inventory)
 	}
-	plan := inventory.SettingsFiles[0]
-	if plan.Source != source || plan.Target != "${xdg.config}/ripgrep/ripgreprc" || plan.CandidateID != candidate.ID {
-		t.Fatalf("file plan = %+v", plan)
-	}
-	if len(plan.ObservedSHA256) != 64 {
-		t.Fatalf("file plan has no bounded content observation: %+v", plan)
-	}
+
 }
 
 func TestHomeManagerAdapterSkipsExcludedMissingAndLinkedTargets(t *testing.T) {
@@ -97,7 +93,7 @@ func TestHomeManagerAdapterSkipsExcludedMissingAndLinkedTargets(t *testing.T) {
 	}
 }
 
-func TestHomeManagerAdapterCarriesReviewedCuratedCodec(t *testing.T) {
+func TestHomeManagerAdapterDoesNotAuthorizeGitDenylistCodec(t *testing.T) {
 	home := t.TempDir()
 	source := filepath.Join(home, ".gitconfig")
 	if err := os.WriteFile(source, []byte("[user]\nname = Example\n"), 0o600); err != nil {
@@ -115,7 +111,7 @@ func TestHomeManagerAdapterCarriesReviewedCuratedCodec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventory.SettingsFiles) != 1 || inventory.SettingsFiles[0].Codec != "git-config-safe-v1" {
+	if len(inventory.SettingsFiles) != 0 || len(inventory.Settings) != 1 || len(inventory.Settings[0].Actions) != 0 {
 		t.Fatalf("curated plans = %+v", inventory.SettingsFiles)
 	}
 }
@@ -150,5 +146,86 @@ func TestOrchestratorCarriesSelectedPrivateSettingsPlansAndUpgradesPortability(t
 	encoded := strings.TrimSpace(string(data))
 	if strings.Contains(encoded, "/private/home") || strings.Contains(encoded, "settingsFiles") {
 		t.Fatalf("private source leaked into discovery JSON: %s", encoded)
+	}
+}
+
+// This filesystem observes the production content-open boundary.
+type authorityObservationFS struct{ opens int }
+
+func (f *authorityObservationFS) Lstat(path string) (os.FileInfo, error) { return os.Lstat(path) }
+func (f *authorityObservationFS) Open(path string) (homeManagerFile, error) {
+	f.opens++
+	return os.Open(path)
+}
+
+func TestHomeManagerBoundByteCodecRetainsMetadataWithoutOpeningPayload(t *testing.T) {
+	registry, err := hmregistry.Load(filepath.Join("..", "..", "..", "catalog", "home-manager", "registry.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry hmregistry.Entry
+	for _, candidate := range registry.Entries {
+		if candidate.ID == "ripgrep" {
+			entry = candidate
+		}
+	}
+	home := t.TempDir()
+	environment := config.PathEnvironment{GOOS: "linux", Home: home, Env: map[string]string{}}
+	variant := modules.PlatformVariant{Realization: "endstate-restore", Matches: modules.MatchCriteria{}, HomeManagerAdapter: &modules.HomeManagerAdapterBinding{ID: entry.ID, ReviewFingerprint: entry.ReviewFingerprint, ConfigSetID: "default", GenerationID: "g1"}, Capture: &modules.CaptureDef{}}
+	for index, target := range entry.Targets {
+		dest := fmt.Sprintf("apps/ripgrep/settings-%d", index)
+		variant.Capture.Files = append(variant.Capture.Files, modules.CaptureFile{Source: target.Coordinate, Dest: dest, Optional: target.Optional})
+		variant.Restore = append(variant.Restore, modules.RestoreDef{Type: "copy", Source: "./payload/" + dest, Target: target.Coordinate, Optional: target.Optional, Backup: true})
+		source, err := config.ResolveEnginePath(target.Coordinate, environment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(source), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(source, []byte("--hidden\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body, err := json.Marshal(modules.Module{ModuleSchemaVersion: 3, ID: entry.ModuleID, DisplayName: "ripgrep", Sensitivity: "low", Platforms: map[string]modules.PlatformVariant{"linux": variant}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modules.ParseAndValidateModuleJSON(body, "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := *mod
+	other.ID = "apps.unrelated"
+	otherBody, err := json.Marshal(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherModule, err := modules.ParseAndValidateModuleJSON(otherBody, "other.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem := &authorityObservationFS{}
+	inventory, err := (HomeManagerAdapter{Registry: &hmregistry.Registry{Entries: []hmregistry.Entry{entry}}, Modules: map[string]*modules.Module{mod.ID: mod, otherModule.ID: otherModule}, Packages: testPackageCatalog(t).Entries(), Environment: environment, FS: filesystem}).Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Settings) != 1 || len(inventory.Settings[0].Evidence) != len(entry.Targets) || len(inventory.Settings[0].Actions) != 0 || len(inventory.SettingsFiles) != 0 || filesystem.opens != 0 || len(inventory.Warnings) != 1 || inventory.Warnings[0].Code != "settings_content_policy_unavailable" {
+		t.Fatalf("bound metadata granted byte-codec payload authority: inventory=%+v opens=%d", inventory, filesystem.opens)
+	}
+}
+
+func TestHomeManagerExcludedTargetRemainsVisibleWithoutPayloadAuthority(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "settings"), []byte("excluded content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	filesystem := &authorityObservationFS{}
+	inventory, err := (HomeManagerAdapter{Registry: &hmregistry.Registry{Entries: []hmregistry.Entry{{ID: "excluded", DisplayName: "Excluded", ModuleID: "apps.excluded", Disposition: hmregistry.Excluded, Targets: []hmregistry.Target{{Coordinate: "${home}/settings"}}}}}, Environment: config.PathEnvironment{GOOS: "linux", Home: home, Env: map[string]string{}}, FS: filesystem}).Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Settings) != 1 || len(inventory.Settings[0].Evidence) != 1 || len(inventory.Settings[0].Actions) != 0 || len(inventory.SettingsFiles) != 0 || filesystem.opens != 0 || len(inventory.Warnings) != 1 || inventory.Warnings[0].Code != "settings_adapter_excluded" {
+		t.Fatalf("excluded candidate lost evidence or gained payload authority: inventory=%+v opens=%d", inventory, filesystem.opens)
 	}
 }
