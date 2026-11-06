@@ -62,10 +62,6 @@ type Backend struct {
 	// Tests (in-package) set this to drive Realize's atomicity detection
 	// hermetically without a real generation switch.
 	genFn func() int
-	// homeGenFn overrides home-manager generation reading; nil means read the
-	// home-manager profile symlink. Tests set it so ActivateHome's success path
-	// is exercised hermetically without a real home-manager switch.
-	homeGenFn func() int
 }
 
 // gen returns the active generation number, via genFn when set (tests) else by

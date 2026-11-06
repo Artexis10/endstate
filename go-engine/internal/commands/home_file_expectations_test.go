@@ -42,7 +42,7 @@ func TestHomeManagerVerifyDetectsChangedBytesWithUnchangedGeneration(t *testing.
 	if err := os.WriteFile(target, []byte("changed B"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	item := checkHomeManagerGeneration(&fakeRealizer{activeHomeGen: 5}, noopEmitter())
+	item := checkHomeManagerGeneration(&fakeRealizer{homeObservation: realizer.HomeObservation{Present: true, Generation: 5, ActivationOutput: "/nix/store/fake-home-output"}}, noopEmitter())
 	if item.Status != "fail" || item.Reason != "config_drift" {
 		t.Fatalf("unchanged generation hid changed declared file: %+v", item)
 	}
@@ -68,12 +68,14 @@ func (b *expectationHomeBackend) ActivatePreparedHome(resolution *realizer.Input
 	if b.activate != nil {
 		b.activate(output)
 	}
-	b.activeHomeGen++
+	b.homeObservation.Generation++
 	b.activeOutput = output
-	return b.activeHomeGen, nil
+	return b.homeObservation.Generation, nil
 }
 
-func (b *expectationHomeBackend) ActiveHomeOutput() string { return b.activeOutput }
+func (b *expectationHomeBackend) ObserveHome() (realizer.HomeObservation, error) {
+	return realizer.HomeObservation{Present: b.homeObservation.Generation > 0, Generation: b.homeObservation.Generation, ActivationOutput: b.activeOutput}, nil
+}
 
 func TestHomeManagerFrozenFilesApplyVerifyAndRollback(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -178,7 +180,7 @@ func TestHomeManagerFrozenFilesApplyVerifyAndRollback(t *testing.T) {
 		t.Fatalf("rollback mismatch reported success: %+v", err)
 	}
 	history, err = provision.List()
-	if err != nil || len(history) != 4 || !history[0].Partial || !history[0].Rollback || history[0].HomeManager.Generation != backend.activeHomeGen || !history[0].HomeManager.ActivationFailed {
+	if err != nil || len(history) != 4 || !history[0].Partial || !history[0].Rollback || history[0].HomeManager.Generation != backend.homeObservation.Generation || !history[0].HomeManager.ActivationFailed {
 		t.Fatalf("verification failure lost committed forward history: %+v %v", history, err)
 	}
 }
@@ -197,7 +199,7 @@ func TestHomeManagerFileEvidenceUnavailableAndEmptyAreDistinct(t *testing.T) {
 			if err := provision.Write(&provision.Generation{Backend: "nix", HomeManager: &provision.HomeGenRef{Generation: 5, FileExpectations: evidence.files}}); err != nil {
 				t.Fatal(err)
 			}
-			item := checkHomeManagerGeneration(&fakeRealizer{activeHomeGen: 5}, noopEmitter())
+			item := checkHomeManagerGeneration(&fakeRealizer{homeObservation: realizer.HomeObservation{Present: true, Generation: 5, ActivationOutput: "/nix/store/fake-home-output"}}, noopEmitter())
 			if item.Status != evidence.status || strings.Contains(item.Message, "typed settings match") {
 				t.Fatalf("file evidence scope was misrepresented: %+v", item)
 			}
@@ -249,7 +251,7 @@ func TestHomeManagerMalformedFrozenArtifactStopsApplyBeforeMutation(t *testing.T
 			}
 			mf := &manifest.Manifest{HomeManager: &manifest.HomeManagerConfig{Settings: &manifest.HomeManagerSettings{}}}
 			_, err := runApplyRealizer(ApplyFlags{EnableRestore: true}, mf, backend, noopEmitter(), "invalid-metadata", nil, nil, nil, nil, nil)
-			if err == nil || backend.realizeCalls != 0 || backend.activeHomeGen != 0 {
+			if err == nil || backend.realizeCalls != 0 || backend.homeObservation.Generation != 0 {
 				t.Fatalf("invalid activation metadata reached mutation: %+v %+v", backend, err)
 			}
 		})
@@ -309,7 +311,7 @@ func TestHomeManagerInvalidRecordedEvidenceReportsUnreadableHistory(t *testing.T
 	if err := os.WriteFile(filepath.Join(provision.Dir(), "000001.json"), []byte(`{"homeManager":{"generation":5,"fileExpectations":{"files":null}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	item := checkHomeManagerGeneration(&fakeRealizer{activeHomeGen: 5}, noopEmitter())
+	item := checkHomeManagerGeneration(&fakeRealizer{homeObservation: realizer.HomeObservation{Present: true, Generation: 5, ActivationOutput: "/nix/store/fake-home-output"}}, noopEmitter())
 	if item.Status != "fail" || item.Reason != "unreadable" {
 		t.Fatalf("invalid history fabricated generation drift: %+v", item)
 	}

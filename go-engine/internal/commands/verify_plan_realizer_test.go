@@ -370,7 +370,7 @@ func TestRunPlanRealizer_ActionDriver(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// home-manager verify tests (HomeGenerationReader seam)
+// home-manager verify tests (HomeObserver seam)
 // ---------------------------------------------------------------------------
 
 // seedHMGeneration writes a Provisioning Generation recording a home-manager
@@ -410,7 +410,7 @@ func TestRunVerifyRealizer_HomeManager_Pass(t *testing.T) {
 			Generation: 3,
 			Elements:   map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
 		},
-		activeHomeGen: 5, // matches recorded
+		homeObservation: realizer.HomeObservation{Present: true, Generation: 5, ActivationOutput: "/nix/store/fake-home-output"}, // matches recorded
 	}
 
 	flags := VerifyFlags{Manifest: "hm-pass"}
@@ -459,7 +459,7 @@ func TestRunVerifyRealizer_HomeManager_ConfigDrift(t *testing.T) {
 		currentSet: realizer.Set{
 			Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
 		},
-		activeHomeGen: 7, // differs from recorded (5)
+		homeObservation: realizer.HomeObservation{Present: true, Generation: 7, ActivationOutput: "/nix/store/fake-home-output"}, // differs from recorded (5)
 	}
 
 	flags := VerifyFlags{Manifest: "hm-drift"}
@@ -508,7 +508,7 @@ func TestRunVerifyRealizer_HomeManager_Missing(t *testing.T) {
 		currentSet: realizer.Set{
 			Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
 		},
-		activeHomeGen: 0, // nothing active
+		homeObservation: realizer.HomeObservation{}, // nothing active
 	}
 
 	flags := VerifyFlags{Manifest: "hm-missing"}
@@ -546,8 +546,8 @@ func TestRunVerifyRealizer_HomeManager_NoRecordedGen_Missing(t *testing.T) {
 	mf := hmManifest(app)
 
 	fr := &fakeRealizer{
-		currentSet:    realizer.Set{Elements: map[string]realizer.Element{}},
-		activeHomeGen: 0,
+		currentSet:      realizer.Set{Elements: map[string]realizer.Element{}},
+		homeObservation: realizer.HomeObservation{},
 	}
 
 	flags := VerifyFlags{Manifest: "hm-no-history"}
@@ -587,7 +587,7 @@ func TestRunVerifyRealizer_NoHomeManager_NoHmItem(t *testing.T) {
 		currentSet: realizer.Set{
 			Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
 		},
-		activeHomeGen: 3,
+		homeObservation: realizer.HomeObservation{Present: true, Generation: 3, ActivationOutput: "/nix/store/fake-home-output"},
 	}
 
 	flags := VerifyFlags{Manifest: "no-hm-field"}
@@ -610,7 +610,7 @@ func TestRunVerifyRealizer_NoHomeManager_NoHmItem(t *testing.T) {
 	}
 }
 
-// minimalRealizer implements only realizer.Realizer — NOT HomeGenerationReader —
+// minimalRealizer implements only realizer.Realizer — NOT HomeObserver —
 // so the verify path must skip the hm check when using it.
 type minimalRealizer struct {
 	currentSet realizer.Set
@@ -625,9 +625,9 @@ func (m *minimalRealizer) Realize([]realizer.Installable) (realizer.Result, erro
 	return realizer.Result{}, nil
 }
 
-// TestRunVerifyRealizer_NoHomeGenerationReader_Skips: realizer does not implement
-// HomeGenerationReader → no home-manager item even when manifest declares hm.
-func TestRunVerifyRealizer_NoHomeGenerationReader_Skips(t *testing.T) {
+// TestRunVerifyRealizer_NoHomeObserver_Skips: realizer does not implement
+// HomeObserver → no home-manager item even when manifest declares hm.
+func TestRunVerifyRealizer_NoHomeObserver_Skips(t *testing.T) {
 	t.Setenv("ENDSTATE_ROOT", t.TempDir())
 	seedHMGeneration(t, 5)
 
@@ -649,7 +649,7 @@ func TestRunVerifyRealizer_NoHomeGenerationReader_Skips(t *testing.T) {
 
 	for _, item := range vr.Results {
 		if item.Type == "home-manager" {
-			t.Errorf("unexpected home-manager item: backend does not implement HomeGenerationReader")
+			t.Errorf("unexpected home-manager item: backend does not implement HomeObserver")
 		}
 	}
 }

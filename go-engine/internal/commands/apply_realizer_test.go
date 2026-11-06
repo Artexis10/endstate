@@ -71,7 +71,8 @@ type fakeRealizer struct {
 	lastHomeRollbackArg int
 
 	// --- home-manager generation reading (verify) ---
-	activeHomeGen int // scripted ActiveHomeGeneration return value
+	homeObservation realizer.HomeObservation
+	homeObserveErr  error
 }
 
 // RollbackHome satisfies realizer.HomeRollbacker, recording the requested
@@ -81,14 +82,16 @@ type fakeRealizer struct {
 func (f *fakeRealizer) RollbackHome(generation int) (int, error) {
 	f.homeRollbackCalls++
 	f.lastHomeRollbackArg = generation
+	if f.homeRollbackGen > 0 {
+		f.homeObservation = realizer.HomeObservation{Present: true, Generation: f.homeRollbackGen, ActivationOutput: "/nix/store/fake-home-output"}
+	}
 	return f.homeRollbackGen, f.homeRollbackErr
 }
 
-// ActiveHomeGeneration satisfies realizer.HomeGenerationReader, returning the
-// scripted activeHomeGen value. Its presence makes *fakeRealizer a
-// HomeGenerationReader, so the verify home-manager check is exercised
-// host-independently.
-func (f *fakeRealizer) ActiveHomeGeneration() int { return f.activeHomeGen }
+// ObserveHome returns the scripted native identity or observation failure.
+func (f *fakeRealizer) ObserveHome() (realizer.HomeObservation, error) {
+	return f.homeObservation, f.homeObserveErr
+}
 
 // ActivateHome satisfies realizer.HomeActivator, recording the requested flake
 // and returning the scripted generation/error. Its presence makes *fakeRealizer a
@@ -96,6 +99,9 @@ func (f *fakeRealizer) ActiveHomeGeneration() int { return f.activeHomeGen }
 func (f *fakeRealizer) ActivateHome(flake string) (int, error) {
 	f.activateCalls++
 	f.lastActivateArg = flake
+	if f.homeGenNum > 0 {
+		f.homeObservation = realizer.HomeObservation{Present: true, Generation: f.homeGenNum, ActivationOutput: "/nix/store/fake-home-output"}
+	}
 	return f.homeGenNum, f.homeErr
 }
 
@@ -926,7 +932,7 @@ func TestRunApplyRealizer_ExternalHomeManagerGetsImportActionNotActivation(t *te
 	manifestPath, cfgRel := writeHomeNix(t)
 	mf := nixManifest()
 	mf.HomeManager = &manifest.HomeManagerConfig{Config: cfgRel}
-	fr := &fakeRealizer{activeHomeGen: 9, homeGenNum: 10}
+	fr := &fakeRealizer{homeObservation: realizer.HomeObservation{Present: true, Generation: 9, ActivationOutput: "/nix/store/fake-home-output"}, homeGenNum: 10}
 
 	raw, eerr := runApplyRealizer(
 		ApplyFlags{Manifest: manifestPath, EnableRestore: true},
@@ -963,11 +969,11 @@ func TestRunApplyRealizer_ExternalHomeManagerGetsImportActionNotActivation(t *te
 }
 
 func TestExternalHomeManagerActionRecognizesEndstateOwnedActiveGeneration(t *testing.T) {
-	fr := &fakeRealizer{activeHomeGen: 9}
+	fr := &fakeRealizer{homeObservation: realizer.HomeObservation{Present: true, Generation: 9, ActivationOutput: "/nix/store/fake-home-output"}}
 	withFakeGenerations([]*provision.Generation{{
 		HomeManager: &provision.HomeGenRef{Flake: "/state/home-manager/me#me", Generation: 9},
 	}}, nil, func() {
-		if action := externalHomeManagerAction(fr, "/state/home-manager/me#me", true); action != nil {
+		if action, err := externalHomeManagerAction(fr, "/state/home-manager/me#me", true); action != nil || err != nil {
 			t.Fatalf("Endstate-owned active generation was treated as external: %+v", action)
 		}
 	})

@@ -163,6 +163,13 @@ func TestProvisioningReviewCaptureFindsOlderOwnedOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.activeHome = old.ActivationOutput
+	profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+	if err := os.MkdirAll(filepath.Dir(profile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("home-manager-2-link", profile); err != nil {
+		t.Fatal(err)
+	}
 	cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend)
 	if cfg == nil || cfg.Settings == nil || cfg.Settings.Git.DefaultBranch != "trunk" || len(warnings) != 0 {
 		t.Fatalf("capture did not find matching older ownership: %+v %v", cfg, warnings)
@@ -307,7 +314,7 @@ func TestProvisioningReviewFailedRetryInvalidatesSameActiveHomeOutput(t *testing
 	if item := checkHomeManagerGeneration(f.backend, noopEmitter()); item.Status != "fail" {
 		t.Fatalf("failed same-output retry remained verified: %+v", item)
 	}
-	if action := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil {
+	if action, err := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil || err != nil {
 		t.Fatalf("failed retry lost existing ownership: %+v", action)
 	}
 }

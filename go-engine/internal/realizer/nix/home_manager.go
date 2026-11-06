@@ -20,14 +20,7 @@ import (
 // the apply path can discover home-manager config support by type-assertion.
 var _ realizer.HomeActivator = (*Backend)(nil)
 
-// compile-time assertion: the Nix backend implements realizer.HomeGenerationReader,
-// so the verify path can discover home-manager generation reading by type-assertion.
-var _ realizer.HomeGenerationReader = (*Backend)(nil)
-
-// ActiveHomeGeneration returns the active home-manager generation number by
-// delegating to homeGen(), which reads the profile symlink (or the injected
-// homeGenFn in tests). Returns 0 when no home-manager generation is active.
-func (b *Backend) ActiveHomeGeneration() int { return b.homeGen() }
+var _ realizer.HomeObserver = (*Backend)(nil)
 
 // ActivateHome prepares an exact native activation for direct callers. The
 // command path prepares it before package mutation and reuses that built output.
@@ -83,31 +76,59 @@ func portableAbsoluteHomePath(value string) (string, bool) {
 	return "", false
 }
 
-// homeGen returns the active home-manager generation number, via homeGenFn when
-// set (tests) else by reading the home-manager profile symlink.
-func (b *Backend) homeGen() int {
-	if b.homeGenFn != nil {
-		return b.homeGenFn()
+// ObserveHome inspects the selected generation link, then checks that the
+// profile still selects it. This detects changes without claiming a native lock.
+func (b *Backend) ObserveHome() (realizer.HomeObservation, error) {
+	profile := homeProfilePath()
+	target, err := os.Readlink(profile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return realizer.HomeObservation{}, nil
+		}
+		return realizer.HomeObservation{}, homeObservationError(err)
 	}
-	return homeGeneration()
+	// Native profiles select a sibling home-manager-<positive generation>-link.
+	base := filepath.Base(target)
+	number := strings.TrimSuffix(strings.TrimPrefix(base, "home-manager-"), "-link")
+	generation, parseErr := strconv.Atoi(number)
+	link := filepath.Join(filepath.Dir(profile), base)
+	if parseErr != nil || generation <= 0 || base != "home-manager-"+strconv.Itoa(generation)+"-link" ||
+		(target != base && target != link) {
+		return realizer.HomeObservation{}, homeObservationError(fmt.Errorf("invalid Home Manager profile link %q", target))
+	}
+	// A single native opaque path has one canonical result. Plain path output
+	// avoids versioned JSON shapes and never evaluates user configuration.
+	data, err := b.native("path-info", link)
+	if err != nil {
+		return realizer.HomeObservation{}, homeObservationError(err)
+	}
+	output := strings.TrimSpace(string(data))
+	if !storePath(output) {
+		return realizer.HomeObservation{}, homeObservationError(fmt.Errorf("Home Manager activation output is unavailable"))
+	}
+	after, err := os.Readlink(profile)
+	if err != nil {
+		return realizer.HomeObservation{}, homeObservationError(err)
+	}
+	if after != target {
+		return realizer.HomeObservation{}, homeObservationError(fmt.Errorf("Home Manager profile changed during observation"))
+	}
+	return realizer.HomeObservation{Present: true, Generation: generation, ActivationOutput: output}, nil
 }
 
-// homeGeneration reads the active home-manager generation number from the
-// home-manager nix-profile symlink (<...>/nix/profiles/home-manager ->
-// home-manager-<N>-link). Returns 0 when the profile does not exist. The path
-// and `-<N>-link` naming were confirmed against real home-manager.
-func homeGeneration() int {
-	target, err := os.Readlink(homeProfilePath())
-	if err != nil {
-		return 0
+func homeObservationError(err error) *realizer.Error {
+	code := realizer.ErrInputProvenanceUnresolved
+	raw := err.Error()
+	if os.IsPermission(err) {
+		code = envelope.ErrPermissionDenied
 	}
-	base := strings.TrimSuffix(filepath.Base(target), "-link")
-	if i := strings.LastIndex(base, "-"); i >= 0 {
-		if n, err := strconv.Atoi(base[i+1:]); err == nil {
-			return n
+	if failure, ok := err.(*realizer.Error); ok {
+		raw = failure.Raw
+		if failure.Code == envelope.ErrPermissionDenied || failure.Code == envelope.ErrRealizerUnavailable {
+			code = failure.Code
 		}
 	}
-	return 0
+	return &realizer.Error{Code: code, Subcode: "home-ownership", Stage: "eval", Raw: raw}
 }
 
 // homeProfilePath returns the home-manager nix-profile path under the XDG state
@@ -199,45 +220,33 @@ func (b *Backend) ActivatePreparedHome(r *realizer.InputResolution) (int, error)
 // Failed settings attempts invalidate completion even if the intended output
 // was already active. Observe advancement separately from that active identity.
 func (b *Backend) activateHomeOutput(output string) (int, error) {
-	beforeGeneration := b.homeGen()
-	beforeOutput := b.ActiveHomeOutput()
+	before, err := b.ObserveHome()
+	if err != nil {
+		return 0, err
+	}
 	_, stderr, exit, err := b.execScript(path.Join(output, "activate"))
-	generation := b.homeGen()
-	activeOutput := b.ActiveHomeOutput()
+	after, observeErr := b.ObserveHome()
+	if observeErr != nil {
+		failure := homeObservationError(observeErr)
+		failure.Stage = "commit"
+		return 0, failure
+	}
 	if err != nil || exit != 0 {
 		if err != nil {
 			exit = -1
 		}
 		failure := classify(exit, parsePlainLog(stderr), false)
-		if generation > 0 && activeOutput == output {
+		if after.Present && after.ActivationOutput == output {
 			failure.Stage = "activation"
-			if generation != beforeGeneration || (beforeOutput != "" && activeOutput != beforeOutput) {
+			if after != before {
 				failure.Stage = "commit"
 			}
-			return generation, failure
+			return after.Generation, failure
 		}
 		return 0, failure
 	}
-	if activeOutput != output {
+	if !after.Present || after.ActivationOutput != output {
 		return 0, &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "activation-provenance", Stage: "commit", Raw: "activation did not commit the prepared output"}
 	}
-	if generation <= 0 {
-		return 0, &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "activation-provenance", Stage: "commit", Raw: "active native generation could not be observed"}
-	}
-	return generation, nil
-}
-
-// ActiveHomeOutput checks actual ownership, independently of generation labels.
-func (b *Backend) ActiveHomeOutput() string {
-	// A single native opaque path has one canonical result. Plain path output
-	// avoids the versioned path-info JSON shapes without parsing Nix source.
-	data, err := b.native("path-info", homeProfilePath())
-	if err != nil {
-		return ""
-	}
-	path := strings.TrimSpace(string(data))
-	if !storePath(path) {
-		return ""
-	}
-	return path
+	return after.Generation, nil
 }

@@ -312,9 +312,22 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 			copyRef.Generation = newGen
 			copyRef.ActivationFailed = herr != nil
 			if homeRef.Kind == "" {
-				if reader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
-					copyRef.ActivationOutput = reader.ActiveHomeOutput()
+				reader, ok := r.(realizer.HomeObserver)
+				if !ok {
+					return nil, homeRollbackError(&realizer.Error{Code: realizer.ErrInputProvenanceUnresolved, Subcode: "home-ownership", Stage: "commit", Raw: "the backend cannot observe the reactivated Home Manager profile"})
 				}
+				active, observeErr := reader.ObserveHome()
+				if observeErr != nil {
+					failure := &realizer.Error{Code: realizer.ErrInputProvenanceUnresolved, Subcode: "home-ownership", Stage: "commit", Raw: observeErr.Error()}
+					if native, ok := observeErr.(*realizer.Error); ok {
+						failure.Code, failure.Raw = native.Code, native.Raw
+					}
+					return nil, homeRollbackError(failure)
+				}
+				if !active.Present || active.Generation != newGen {
+					return nil, homeRollbackError(&realizer.Error{Code: realizer.ErrInputProvenanceUnresolved, Subcode: "home-ownership", Stage: "commit", Raw: "the reactivated Home Manager profile identity could not be verified"})
+				}
+				copyRef.ActivationOutput = active.ActivationOutput
 			}
 			newHomeRef = &copyRef
 			if herr != nil {
@@ -557,6 +570,9 @@ func homeRollbackError(err error) *envelope.Error {
 	if !ok {
 		return envelope.NewError(envelope.ErrRollbackFailed, "Home-manager configuration rollback failed.").
 			WithDetail(map[string]string{"raw": err.Error()})
+	}
+	if rerr.Subcode == "home-ownership" {
+		return homeOwnershipError(rerr)
 	}
 	if isSystemic(rerr.Code) {
 		return realizerEnvelopeError(rerr)

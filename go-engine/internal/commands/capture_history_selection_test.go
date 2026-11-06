@@ -57,6 +57,7 @@ func TestLinuxCaptureRetainedProgramCombinedSelection(t *testing.T) {
 			}
 			var gens []*provision.Generation
 			if history {
+				backend.homeObservation = realizer.HomeObservation{Present: true, Generation: 3, ActivationOutput: "/nix/store/legacy-home-output"}
 				gens = []*provision.Generation{hmGenSettingsSecrets(&manifest.HomeManagerSettings{Ripgrep: &manifest.RipgrepSettings{Enable: true, Arguments: []string{"--hidden"}}}, nil, "", 3)}
 			}
 			withFakeGenerations(gens, nil, func() {

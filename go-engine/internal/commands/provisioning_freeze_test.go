@@ -425,7 +425,9 @@ func (f *frozenHomeRollbackFixture) ActivatePreparedHome(r *realizer.InputResolu
 	f.restored = r
 	return 8, nil
 }
-func (*frozenHomeRollbackFixture) ActiveHomeOutput() string { return "/nix/store/old-output" }
+func (*frozenHomeRollbackFixture) ObserveHome() (realizer.HomeObservation, error) {
+	return realizer.HomeObservation{Present: true, Generation: 8, ActivationOutput: "/nix/store/old-output"}, nil
+}
 
 func TestRollbackGeneratedHomeUsesRecordedFrozenActivation(t *testing.T) {
 	r := &frozenHomeRollbackFixture{}

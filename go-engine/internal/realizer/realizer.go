@@ -75,7 +75,6 @@ type HomePreparer interface {
 	// A positive generation with an error identifies the active intended output
 	// after failed settings activation. The profile may already have been active.
 	ActivatePreparedHome(*InputResolution) (int, error)
-	ActiveHomeOutput() string
 }
 
 // Matches preserves portable identity without changing native removal keys.
@@ -226,16 +225,18 @@ type HomeActivator interface {
 	ActivateHome(flake string) (generation int, err error)
 }
 
-// HomeGenerationReader is an OPTIONAL realizer capability: reading the active
-// home-manager generation number from the system. Discovered by type-assertion
-// on a Realizer, like Pruner / HomeActivator / HomeRollbacker, so only a backend
-// that owns the home-manager profile (the Nix realizer) implements it; other
-// backends simply do not, and the verify home-manager check is silently skipped.
-type HomeGenerationReader interface {
-	// ActiveHomeGeneration returns the current active home-manager generation
-	// number, or 0 when no home-manager generation is active (profile symlink
-	// absent or unreadable).
-	ActiveHomeGeneration() int
+// HomeObservation joins the native generation and its exact activation output.
+// Present is false only when the native profile is missing.
+type HomeObservation struct {
+	Present          bool
+	Generation       int
+	ActivationOutput string
+}
+
+// HomeObserver reads one native profile identity. Unreadable, incomplete or
+// changing state returns an error instead of establishing absence.
+type HomeObserver interface {
+	ObserveHome() (HomeObservation, error)
 }
 
 // HomeRollbacker is an OPTIONAL realizer capability: reverting the home-manager

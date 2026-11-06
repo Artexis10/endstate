@@ -20,7 +20,9 @@ type captureHomeOutputRealizer struct {
 	output string
 }
 
-func (r *captureHomeOutputRealizer) ActiveHomeOutput() string { return r.output }
+func (r *captureHomeOutputRealizer) ObserveHome() (realizer.HomeObservation, error) {
+	return realizer.HomeObservation{Present: true, Generation: 3, ActivationOutput: r.output}, nil
+}
 
 func TestLinuxCaptureProjectsMatchingHistoricalSettingsBeforePublication(t *testing.T) {
 	for _, test := range []struct {

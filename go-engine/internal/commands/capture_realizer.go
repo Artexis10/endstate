@@ -533,21 +533,33 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 	if err != nil {
 		return unavailable()
 	}
-	activeOutput := ""
-	if reader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
-		activeOutput = reader.ActiveHomeOutput()
+	var active realizer.HomeObservation
+	if r != nil {
+		reader, ok := r.(realizer.HomeObserver)
+		if !ok {
+			return unavailable()
+		}
+		active, err = reader.ObserveHome()
+		if err != nil {
+			return unavailable()
+		}
 	}
-	matching, outputHistory := matchingHomeManagerReference(gens, activeOutput, 0)
+	matching, outputHistory := matchingHomeManagerReference(gens, active.ActivationOutput, 0)
 	if outputHistory && matching == nil {
 		return unavailable()
 	}
 
+	homeHistory := false
 	for _, g := range gens {
 		if g == nil || g.HomeManager == nil {
 			continue
 		}
+		homeHistory = true
 		home := g.HomeManager
 		if outputHistory && home != matching {
+			continue
+		}
+		if !outputHistory && r != nil && !homeManagerOwnsActive(home, active) {
 			continue
 		}
 		if home.ActivationFailed {
@@ -572,7 +584,8 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 			}
 			return unavailable()
 		}
-		// Existing Windows/Darwin history retains the embedded declaration contract.
+		// Compatibility callers without a backend recover stored legacy declarations,
+		// without asserting that those declarations own a live native profile.
 		if home.Settings != nil {
 			return &manifest.HomeManagerConfig{Settings: home.Settings, Secrets: home.Secrets}, nil
 		}
@@ -583,7 +596,7 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 			return &manifest.HomeManagerConfig{Flake: home.Flake}, nil
 		}
 	}
-	if outputHistory {
+	if homeHistory || active.Present {
 		// An observed output cannot prove an unrelated --update declaration.
 		// Omit it with a warning rather than export inputs that never activated.
 		return unavailable()

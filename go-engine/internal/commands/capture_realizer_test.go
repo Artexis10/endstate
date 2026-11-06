@@ -467,6 +467,7 @@ func TestRunCapture_NoRealizer_UsesWingetPath(t *testing.T) {
 func TestRunCaptureRealizer_EmitsHomeManagerFlakeFromHistory(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "hm.jsonc")
 	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+	fr.homeObservation = realizer.HomeObservation{Present: true, Generation: 3, ActivationOutput: "/nix/store/legacy-home-output"}
 
 	withFakeGenerations([]*provision.Generation{hmGen("/home/me/dots#hugo", 3)}, nil, func() {
 		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
@@ -491,6 +492,7 @@ func TestRunCaptureRealizer_EmitsHomeManagerFlakeFromHistory(t *testing.T) {
 func TestRunCaptureRealizer_HomeManager_MostRecentNonNil(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "hm2.jsonc")
 	fr := &fakeRealizer{currentSet: nixSet("jq")}
+	fr.homeObservation = realizer.HomeObservation{Present: true, Generation: 2, ActivationOutput: "/nix/store/legacy-home-output"}
 
 	// newest-first: newest is package-only, older activated the flake.
 	gens := []*provision.Generation{pkgGen(), hmGen("github:me/dots#box", 2)}
@@ -585,6 +587,7 @@ func TestRunCaptureRealizer_Update_PreservesExistingHomeManager(t *testing.T) {
 func TestRunCaptureRealizer_EmitsConfigOverGeneratedFlake(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "hmcfg.jsonc")
 	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+	fr.homeObservation = realizer.HomeObservation{Present: true, Generation: 4, ActivationOutput: "/nix/store/legacy-home-output"}
 
 	gen := hmGenConfig("./home.nix", "/home/me/.local/state/endstate/state/home-manager/me#me", 4)
 	withFakeGenerations([]*provision.Generation{gen}, nil, func() {
@@ -609,6 +612,7 @@ func TestRunCaptureRealizer_EmitsConfigOverGeneratedFlake(t *testing.T) {
 func TestRunCaptureRealizer_FlakeDeclared_StillEmitsFlake(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "hmflake.jsonc")
 	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+	fr.homeObservation = realizer.HomeObservation{Present: true, Generation: 2, ActivationOutput: "/nix/store/legacy-home-output"}
 
 	withFakeGenerations([]*provision.Generation{hmGen("github:me/dots#hugo", 2)}, nil, func() {
 		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
@@ -636,6 +640,7 @@ func hmGenSettingsSecrets(settings *manifest.HomeManagerSettings, secrets []mani
 func TestRunCaptureRealizer_CarriesSecretReference(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "hmsec.jsonc")
 	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+	fr.homeObservation = realizer.HomeObservation{Present: true, Generation: 7, ActivationOutput: "/nix/store/legacy-home-output"}
 
 	secrets := []manifest.HomeManagerSecret{
 		{Name: "~/.npmrc", Path: "/run/secrets/npmrc"},
@@ -680,6 +685,7 @@ func TestRunCaptureRealizer_CarriesSecretReference(t *testing.T) {
 func TestRunCaptureRealizer_SecretMaterialNeverCaptured(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "hmsec2.jsonc")
 	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+	fr.homeObservation = realizer.HomeObservation{Present: true, Generation: 1, ActivationOutput: "/nix/store/legacy-home-output"}
 
 	const sentinel = "CAPTURE-LEAK-SENTINEL-91baf2"
 	secretFile := filepath.Join(t.TempDir(), "material")

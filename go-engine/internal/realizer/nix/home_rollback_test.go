@@ -52,20 +52,39 @@ func setupHomeLink(t *testing.T, gen int) string {
 	return store
 }
 
+func setActiveHomeLink(t *testing.T, generation int) {
+	t.Helper()
+	profile := homeProfilePath()
+	if err := os.MkdirAll(filepath.Dir(profile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(profile); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if generation > 0 {
+		if err := os.Symlink("home-manager-"+strconv.Itoa(generation)+"-link", profile); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestRollbackHome_Success_RunsActivateAndReturnsNewGen: RollbackHome(M) resolves
 // the home-manager-<M>-link snapshot, runs its `activate` script, and returns the
-// new (forward) home-manager generation read via the homeGenFn seam.
+// new (forward) home-manager generation read from the isolated native profile.
 func TestRollbackHome_Success_RunsActivateAndReturnsNewGen(t *testing.T) {
 	store := setupHomeLink(t, 3)
 	run, gotPath := captureScript(nil, 0, nil)
-	b := &Backend{Run: snapshotOutputRunner(store), runScript: run, homeGenFn: func() int { return 9 }}
+	b := &Backend{Run: snapshotOutputRunner(store), runScript: func(path string, args ...string) ([]byte, []byte, int, error) {
+		setActiveHomeLink(t, 9)
+		return run(path, args...)
+	}}
 
 	gen, err := b.RollbackHome(3)
 	if err != nil {
 		t.Fatalf("expected nil error on successful re-activation, got %v", err)
 	}
 	if gen != 9 {
-		t.Errorf("generation = %d, want 9 (the new forward gen from homeGenFn)", gen)
+		t.Errorf("generation = %d, want 9 (the observed new forward generation)", gen)
 	}
 	want := path.Join(store, "activate")
 	if *gotPath != want {
@@ -167,10 +186,12 @@ func TestRollbackHomePreservesActiveIdentityAfterActivationFailure(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := setupHomeLink(t, 3)
-			generation := tc.beforeGeneration
+			if tc.beforeGeneration > 0 {
+				setActiveHomeLink(t, tc.beforeGeneration)
+			}
 			output := tc.beforeOutput
-			b := &Backend{homeGenFn: func() int { return generation }, Run: func(args ...string) ([]byte, []byte, int, error) {
-				if args[len(args)-1] != homeProfilePath() {
+			b := &Backend{Run: func(args ...string) ([]byte, []byte, int, error) {
+				if args[len(args)-1] == homeProfilePath()+"-3-link" {
 					return []byte(store), nil, 0, nil
 				}
 				return []byte(output), nil, 0, nil
@@ -179,7 +200,7 @@ func TestRollbackHomePreservesActiveIdentityAfterActivationFailure(t *testing.T)
 				if path != store+"/activate" {
 					t.Fatalf("wrong snapshot: %s", path)
 				}
-				generation = 9
+				setActiveHomeLink(t, 9)
 				output = store
 				return nil, []byte("settings step failed"), 1, nil
 			}

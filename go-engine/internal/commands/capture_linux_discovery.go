@@ -36,12 +36,15 @@ var discoverLinuxFn = func(ctx context.Context, request discovery.Request, r rea
 // the established package-scoped capture finalizer. It never invokes Nix: the
 // immutable installables were established by the reviewed package catalog.
 type discoveryCaptureRealizer struct {
-	current          realizer.Set
-	activeHomeOutput string
+	current realizer.Set
+	home    realizer.HomeObservation
+	homeErr error
 }
 
-func (d *discoveryCaptureRealizer) Name() string             { return "nix" }
-func (d *discoveryCaptureRealizer) ActiveHomeOutput() string { return d.activeHomeOutput }
+func (d *discoveryCaptureRealizer) Name() string { return "nix" }
+func (d *discoveryCaptureRealizer) ObserveHome() (realizer.HomeObservation, error) {
+	return d.home, d.homeErr
+}
 func (d *discoveryCaptureRealizer) Current() (realizer.Set, error) {
 	return d.current, nil
 }
@@ -160,13 +163,14 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 		}
 		elements[intent.ID] = element
 	}
-	activeHomeOutput := ""
-	if reader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
-		activeHomeOutput = reader.ActiveHomeOutput()
+	var home realizer.HomeObservation
+	homeErr := fmt.Errorf("the backend cannot observe Home Manager ownership")
+	if reader, ok := r.(realizer.HomeObserver); ok {
+		home, homeErr = reader.ObserveHome()
 	}
 	raw, captureErr := runCaptureRealizerSelected(
 		flags,
-		&discoveryCaptureRealizer{current: realizer.Set{Elements: elements}, activeHomeOutput: activeHomeOutput},
+		&discoveryCaptureRealizer{current: realizer.Set{Elements: elements}, home: home, homeErr: homeErr},
 		emitter,
 		realizerCaptureSelection{nix: true},
 	)

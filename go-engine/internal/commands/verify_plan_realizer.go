@@ -83,10 +83,10 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 	}
 
 	// Home-manager config check: only when the manifest declares a homeManager
-	// block AND the realizer implements HomeGenerationReader. Realizers that do
+	// block AND the realizer implements HomeObserver. Realizers that do
 	// not implement the interface (e.g. stubs, non-Nix backends) skip silently.
 	if mf.HomeManager != nil {
-		if hgr, ok := r.(realizer.HomeGenerationReader); ok {
+		if hgr, ok := r.(realizer.HomeObserver); ok {
 			item := checkHomeManagerGeneration(hgr, emitter)
 			results = append(results, item)
 		}
@@ -194,7 +194,7 @@ func verifyBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *eve
 //
 // It also emits a streaming item event via emitter. The listGenerationsFn seam
 // (shared with capture_realizer.go) is used so tests can inject a fake history.
-func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter interface {
+func checkHomeManagerGeneration(hgr realizer.HomeObserver, emitter interface {
 	EmitItem(id, driver, status, reason, message, name string)
 }) VerifyItem {
 	item := VerifyItem{
@@ -202,13 +202,25 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 		ID:   "home-manager",
 	}
 
-	active := hgr.ActiveHomeGeneration()
+	active, observeErr := hgr.ObserveHome()
+	if observeErr != nil {
+		item.Status, item.Reason = "fail", "unreadable"
+		item.Message = "Active Home Manager state could not be read"
+		emitter.EmitItem("home-manager", "nix", "failed", item.Reason, item.Message, "home-manager")
+		return item
+	}
+	if !active.Present {
+		item.Status, item.Reason = "fail", driver.ReasonMissing
+		item.Message = "No active home-manager generation — home-manager config was never applied or has been removed"
+		emitter.EmitItem("home-manager", "nix", "failed", item.Reason, item.Message, "home-manager")
+		return item
+	}
 
 	// Find the most-recent provisioning generation that recorded a home-manager
 	// config (package-only applies record HomeManager=nil, so skip those).
 	// Mirrors recoverHomeManager in capture_realizer.go.
 	recorded := 0
-	ownershipMatches := true
+	ownershipMatches := false
 	activationFailed := false
 	var expectations *provision.HomeFileExpectations
 	gens, err := listGenerationsFn()
@@ -218,39 +230,33 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 		emitter.EmitItem("home-manager", "nix", "failed", item.Reason, item.Message, "home-manager")
 		return item
 	}
+	_, outputHistory := matchingHomeManagerReference(gens, active.ActivationOutput, 0)
 	for _, g := range gens {
-		if g.HomeManager != nil {
+		if g != nil && g.HomeManager != nil {
 			recorded = g.HomeManager.Generation
 			activationFailed = g.HomeManager.ActivationFailed
 			expectations = g.HomeManager.FileExpectations
-			if hasHomeOutputIdentity(g.HomeManager) {
-				ownershipMatches = homeManagerOwnsActive(hgr, g.HomeManager, active)
-			}
+			ownershipMatches = (!outputHistory || hasHomeOutputIdentity(g.HomeManager)) && homeManagerOwnsActive(g.HomeManager, active)
 			break
 		}
 	}
 
 	switch {
-	case active == 0:
-		item.Status = "fail"
-		item.Reason = driver.ReasonMissing
-		item.Message = "No active home-manager generation — home-manager config was never applied or has been removed"
-		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonMissing, item.Message, "home-manager")
-	case active != recorded || !ownershipMatches:
+	case active.Generation != recorded || !ownershipMatches:
 		item.Status = "fail"
 		item.Reason = driver.ReasonConfigDrift
-		item.Version = strconv.Itoa(active)
+		item.Version = strconv.Itoa(active.Generation)
 		item.Expected = strconv.Itoa(recorded)
-		item.Message = fmt.Sprintf("home-manager generation %d is active, want %d (recorded)", active, recorded)
+		item.Message = fmt.Sprintf("home-manager generation %d is active, want %d (recorded)", active.Generation, recorded)
 		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonConfigDrift, item.Message, "home-manager")
 	case activationFailed:
 		item.Status = "fail"
 		item.Reason = driver.ReasonConfigDrift
-		item.Version = strconv.Itoa(active)
+		item.Version = strconv.Itoa(active.Generation)
 		item.Message = "The Home Manager profile matches, but its recorded settings activation failed"
 		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonConfigDrift, item.Message, "home-manager")
 	default:
-		item.Version = strconv.Itoa(active)
+		item.Version = strconv.Itoa(active.Generation)
 		item.Reason, item.Message = checkHomeFileExpectations(expectations)
 		item.Status = "pass"
 		eventStatus := "present"
