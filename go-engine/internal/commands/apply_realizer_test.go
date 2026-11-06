@@ -973,7 +973,7 @@ func TestExternalHomeManagerActionRecognizesEndstateOwnedActiveGeneration(t *tes
 	withFakeGenerations([]*provision.Generation{{
 		HomeManager: &provision.HomeGenRef{Flake: "/state/home-manager/me#me", Generation: 9},
 	}}, nil, func() {
-		if action, err := externalHomeManagerAction(fr, "/state/home-manager/me#me", true); action != nil || err != nil {
+		if action, _, err := externalHomeManagerAction(fr, "/state/home-manager/me#me", true); action != nil || err != nil {
 			t.Fatalf("Endstate-owned active generation was treated as external: %+v", action)
 		}
 	})

@@ -146,7 +146,7 @@ func TestHomeOwnershipUsesExactOutputWithoutLegacyDowngrade(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &fakeRealizer{homeObservation: realizer.HomeObservation{Present: true, Generation: 9, ActivationOutput: "/nix/store/active-home"}}
 			withFakeGenerations(tc.history, nil, func() {
-				action, err := externalHomeManagerAction(backend, "path:/generated#profile", true)
+				action, _, err := externalHomeManagerAction(backend, "path:/generated#profile", true)
 				if err != nil || (action != nil) != tc.external {
 					t.Fatalf("ownership did not follow native output: %+v, %v", action, err)
 				}
@@ -158,7 +158,7 @@ func TestHomeOwnershipUsesExactOutputWithoutLegacyDowngrade(t *testing.T) {
 func TestHomeOwnershipUnreadableHistoryIsUnknown(t *testing.T) {
 	backend := &fakeRealizer{homeObservation: realizer.HomeObservation{Present: true, Generation: 9, ActivationOutput: "/nix/store/active-home"}}
 	withFakeGenerations(nil, errors.New("history unavailable"), func() {
-		if action, err := externalHomeManagerAction(backend, "path:/generated#profile", true); action != nil || err == nil {
+		if action, _, err := externalHomeManagerAction(backend, "path:/generated#profile", true); action != nil || err == nil {
 			t.Fatalf("unreadable history claimed an external owner: %+v, %v", action, err)
 		}
 		if item := checkHomeManagerGeneration(backend, noopEmitter()); item.Reason != "unreadable" {
@@ -284,12 +284,9 @@ func TestHomeOwnershipUncertainActivationRetainsPackageCommit(t *testing.T) {
 }
 
 func TestHomeOwnershipFailedRetryWithUnreadableResultInvalidatesCompletion(t *testing.T) {
-	for _, rollback := range []bool{false, true} {
-		name := "apply"
-		if rollback {
-			name = "rollback"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, operation := range []string{"generated apply", "direct apply", "rollback"} {
+		t.Run(operation, func(t *testing.T) {
+			rollback := operation == "rollback"
 			f := newNativeFreezeFixture(t)
 			mf, flags := freezeManifest(t)
 			mf.Apps = nil
@@ -297,6 +294,17 @@ func TestHomeOwnershipFailedRetryWithUnreadableResultInvalidatesCompletion(t *te
 			if _, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "initial-home", nil, nil, nil, nil, nil); eerr != nil {
 				t.Fatal(eerr)
 			}
+			if operation == "direct apply" {
+				mf.HomeManager = &manifest.HomeManagerConfig{Flake: "github:example/config#profile"}
+			}
+			historyReader := listGenerationsFn
+			listGenerationsFn = func() ([]*provision.Generation, error) {
+				if f.activeHome == "unavailable" {
+					return nil, errors.New("history became unreadable after activation started")
+				}
+				return historyReader()
+			}
+			t.Cleanup(func() { listGenerationsFn = historyReader })
 			f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
 				f.activeHome = "unavailable"
 				return nil, []byte("settings step failed"), 1, nil
@@ -328,10 +336,72 @@ func TestHomeOwnershipFailedRetryWithUnreadableResultInvalidatesCompletion(t *te
 			if cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend); cfg != nil || len(warnings) != 1 {
 				t.Fatalf("capture revived the failed settings declaration: %+v, %v", cfg, warnings)
 			}
-			if action, err := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil || err != nil {
+			if action, _, err := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil || err != nil {
 				t.Fatalf("failed completion erased established native ownership: %+v, %v", action, err)
 			}
 		})
+	}
+}
+
+func TestHomeOwnershipFailedAttemptRetainsLatestOwnedActivation(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	mf, flags := freezeManifest(t)
+	mf.Apps, flags.Prune = nil, false
+	if _, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "initial-owned-home", nil, nil, nil, nil, nil); eerr != nil {
+		t.Fatal(eerr)
+	}
+	history, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := *history[0].HomeManager
+	previous.Generation, previous.ActivationOutput = 2, "/nix/store/other-owned-home"
+	resolution := *previous.Resolution
+	resolution.Derivation, resolution.MutationRef = "/nix/store/other-home.drv", "/nix/store/other-home.drv^out"
+	resolution.OutputPaths = map[string]string{"out": previous.ActivationOutput}
+	previous.Resolution = &resolution
+	if err := provision.Write(&provision.Generation{Backend: "nix", HomeManager: &previous}); err != nil {
+		t.Fatal(err)
+	}
+	profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+	started := false
+	native := f.backend.Run
+	f.backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+		if started && args[0] == "path-info" {
+			return nil, nil, -1, errors.New("native observation unavailable after activation started")
+		}
+		out, stderr, exit, err := native(args...)
+		if args[0] == "build" && args[len(args)-1] == "/nix/store/home.drv^out" {
+			if err := os.Remove(profile); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("home-manager-2-link", profile); err != nil {
+				t.Fatal(err)
+			}
+			f.activeHome = previous.ActivationOutput
+		}
+		return out, stderr, exit, err
+	}
+	historyReader := listGenerationsFn
+	listGenerationsFn = func() ([]*provision.Generation, error) {
+		if started {
+			return nil, errors.New("history became unreadable after activation started")
+		}
+		return historyReader()
+	}
+	t.Cleanup(func() { listGenerationsFn = historyReader })
+	f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
+		started = true
+		return nil, []byte("settings step failed"), 1, nil
+	}
+	_, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "failed-after-owned-change", nil, nil, nil, nil, nil)
+	started = false
+	history, err = provision.List()
+	if eerr == nil || err != nil || len(history) != 3 || history[0].HomeManager == nil || history[0].HomeManager.Generation != 2 || !history[0].HomeManager.ActivationFailed {
+		t.Fatalf("the failed attempt invalidated stale ownership instead of the latest activation: %+v, %v, %+v", history, err, eerr)
+	}
+	if cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend); cfg != nil || len(warnings) != 1 {
+		t.Fatalf("capture revived the activation that changed during preparation: %+v, %v", cfg, warnings)
 	}
 }
 

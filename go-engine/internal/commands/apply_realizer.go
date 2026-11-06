@@ -184,6 +184,7 @@ type preparedHomeManager struct {
 	flake            string
 	generated        bool
 	ownershipAction  *HomeManagerOwnershipAction
+	previousHome     *provision.HomeGenRef
 	resolution       *realizer.InputResolution
 	fileExpectations *provision.HomeFileExpectations
 }
@@ -196,11 +197,10 @@ func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Real
 	if err != nil || flake == "" {
 		return nil, err
 	}
-	action, ownershipErr := externalHomeManagerAction(r, flake, generated)
-	if ownershipErr != nil {
+	home := &preparedHomeManager{flake: flake, generated: generated}
+	if ownershipErr := home.observeOwnership(r); ownershipErr != nil {
 		return nil, homeOwnershipError(ownershipErr)
 	}
-	home := &preparedHomeManager{flake: flake, generated: generated, ownershipAction: action}
 	if preparer, ok := r.(realizer.HomePreparer); ok && home.ownershipAction == nil {
 		resolution, prepareErr := preparer.PrepareHome(flake, !flags.DryRun)
 		if prepareErr != nil {
@@ -219,41 +219,55 @@ func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Real
 	return home, nil
 }
 
-func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool) (*HomeManagerOwnershipAction, error) {
-	if !generated {
-		return nil, nil
+func (home *preparedHomeManager) observeOwnership(r realizer.Realizer) error {
+	action, previous, err := externalHomeManagerAction(r, home.flake, home.generated)
+	if err != nil {
+		if home.generated {
+			return err
+		}
+		// A directly declared flake already has explicit activation consent.
+		// Keep any known historical completion evidence without requiring ownership.
+		return nil
 	}
+	home.ownershipAction, home.previousHome = action, previous
+	return nil
+}
+
+func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool) (*HomeManagerOwnershipAction, *provision.HomeGenRef, error) {
 	reader, ok := r.(realizer.HomeObserver)
 	if !ok {
-		return nil, fmt.Errorf("the backend cannot observe Home Manager ownership")
+		return nil, nil, fmt.Errorf("the backend cannot observe Home Manager ownership")
 	}
 	active, err := reader.ObserveHome()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !active.Present {
-		return nil, nil
+		return nil, nil, nil
 	}
 	generations, err := listGenerationsFn()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if matching, outputHistory := matchingHomeManagerReference(generations, active.ActivationOutput, 0); outputHistory {
 		if matching != nil {
-			return nil, nil
+			return nil, matching, nil
 		}
 	} else {
 		for _, generation := range generations {
 			if generation != nil && homeManagerOwnsActive(generation.HomeManager, active) {
-				return nil, nil
+				return nil, generation.HomeManager, nil
 			}
 		}
+	}
+	if !generated {
+		return nil, nil, nil
 	}
 	return &HomeManagerOwnershipAction{
 		Owner: "external", Action: "import_generated_module", Required: true,
 		ActiveGeneration: active.Generation, ModulePath: generatedHomeModulePath(flake),
 		Message: "An existing Home Manager configuration owns this home. Endstate generated an importable module and left the active configuration unchanged.",
-	}, nil
+	}, nil, nil
 }
 
 func homeOwnershipError(err error) *envelope.Error {
@@ -720,10 +734,8 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	var homeResult *ApplyHomeManager
 	if activator, ok := r.(realizer.HomeActivator); ok && preparedHome != nil {
 		flake, generated := preparedHome.flake, preparedHome.generated
-		if generated && preparedHome.ownershipAction == nil {
-			var ownershipErr error
-			preparedHome.ownershipAction, ownershipErr = externalHomeManagerAction(r, flake, true)
-			if ownershipErr != nil {
+		if preparedHome.ownershipAction == nil {
+			if ownershipErr := preparedHome.observeOwnership(r); ownershipErr != nil {
 				return nil, homeOwnershipError(ownershipErr)
 			}
 		}
@@ -760,17 +772,12 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				}
 				if rerr.Stage == "commit" {
 					preparationCommitted = true
-					if homeRef == nil && preparedHome.resolution != nil && len(preparedHome.resolution.Outputs) == 1 {
-						output := preparedHome.resolution.OutputPaths[preparedHome.resolution.Outputs[0]]
-						if history, err := listGenerationsFn(); err == nil {
-							if previous, _ := matchingHomeManagerReference(history, output, 0); previous != nil && previous.Generation > 0 {
-								// Invalidate completion of this historical output, without
-								// claiming its generation is the unobserved post-state.
-								copyRef := *previous
-								copyRef.ActivationFailed = true
-								homeRef = &copyRef
-							}
-						}
+					if homeRef == nil && preparedHome.previousHome != nil && preparedHome.previousHome.Generation > 0 {
+						// Invalidate historical completion without claiming that its
+						// generation is the unobserved post-state.
+						copyRef := *preparedHome.previousHome
+						copyRef.ActivationFailed = true
+						homeRef = &copyRef
 					}
 				}
 				emitter.EmitItem(flake, driverName, "failed", "install_failed", "Home-manager configuration activation failed", "home-manager")

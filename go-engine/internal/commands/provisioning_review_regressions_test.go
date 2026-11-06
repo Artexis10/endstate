@@ -314,7 +314,7 @@ func TestProvisioningReviewFailedRetryInvalidatesSameActiveHomeOutput(t *testing
 	if item := checkHomeManagerGeneration(f.backend, noopEmitter()); item.Status != "fail" {
 		t.Fatalf("failed same-output retry remained verified: %+v", item)
 	}
-	if action, err := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil || err != nil {
+	if action, _, err := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil || err != nil {
 		t.Fatalf("failed retry lost existing ownership: %+v", action)
 	}
 }
