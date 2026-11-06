@@ -886,6 +886,48 @@ Prove one representative import through a pure owner flake with an explicit
 non-flake input. This does not prove arbitrary graph export, native activation,
 or final release acceptance.
 
+### 28. Join selected settings writers through the existing collision check
+
+A command workflow proves that direct restore can change a file before a
+generated Home Manager activation targets that same file. The existing
+concrete-claim checker covers generation, legacy, and ordinary restore owners,
+but does not include the selected Home Manager activation.
+
+Add Home Manager as one atomic owner in that checker. Home preparation returns
+ephemeral flat targets beside the frozen input resolution. Keep those targets
+outside persisted input provenance and file-content expectations. Reuse the
+existing execution options, collision state, and apply bridge to return one
+private Home Manager blocked flag. Mark both conflicting owners before settings
+mutation, continue unrelated direct restores, and preserve package outcomes.
+Suppress the whole conflicting Home Manager activation, including in preview.
+Use the existing `target_collision` reason without a new public result field.
+
+Native evaluation projects enabled, nonrecursive `config.home.file` declarations
+and `home.homeDirectory` from the selected parent configuration. This includes
+flat files emitted by programs and XDG modules. Use evaluated target values,
+the frozen lock graph, and a matching activation derivation. Preview keeps the
+existing nonbuilding preparation. Do not guess placements from program names,
+process XDG variables, or only the declared `settings.files` map.
+
+Home Manager leaves may already be symlinks. Reuse filesystem identity separately
+from direct-restore safety validation; keep that validation unchanged. An
+external import action selects no Home Manager writer and contributes no claim.
+A direct/direct collision does not block a disjoint Home Manager activation.
+
+An activation-only flake may lack parent configuration metadata. Represent that
+projection as unavailable, without calling it an empty complete inventory or
+adding a refusal to the existing advanced input path. Recursive declarations
+describe roots rather than exact activated leaves, so do not claim their whole
+directory. Task 7.7 remains open for recursive and advanced-input coverage,
+strategy inference, undeclared fallbacks, and remaining native acceptance.
+
+A wrong collision refusal prevents legitimate combined settings work, including
+unrelated settings within the atomic Home Manager activation. Block from known
+overlapping claims only. The outcome proof covers the reproduced overlap,
+parent/child overlap, preview, native XDG placement, existing symlink leaves,
+independent outcomes, and an external import action. No new classifier, store,
+generic provider framework, or human approval is required.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.

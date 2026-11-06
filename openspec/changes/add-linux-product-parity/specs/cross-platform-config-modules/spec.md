@@ -87,6 +87,41 @@ Each executable platform variant SHALL explicitly declare `home-manager` or `end
 - **WHEN** a platform variant omits its realization strategy
 - **THEN** catalog validation SHALL reject the executable settings lane
 
+### Requirement: Selected settings writers reject known flat-target collisions
+The engine SHALL include selected flat Home Manager targets in its existing concrete-claim collision check alongside direct restore owners. Known exact and parent/child overlaps SHALL prevent both conflicting settings owners from mutating their targets. A blocked Home Manager target SHALL suppress the whole selected activation while preserving unrelated direct restore and package outcomes.
+
+Home preparation SHALL keep target evidence ephemeral and separate from persisted provenance and file-content expectations. Native projection SHALL use enabled, nonrecursive declarations and evaluated target paths from the selected configuration, the frozen lock graph, and a matching activation derivation. Preview SHALL keep nonbuilding preparation and use the same target meaning.
+
+An import-only ownership action SHALL contribute no Home Manager writer. Existing Home Manager symlink leaves SHALL NOT cause a blanket refusal. Unavailable advanced-input projection SHALL remain unavailable evidence, without becoming an empty complete inventory or a new refusal. Recursive declarations SHALL NOT grant ownership of their whole directory; their complete collision coverage remains unaccepted.
+
+#### Scenario: Direct restore overlaps a selected Home Manager target
+- **WHEN** direct restore and a selected Home Manager activation have known overlapping flat targets
+- **THEN** neither conflicting settings owner SHALL mutate those targets
+- **AND** the command SHALL report `target_collision`
+- **AND** unrelated direct restores and committed package outcomes SHALL remain available
+
+#### Scenario: Preview uses the evaluated Home Manager placement
+- **WHEN** preview compares a direct target with a selected Home Manager flat target
+- **THEN** it SHALL use the evaluated Home Manager directory rather than process XDG variables
+- **AND** it SHALL show the same collision without building or presenting that activation as eligible
+
+#### Scenario: A legitimate Home Manager leaf is a symlink
+- **WHEN** an existing Home Manager symlink leaf has no conflicting selected direct writer
+- **THEN** its filesystem identity SHALL NOT prevent the Home Manager activation
+- **AND** direct-restore safety validation SHALL remain unchanged
+
+#### Scenario: An unrelated direct collision does not select Home Manager
+- **WHEN** two direct owners collide and a selected Home Manager activation has disjoint known targets
+- **THEN** their collision SHALL NOT suppress that Home Manager activation
+
+#### Scenario: External import contributes no active writer
+- **WHEN** Home Manager preparation returns an import action
+- **THEN** an import action SHALL remain inactive and SHALL NOT block independent direct restores
+
+#### Scenario: Unavailable advanced projection preserves existing behavior
+- **WHEN** Home Manager preparation cannot obtain optional parent configuration metadata
+- **THEN** unavailable projection SHALL NOT add a refusal or claim a complete target inventory
+
 ### Requirement: User-owned Home Manager authority is not silently replaced
 The engine SHALL classify a live Home Manager activation as externally owned when it exists without matching Endstate provisioning provenance. It SHALL NOT edit, compose into, or replace that configuration automatically. For an externally owned target, a `home-manager` variant SHALL produce an inspectable importable artifact or use only an explicitly declared safe `endstate-restore` fallback after consent.
 
