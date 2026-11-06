@@ -312,8 +312,9 @@ their shared files are exclusive.
   - Decision 22 starts with one shared registry/module/generation authority join. Discovery, private collection, and the matrix use its result. Missing bindings remain review-only; stale bindings withhold only their adapter. Complete all remaining bindings before closing this task.
 - [x] 8.5 Generate a deterministic matrix that accounts for all 359 existing application modules and reports supported/adapter/review counters
 - [ ] 8.6 Add persistent reviewed applicability/exclusion authority and make the zero-blocker readiness predicate mandatory in release validation
-- [ ] 8.7 Emit bounded deterministic declaration/option/type/target/source-hash diffs that invalidate prior review
+- [x] 8.7 Emit bounded deterministic declaration/option/type/target/source-hash diffs that invalidate prior review
   - Decision 25 separates confirmed observations from a complete candidate. Preserve task 8.1 target derivation and task 8.2 cancellation; accept new fingerprints only through the existing explicit CLI write path. Incomplete refreshes cannot publish or replace failed observations with empty values.
+  - Independent review accepts `9d76d274`, integrated as `78cd521`. The integrated three-package gate passes all 52 named tests. Independent CLI checks prove bounded deterministic diagnostics, honest partial observations, preserved caller/disk state, stale-review rejection, and explicit acceptance through the normal frozen parser. Final integrated runtime, native release, and delivery gates remain open.
 - [x] 8.8 Implement bounded regular-file observation/staging mechanics with size, regular-file, hash, target, and symlink checks
 - [x] 8.9 Implement explicit exclusion and curated-codec dispatch that rejects unknown runtime strategies
 - [ ] 8.10 Make advertised capture/restore/verify/revert actions honest and verify expected target contents rather than generation identity alone
