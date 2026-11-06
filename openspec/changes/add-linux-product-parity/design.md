@@ -661,9 +661,10 @@ the same user and the same directory identity. A relative `XDG_CONFIG_HOME` or
 an unset `HOME` reports unavailable, because GLib and the XDG rule differ there.
 After a write, require the same bus owner. A change fails that mutation and
 reports the writer change; the existing rollback proves the writer again before
-it reads or writes. Never call `Init`. Check every profile candidate for both
-environments; the writer ignores profiles, so its environment stands in for the
-session clients that read through one. Missing commands, bus, or writer give scoped unavailability; do
+it reads or writes. Never call `Init`. Check the system, runtime, and `DCONF_PROFILE` profile candidates for both
+environments, and the data-directory candidates in the writer's `XDG_DATA_DIRS`
+only, because every dconf child runs with that value; the writer ignores profiles,
+so its environment stands in for the session clients that read through one. Missing commands, bus, or writer give scoped unavailability; do
 not install packages or start a session.  Run `dconf`
 and `gsettings` with the proven `HOME`, `XDG_CONFIG_HOME`, `XDG_RUNTIME_DIR`, and
 bus address, take `XDG_DATA_DIRS` from the writer's environment so a bundled

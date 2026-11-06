@@ -764,6 +764,18 @@ Desktop-bearing private journal intents use version 2 and bind prior and desired
 state to the resolved runtime scope. Existing intents retain version 1 unchanged.
 Desktop production detection remains unavailable until its native acceptance gates pass.
 
+The GNOME backend reads, writes, and resets values through the `dconf` command and
+checks the schema with `gsettings`. A desktop refusal keeps the existing stable
+reasons: capture reports `instance_discovery_failed`, and apply and verify report
+`target_detection_failed`. Capture names the cause in diagnostic `detail`; apply and
+verify append `Cause: <sanitized error>` to the resolution `message`. The cause
+names an unavailable session, an unsupported profile, an unproven writer scope, an
+unavailable database, or an unsupported stored value, by schema and key rather than
+host path. That text is not a stable machine reason; consumers render it and do not
+branch on it. Any `target_detection_failed` resolution may carry the same suffix. An unsupported
+stored value is never reported as absence. The resolved runtime scope is private
+journal data and never appears in results or events.
+
 Generation resolution data and `config-resolution` events add optional `sourcePlatform`, `targetPlatform`, `mappingId`, and `targetConfigSetId`.
 `configSetId` retains source identity; `targetConfigSetId` identifies a mapped target set and otherwise defaults to the source set.
 A different target platform requires an authored one-step mapping from the current target catalog, including explicit source-fingerprint acceptance and target validation.

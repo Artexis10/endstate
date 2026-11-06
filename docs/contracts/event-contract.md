@@ -498,6 +498,8 @@ and `config-migration` events. Its portable instance evidence uses
 A `restore-item` uses `restorer: "desktop-value"` and the case-sensitive target
 identity `gsettings:<backing-directory><key>`. Events omit the private runtime
 scope and effective defaults. Native desktop availability remains unadvertised.
+A desktop refusal keeps the stable `config-resolution` reason; its cause appears
+only in engine-authored message or detail text, which is not a machine reason.
 
 **Guarantees:**
 
