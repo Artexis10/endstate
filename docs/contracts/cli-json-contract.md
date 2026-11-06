@@ -724,7 +724,7 @@ When restore-capable input contains configuration payloads, apply, standalone re
 
 `sourceInstance` and every `targetCandidates[]` member carry portable, non-secret identity and version evidence. Host-local target roots and locators are internal engine data and never appear in command results. `targetCandidates[]`, `migrationPath[]`, `resolvedTargets[]`, and `restoreItems[]` are non-null arrays. The engine authors each row's distilled `label`, `message`, nullable `remediation`, and technical details. GUIs render those values verbatim and do not reconstruct them from versions, candidates, modules, or bundle data.
 
-`resolution` describes source/target compatibility and is exactly `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. Application versions are evidence for selecting config generations; they are not a pairwise compatibility result. Stable reasons include `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `mapped_target_not_detected`, `mapped_target_incompatible`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, `source_generation_definition_changed`, `recovery_required`, `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`.
+`resolution` describes source/target compatibility and is exactly `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. Application versions are evidence for selecting config generations; they are not a pairwise compatibility result. Stable reasons include `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `mapped_target_not_detected`, `mapped_target_incompatible`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, `source_generation_definition_changed`, `recovery_required`, `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, `settings_strategy_unavailable`, `home_manager_import_required`, and `already_up_to_date`.
 
 `status` is independent from `resolution` and is terminal in the envelope. It is exactly:
 
@@ -1032,7 +1032,7 @@ A converged app is recorded `installed` at the declared version in the Provision
 
 ### Configuration stage (home-manager, realizer-only)
 
-When the manifest declares a `homeManager` block and `apply` runs with `--enable-restore` on the Nix realizer, `apply` activates a [home-manager](https://github.com/nix-community/home-manager) configuration as a **configuration stage** after the package phases. This is the realizer's config story (the winget driver path uses the restore-module layer instead).
+On the Nix realizer, `apply --enable-restore` runs the Home Manager configuration stage after the package phases. An explicit `homeManager` input or trusted captured sets declaring `home-manager` can supply its configuration. The driver path does not activate Home Manager.
 
 ```jsonc
 {
@@ -1044,11 +1044,43 @@ When the manifest declares a `homeManager` block and `apply` runs with `--enable
 - `homeManager.config` is a path (resolved relative to the manifest) to a `home.nix` the engine **wraps in a generated flake** before activating it through this same stage — so the user supplies only their configuration, never the flake, inputs, pinning, identity, or activation wiring.
 - `homeManager.settings` is a **declarative, Endstate-native config block** the engine compiles into a `home.nix` (then wrapped exactly like `homeManager.config`) — so the user declares configuration in Endstate's own format and never writes Nix at all. See *Declarative catalog* below.
 - `settings`, `config`, and `flake` are **mutually exclusive** (exactly one home-manager input); a manifest declaring more than one fails to load with a clear validation error.
-- **Engine-owned and consented.** The stage requires `--enable-restore` and a declared Home Manager input. The engine freezes its activation derivation before package mutation. A real apply builds that derivation first, then runs its store `activate` script without arguments. The process inherits the native environment and sets `HOME_MANAGER_BACKUP_EXT=endstate-backup`. A dry run resolves the activation without building or activating it.
+- **Engine-owned and consented.** The stage requires `--enable-restore` and declared Home Manager authority. The engine prepares explicit inputs before package mutation. Captured sets use final post-install detection; the engine stages them and freezes the combined activation before any settings writer runs. A real apply builds the frozen derivation, then runs its store `activate` script without arguments. The process inherits the native environment and sets `HOME_MANAGER_BACKUP_EXT=endstate-backup`. A dry run prepares without building or activating.
 - **Backup-on-clobber.** `-b endstate-backup` makes home-manager move any pre-existing file it would replace to `<file>.endstate-backup` instead of failing (honors *backup-before-overwrite*).
 - **Recorded.** A successful activation is recorded in the Provisioning Generation under `homeManager` (the activated flakeref and the resulting home-manager generation number). A config-only apply (no package changed) still records a generation.
 - **Realizer-only.** The winget/driver path never activates home-manager (a declared `homeManager` block is ignored there).
 - **Errors (the moat).** A systemic failure (daemon unavailable → `REALIZER_UNAVAILABLE`, permission → `PERMISSION_DENIED`) surfaces as a top-level envelope error; any other activation failure surfaces as `INSTALL_FAILED`. Raw home-manager / Nix output appears only in `error.detail`, never in `error.message`.
+
+#### Captured settings with a declared Home Manager writer
+
+The current trusted Linux module selects the writer after shared compatibility
+resolution and staging. Its capture snapshot cannot select executable behavior.
+The first bridge supports regular-file copies; unsupported operations report
+`settings_strategy_unavailable` on their set without direct mutation.
+
+The engine composes captured placements with explicit settings or a configuration
+wrapper. It keeps target paths and staged sources distinct, validates native
+placement, and rejects duplicate ownership before combining declarations.
+Home Manager reapply accepts its existing symlink leaves; direct restore keeps
+its stricter symlink policy.
+
+An explicit flake activates independently. Captured sets require a separate
+generated import module and report `status: "skipped"` with
+`reason: "home_manager_import_required"`. Their `direct` or `migrate`
+compatibility remains unchanged. Existing per-set remediation carries the stable
+module reference. It is neither a target path nor the explicit flake's external
+ownership action. Independent activation does not complete those captured sets.
+
+Standalone restore skips Home Manager sets with apply/rebuild remediation.
+An unavailable backend never selects direct copying. Preview makes no activation
+or content-success claim. A captured row reports restored only after its own
+activation and content checks complete.
+
+An external Home Manager owner found by the check just before activation also
+makes captured sets report `home_manager_import_required`. An unreadable Home
+Manager ownership state or settings registry fails the captured set with
+`status: "failed"` and `reason: "target_detection_failed"`; independent direct
+and package results still complete. When a run stops with a top-level error
+before a captured set is attempted, that row stays `status: "planned"`.
 
 #### Generated flake (the `homeManager.config` wrapper)
 
@@ -1126,7 +1158,7 @@ When the manifest uses `homeManager.settings`, the engine compiles the declarati
 - **A raw `programs` entry may not collide with a curated concept** (e.g. raw `programs.git` alongside curated `git`) — that fails to generate with a clear error rather than producing a double definition.
 - **`files` places arbitrary files (text or binary).** Each `target → source` (source resolved relative to the manifest) is **staged into the generated flake directory** (binary-safe; kept inside the flake tree so pure evaluation can read it) and placed via home-manager's `home.file`. This matches the breadth of the Windows module catalog. **Place/restore only**; capturing files back into `settings` is a separate, deferred capability.
 
-Generated settings activations include `endstate-home-files.json` in their frozen Nix output. Nix evaluates each declared placement's absolute target and SHA-256 source hash. Apply reads this artifact before package mutation, with a 1 MiB metadata limit. It persists `homeManager.fileExpectations`: `{ "files": [{ "target": "/home/example/.toolrc", "sha256": "<64 lowercase hexadecimal characters>" }] }`. An empty `files` array proves an empty declared file scope. Absent evidence remains unavailable for legacy records, dry runs, and backends without frozen preparation. Arbitrary `homeManager.config` and direct flakes do not receive generated expectations.
+Generated file activations include `endstate-home-files.json` in their frozen Nix output. Nix evaluates each declared placement's absolute target and SHA-256 source hash. Apply reads this artifact before settings mutation, with a 1 MiB metadata limit. It persists `homeManager.fileExpectations`: `{ "files": [{ "target": "/home/example/.toolrc", "sha256": "<64 lowercase hexadecimal characters>" }] }`. An empty `files` array proves an empty declared file scope. Absent evidence remains unavailable for legacy records, dry runs, and backends without frozen preparation. Arbitrary configuration modules and direct flakes do not gain inferred file expectations.
 
 Ordinary verification checks activation ownership, activation failures, and these recorded file bytes. It follows Home Manager symlink leaves and reports `missing`, `config_drift`, or `unreadable` as distinct failure reasons. Absent expectations produce `status: "skip"` with `reason: "file_expectations_unavailable"`. Matching bytes do not certify typed settings or file modes.
 
@@ -1314,6 +1346,9 @@ Every app `VerifyItem` includes its resolved `driver`; non-package verification 
 Captured generation-aware configuration adds one `VerifyItem` per captured set with `type: "config"` and `id` equal to its `captureId`.
 The item includes `name`, `status`, `message`, and `reason` when applicable; it omits package driver and version fields.
 Verify resolves the current trusted catalog and target instance, verifies payload integrity, and compares the captured desired content against current targets.
+For a declared Home Manager writer, it checks regular-file placements through
+Home Manager symlink leaves. A target replaced by another file type reports
+`config_drift`. Direct restore retains its stricter target policy.
 It creates no restore snapshots, backups, journals, or target writes.
 Copy checks compare exact file bytes; directory copies retain the restore overlay and exclusions.
 Merge and append checks materialize against current target state, preserving unrelated current values.

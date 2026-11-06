@@ -46,9 +46,20 @@ Source provenance comes from the bundle and remains immutable. Target discovery,
 
 Every result preserves a portable, non-secret `sourceInstance` and a non-null `targetCandidates[]` containing portable target identity and version evidence. Host-local target roots and locators remain internal engine data. The engine authors `label`, `message`, nullable `remediation`, and all technical detail; GUI consumers render those values verbatim and never reconstruct them from application versions, candidates, module rules, or bundle data.
 
-Stable per-set reasons include compatibility causes plus `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`. A missing reason or remediation is serialized as `null`.
+Stable per-set reasons include compatibility causes plus `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, `settings_strategy_unavailable`, `home_manager_import_required`, and `already_up_to_date`. A missing reason or remediation is serialized as `null`.
 
 Preflight rejects selected config sets whose concrete target paths are equal or overlap by parent/child containment, and rejects multiple captured sets competing for one target instance/config set. Neither colliding set mutates its target.
+
+The engine joins flat Home Manager placements and direct targets in that same
+collision check. It compares lexical paths and resolved ancestor aliases before
+any settings writer runs. Home Manager placements form one atomic owner;
+independent direct sets and committed package work retain their own outcomes.
+An inactive import request makes no activation claim.
+
+The declared writer controls target validation. Home Manager reapply permits
+its existing symlink leaves without treating their referents as placement
+targets. Direct mutation retains its stricter symlink checks. Compatibility
+`direct` does not authorize changing a `home-manager` writer into direct copying.
 
 Host-path validation canonicalizes fixed operating-system root aliases before walking path components. In particular, macOS `/var` is validated and compared through its standard `/private/var` identity; links below that canonical root remain rejected.
 

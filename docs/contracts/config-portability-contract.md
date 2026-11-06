@@ -17,11 +17,37 @@ A restore entry maps a **portable source path** to a **system target path**.
 
 Manifest-v2 bundles add generation-aware `configCaptures[]`. Each record represents one independently evolving config set captured from one detected application/config instance. The engine resolves that record to trusted current-catalog restore actions before mutation. A generation-aware payload never receives a flat restore entry or legacy fallback path.
 
-Both lanes ultimately use engine-owned restore primitives, backup, journaling, and revert. Compatibility decisions belong to the engine, not the GUI or bundle.
+Flat entries and declared `endstate-restore` sets use restore primitives, backup, journaling, and revert. Declared `home-manager` sets use frozen activation, content verification, and configuration rollback. Compatibility and writer selection belong to the engine.
 
 The bundle's source instance/version, generation ID, generation fingerprint, capture module revision, and payload bytes are immutable source facts. The current trusted catalog owns target discovery and migration knowledge. A module-revision difference alone is not incompatibility; if the same released generation ID now has a different fingerprint, the current generation must explicitly accept that historical fingerprint or resolution is `unknown` with `source_generation_definition_changed`.
 
 Modules without `moduleSchemaVersion` remain schema v1 and unversioned. Schema-v2 modules declare independently evolving config sets and stable generations identified by `<moduleId>/<configSetId>/<generationId>`. App/version evidence selects exactly one generation for each set; zero or multiple matches remain unknown. A generation's positive `order` establishes forward direction only and never creates compatibility or a migration edge.
+
+### Declared Linux settings writer
+
+Both writers retain one `configCaptures[]` record, its selected observed files,
+payload manifest, and immutable module snapshot. Capture does not duplicate
+these files into `homeManager.settings.files`.
+
+The selected current trusted module declares the writer. Compatibility values
+`direct` and `migrate` describe generation compatibility; neither selects direct
+file mutation. Both writers share integrity checks, migration staging, target
+resolution, and optional-source handling. Staged input remains available until
+its selected writer finishes.
+
+The Home Manager bridge accepts regular-file `copy` declarations. Other
+operations report local `settings_strategy_unavailable`; they never select
+another writer. An absent optional source adds no placement or content check.
+
+Apply composes captured placements with explicit settings or a configuration
+wrapper. It preserves the original declaration. An explicit flake remains
+independent: captured sets require a generated import module and remain skipped
+with `home_manager_import_required`. Remediation carries its stable module
+reference; `resolvedTargets` contains only actual target paths.
+
+Standalone restore cannot activate Home Manager. It skips those sets with
+remediation to use apply or rebuild, while independent direct sets continue.
+Missing activation support never authorizes direct copying.
 
 ---
 
