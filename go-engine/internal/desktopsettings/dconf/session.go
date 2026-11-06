@@ -237,7 +237,7 @@ func (s *session) readValue(ctx context.Context) (desktopsettings.Value, error) 
 		value := string(out.Stdout) == "true\n"
 		return desktopsettings.Value{Type: "boolean", Present: true, Value: &value}, nil
 	}
-	return desktopsettings.Value{}, refuse(ReasonValueUnsupported, fmt.Sprintf("%s holds a value that is not a boolean", s.key()))
+	return desktopsettings.Value{}, refuse(ReasonValueUnsupported, fmt.Sprintf("%s %s holds a value that is not a boolean", s.target.Schema, s.target.Key))
 }
 
 func missingCommand(name string, err error) *Error {
@@ -356,13 +356,11 @@ func (ns namespace) profileCandidates() ([]string, error) {
 		dataDirs = "/usr/local/share:/usr/share"
 	}
 	for _, dir := range strings.Split(dataDirs, ":") {
-		switch {
-		case dir == "":
-		case !path.IsAbs(dir):
-			return nil, refuse(ReasonScopeUnproven, "XDG_DATA_DIRS holds a relative entry for "+ns.who)
-		default:
-			candidates = append(candidates, filepath.Join(dir, "dconf", "profile", "user"))
+		// GLib keeps an empty entry, which dconf then resolves against the working directory.
+		if !path.IsAbs(dir) {
+			return nil, refuse(ReasonScopeUnproven, "XDG_DATA_DIRS holds an empty or relative entry for "+ns.who).fix("remove it from XDG_DATA_DIRS")
 		}
+		candidates = append(candidates, filepath.Join(dir, "dconf", "profile", "user"))
 	}
 	return candidates, nil
 }

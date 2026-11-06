@@ -71,6 +71,10 @@ const (
 	maxStdoutBytes  = 4 << 20
 	maxStderrBytes  = 2 << 10
 	commandTimeout  = 60 * time.Second
+	// busTimeout bounds the bus handshake and each bus call, because capture
+	// detection passes a context without a deadline. It exceeds dbus-daemon's
+	// 25 s service-activation limit, which StartServiceByName can reach.
+	busTimeout = 30 * time.Second
 )
 
 func systemHost() Host {
@@ -79,7 +83,7 @@ func systemHost() Host {
 		Environ:           os.Environ,
 		LookPath:          exec.LookPath,
 		Run:               runCommand,
-		Connect:           connectBus,
+		Connect:           busConnector(busTimeout),
 		Process:           readProcess,
 		RuntimeProfileDir: "/run/dconf/user",
 		SystemProfile:     "/etc/dconf/profile/user",
@@ -128,20 +132,47 @@ func runCommand(ctx context.Context, argv, env []string) (Output, error) {
 	return Output{Stdout: stdout.data.Bytes(), Stderr: strings.TrimSpace(stderr.data.String()), ExitCode: code}, nil
 }
 
-type busConn struct{ conn *dbus.Conn }
-
-func connectBus(ctx context.Context, address string) (Conn, error) {
-	conn, err := sessionbus.Connect(ctx, address)
-	if err != nil {
-		return nil, err
-	}
-	return busConn{conn}, nil
+type busConn struct {
+	conn    *dbus.Conn
+	timeout time.Duration
+	// release ends the connection's context, which godbus ties to its lifetime.
+	release context.CancelFunc
 }
 
-func (c busConn) Close() error { return c.conn.Close() }
+// busConnector dials with godbus, whose handshake takes no deadline of its own.
+// The handshake runs under a timer that cancels the connection's context, and
+// a connection that survives it lives until Close.
+func busConnector(timeout time.Duration) func(context.Context, string) (Conn, error) {
+	return func(ctx context.Context, address string) (Conn, error) {
+		ctx, release := context.WithCancel(ctx)
+		timer := time.AfterFunc(timeout, release)
+		conn, err := sessionbus.Connect(ctx, address)
+		if !timer.Stop() && err == nil {
+			err = fmt.Errorf("session bus handshake exceeded %s", timeout)
+		}
+		if err != nil {
+			release()
+			return nil, err
+		}
+		return busConn{conn: conn, timeout: timeout, release: release}, nil
+	}
+}
+
+func (c busConn) Close() error {
+	defer c.release()
+	return c.conn.Close()
+}
+
+// call runs one bus-daemon method under the per-call bound and stores its reply.
+func (c busConn) call(ctx context.Context, method string, reply any, args ...any) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	return c.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus."+method, 0, args...).Store(reply)
+}
+
 func (c busConn) StartServiceByName(ctx context.Context, name string) error {
 	var reply uint32
-	err := c.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.StartServiceByName", 0, name, uint32(0)).Store(&reply)
+	err := c.call(ctx, "StartServiceByName", &reply, name, uint32(0))
 	// The bus reports 1 for a service it started and 2 for one already running.
 	if err == nil && reply != 1 && reply != 2 {
 		err = fmt.Errorf("unexpected start reply %d", reply)
@@ -150,12 +181,12 @@ func (c busConn) StartServiceByName(ctx context.Context, name string) error {
 }
 func (c busConn) NameOwner(ctx context.Context, name string) (string, error) {
 	var owner string
-	err := c.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.GetNameOwner", 0, name).Store(&owner)
+	err := c.call(ctx, "GetNameOwner", &owner, name)
 	return owner, err
 }
 func (c busConn) Credentials(ctx context.Context, owner string) (Credentials, error) {
 	var values map[string]dbus.Variant
-	if err := c.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.GetConnectionCredentials", 0, owner).Store(&values); err != nil {
+	if err := c.call(ctx, "GetConnectionCredentials", &values, owner); err != nil {
 		return Credentials{}, err
 	}
 	uid, uidOK := values["UnixUserID"].Value().(uint32)

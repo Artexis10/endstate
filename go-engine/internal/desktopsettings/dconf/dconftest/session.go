@@ -33,7 +33,9 @@ type Session struct {
 
 	// Home and Runtime are real directories. The reader and writer environments
 	// start as the same HOME and XDG_RUNTIME_DIR; tests edit the maps to diverge.
-	Home, Runtime                    string
+	// DataDir is their only XDG_DATA_DIRS entry, so no test reads the host's own
+	// dconf profile directories.
+	Home, Runtime, DataDir           string
 	Reader, Writer                   map[string]string
 	RuntimeProfileDir, SystemProfile string
 
@@ -67,20 +69,20 @@ func New(t testing.TB) *Session {
 	base := t.TempDir()
 	s := &Session{
 		t: t, UID: 4242, WriterUID: 4242, WriterPID: 777, Owner: ":1.42",
-		Home: filepath.Join(base, "home"), Runtime: filepath.Join(base, "run"),
+		Home: filepath.Join(base, "home"), Runtime: filepath.Join(base, "run"), DataDir: filepath.Join(base, "share"),
 		RuntimeProfileDir: filepath.Join(base, "run-dconf-user"), SystemProfile: filepath.Join(base, "etc-dconf-profile-user"),
 		Values: map[string]string{}, Defaults: map[string]string{}, Locks: map[string]string{},
 		Schemas:        map[string]string{"org.gnome.desktop.interface": "/org/gnome/desktop/interface/"},
 		KeyTypes:       map[string]string{"org.gnome.desktop.interface clock-show-date": "b"},
 		MissingCommand: map[string]bool{},
 	}
-	for _, dir := range []string{s.Home, s.Runtime} {
+	for _, dir := range []string{s.Home, s.Runtime, s.DataDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	s.Reader = map[string]string{"HOME": s.Home, "XDG_RUNTIME_DIR": s.Runtime, "DBUS_SESSION_BUS_ADDRESS": s.BusAddress(), "PATH": "/usr/bin"}
-	s.Writer = map[string]string{"HOME": s.Home, "XDG_RUNTIME_DIR": s.Runtime}
+	s.Reader = map[string]string{"HOME": s.Home, "XDG_RUNTIME_DIR": s.Runtime, "XDG_DATA_DIRS": s.DataDir, "DBUS_SESSION_BUS_ADDRESS": s.BusAddress(), "PATH": "/usr/bin"}
+	s.Writer = map[string]string{"HOME": s.Home, "XDG_RUNTIME_DIR": s.Runtime, "XDG_DATA_DIRS": s.DataDir}
 	return s
 }
 

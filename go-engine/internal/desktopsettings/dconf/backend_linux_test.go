@@ -289,9 +289,12 @@ func TestDconfRefusesEveryProfileSource(t *testing.T) {
 		{"profile in the writer's data directory", func(s *dconftest.Session) {
 			dir := filepath.Join(t.TempDir(), "share")
 			touch(filepath.Join(dir, "dconf", "profile", "user"))
-			s.Writer["XDG_DATA_DIRS"] = dir + ":/usr/share"
+			s.Writer["XDG_DATA_DIRS"] = dir + ":" + s.DataDir
 		}, dconf.ReasonProfileUnsupported},
-		{"relative data directory", func(s *dconftest.Session) { s.Writer["XDG_DATA_DIRS"] = "share:/usr/share" }, dconf.ReasonScopeUnproven},
+		{"relative data directory", func(s *dconftest.Session) { s.Writer["XDG_DATA_DIRS"] = "share:" + s.DataDir }, dconf.ReasonScopeUnproven},
+		// GLib keeps the empty entry from a stray colon, and dconf then reads ./dconf/profile/user.
+		{"empty data directory entry", func(s *dconftest.Session) { s.Writer["XDG_DATA_DIRS"] = s.DataDir + ":" }, dconf.ReasonScopeUnproven},
+		{"empty data directory entry for this process", func(s *dconftest.Session) { s.Reader["XDG_DATA_DIRS"] = ":" + s.DataDir }, dconf.ReasonScopeUnproven},
 		{"default value reported by dconf", func(s *dconftest.Session) { s.Defaults[clockKey] = "true" }, dconf.ReasonProfileUnsupported},
 		{"locks reported by dconf", func(s *dconftest.Session) {
 			s.Locks["/org/gnome/desktop/interface/"] = "/org/gnome/desktop/interface/clock-show-date\n"
@@ -325,13 +328,32 @@ func TestDconfRefusesSchemaThatDoesNotDescribeTheKey(t *testing.T) {
 	}
 }
 
+// gsettings would read a schema or key that starts with "-" as an option, so the
+// target must stop before any command runs. A refusal from the session means one ran.
+func TestDconfRefusesTargetThatCommandsWouldReadAsAnOption(t *testing.T) {
+	for _, target := range []desktopsettings.Target{
+		{Schema: "-h", Path: clockTarget.Path, Key: "clock-show-date", Type: "boolean"},
+		{Schema: clockTarget.Schema, Path: clockTarget.Path, Key: "--help", Type: "boolean"},
+	} {
+		s := dconftest.New(t)
+		backend := dconf.New(s.Host())
+		_, readErr := backend.Read(context.Background(), target)
+		writeErr := backend.Write(context.Background(), target, "scope", boolean(true, true))
+		for _, err := range []error{readErr, writeErr} {
+			var refusal *dconf.Error
+			if err == nil || errors.As(err, &refusal) || s.Writes != 0 {
+				t.Fatalf("target %+v reached the commands: %v writes=%d", target, err, s.Writes)
+			}
+		}
+	}
+}
+
 // An AppImage-style environment must not change what the commands report.
 func TestDconfPinsChildEnvironmentToTheSessionsView(t *testing.T) {
 	s := dconftest.New(t)
-	sessionDirs := "/usr/share"
+	sessionDirs := s.DataDir
 	s.SchemaDataDirs = &sessionDirs
-	s.Writer["XDG_DATA_DIRS"] = sessionDirs
-	s.Reader["XDG_DATA_DIRS"] = "/tmp/.mount_endstate/usr/share:/usr/share"
+	s.Reader["XDG_DATA_DIRS"] = "/tmp/.mount_endstate/usr/share:" + s.DataDir
 	s.Reader["G_MESSAGES_DEBUG"] = "all"
 	s.Reader["GSETTINGS_SCHEMA_DIR"] = "/tmp/.mount_endstate/schemas"
 	s.Values[clockKey] = "true"
