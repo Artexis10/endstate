@@ -682,7 +682,12 @@ func resolveValidations(definitions []modules.ValidationDef, entries []resolvedR
 	resolved := make([]configvalidate.ResolvedValidation, 0, len(definitions))
 	for index, definition := range definitions {
 		mappings := make([]string, 0, 1)
+		optionalMissing := 0
 		for _, entry := range entries {
+			if entry.sourceMissing && definition.Type == "settings-codec" && definition.Optional && entry.definition.Optional && canonicalPortablePath(definition.Path) == canonicalPortablePath(entry.definition.Source) {
+				optionalMissing++
+				continue
+			}
 			if entry.sourceMissing || entry.source == "" || entry.registryClaim || entry.definition.Type == "delete-glob" {
 				continue
 			}
@@ -697,12 +702,16 @@ func resolveValidations(definitions []modules.ValidationDef, entries []resolvedR
 				mappings = append(mappings, hostPath)
 			}
 		}
+		if len(mappings) == 0 && optionalMissing == 1 {
+			continue
+		}
 		if len(mappings) != 1 {
 			return nil, &Error{
 				Code: CodeValidationMapping, ActionIndex: -1, ValidationIndex: index, MappingCount: len(mappings),
 				Err: fmt.Errorf("validation path %q must map through exactly one restore source", definition.Path),
 			}
 		}
+		definition.Optional = false // Every transferred file must pass committed validation.
 		resolved = append(resolved, configvalidate.ResolvedValidation{Definition: definition, HostPath: mappings[0]})
 	}
 	return resolved, nil

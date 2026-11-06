@@ -361,7 +361,7 @@ func supportedCodec(disposition Disposition, codec string) bool {
 	case FileRoundTrip:
 		return codec == settingscodec.BoundedRegularFileV1
 	case CuratedCodec:
-		return codec == settingscodec.GitConfigSafeV1
+		return codec == settingscodec.GitConfigSafeV1 || codec == settingscodec.RipgrepPortableArgumentsV1
 	default:
 		return false
 	}

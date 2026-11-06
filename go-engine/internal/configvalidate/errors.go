@@ -29,6 +29,7 @@ const (
 	CodeInvalidINIAddress     Code = "invalid_ini_address"
 	CodeINIKeyMissing         Code = "ini_key_missing"
 	CodeIO                    Code = "io_error"
+	CodeContentPolicy         Code = "content_policy"
 )
 
 // Error identifies the exact validation definition that failed. Index is

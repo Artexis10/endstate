@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
 func validateAndSyncPreparedSnapshots(
@@ -255,7 +256,14 @@ func validateJournalValidations(
 		if err := validateSnapshotPathSeparation(transactionRoot, validation.HostPath); err != nil {
 			return fmt.Errorf("journal validation[%d] host path: %w", index, err)
 		}
+		if validation.Type != "settings-codec" && validation.Codec != "" {
+			return fmt.Errorf("journal validation[%d] has a foreign codec", index)
+		}
 		switch validation.Type {
+		case "settings-codec":
+			if !settingscodec.Validates(validation.Codec) || validation.JSONPath != "" || validation.Section != "" || validation.Key != "" {
+				return fmt.Errorf("journal validation[%d] has no rejecting codec or has foreign fields", index)
+			}
 		case "file-exists", "json-parse", "ini-parse":
 			if validation.JSONPath != "" || validation.Section != "" || validation.Key != "" {
 				return fmt.Errorf("journal validation[%d] %q has foreign primitive fields", index, validation.Type)

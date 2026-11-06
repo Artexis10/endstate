@@ -131,6 +131,7 @@ func (e *TransactionExecutor) Execute(ctx context.Context, request TransactionRe
 			Definition: modules.ValidationDef{
 				Type: validation.Type, Path: validation.Path, JSONPath: validation.JSONPath,
 				Section: validation.Section, Key: validation.Key,
+				Codec: validation.Codec,
 			},
 			HostPath: hostPath,
 		}

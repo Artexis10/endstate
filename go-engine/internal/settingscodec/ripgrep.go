@@ -11,6 +11,25 @@ import (
 
 const RipgrepPortableArgumentsV1 = "ripgrep-portable-arguments-v1"
 
+const MaxContentSize int64 = 1 << 20
+
+// Validates reports whether a codec rejects every unsupported input rather
+// than sanitizing or preserving unknown content.
+func Validates(codec string) bool { return codec == RipgrepPortableArgumentsV1 }
+
+// Validate checks original content without changing it. Transform remains the
+// canonicalization boundary for capture.
+func Validate(codec string, data []byte) error {
+	if int64(len(data)) > MaxContentSize {
+		return fmt.Errorf("settings content exceeds the codec read bound")
+	}
+	if !Validates(codec) {
+		return fmt.Errorf("settings codec %q has no rejecting content policy", codec)
+	}
+	_, err := portableRipgrepArguments(data)
+	return err
+}
+
 func ripgrepTargetSupported(target string) bool {
 	// These aliases are the closed target contract for this versioned codec.
 	switch target {

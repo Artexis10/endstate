@@ -1168,8 +1168,8 @@
       "displayName": "ripgrep",
       "packageId": "ripgrep",
       "moduleId": "apps.ripgrep",
-      "disposition": "file-roundtrip",
-      "codec": "bounded-regular-file-v1",
+      "disposition": "curated-codec",
+      "codec": "ripgrep-portable-arguments-v1",
       "probe": {
         "values": {
           "programs.ripgrep.arguments": [
@@ -1191,6 +1191,14 @@
       ],
       "targets": [
         {
+          "coordinate": "${home}/.ripgreprc",
+          "optional": true
+        },
+        {
+          "coordinate": "${xdg.config}/ripgrep/config",
+          "optional": true
+        },
+        {
           "coordinate": "${xdg.config}/ripgrep/ripgreprc",
           "optional": true
         }
@@ -1198,7 +1206,7 @@
       "sourceHashes": {
         "modules/programs/ripgrep.nix": "dbb0b32aec87298873898ef19e7fea9d36560389ab41a28634b5c7fd7f34740e"
       },
-      "reviewFingerprint": "74fed436a6ee4594d4213d6ded7b65776df6eca9ec0a44541eb2628739604f0a"
+      "reviewFingerprint": "d60ee9bd5e8317d2c9e32dc47cf82798e275cf99a397b36ebbcbcfa3801514e2"
     },
     {
       "id": "ssh",

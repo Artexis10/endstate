@@ -329,6 +329,7 @@ func validateJournalIntentRequest(
 		validations[index] = JournalValidation{
 			Type: validation.Definition.Type, Path: validation.Definition.Path, JSONPath: validation.Definition.JSONPath,
 			Section: validation.Definition.Section, Key: validation.Definition.Key, HostPath: validation.HostPath,
+			Codec: validation.Definition.Codec,
 		}
 	}
 	ioActions, err := resolveJournalActionsForHostIO(actions, request.Prepared.boundary)

@@ -13,6 +13,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
 // ResolvedValidation binds one declarative validation to the concrete host
@@ -35,10 +36,17 @@ func ValidateStaging(root string, definitions []modules.ValidationDef) error {
 		}
 		target, err := safepath.Resolve(root, definition.Path)
 		if err != nil {
+			if definition.Optional && os.IsNotExist(err) {
+				continue
+			}
 			code, mapped := mapPathError(err)
 			return wrapError(index, definition, "", fail(code, mapped))
 		}
 		if err := validateOne(target, definition); err != nil {
+			var local *localError
+			if definition.Optional && errors.As(err, &local) && local.code == CodePathNotFound {
+				continue
+			}
 			return wrapError(index, definition, target, err)
 		}
 	}
@@ -65,6 +73,16 @@ func ValidateResolved(validations []ResolvedValidation) error {
 
 func validateOne(target string, definition modules.ValidationDef) error {
 	switch definition.Type {
+	case "settings-codec":
+		data, _, err := safepath.ReadRegularFileBounded(target, settingscodec.MaxContentSize)
+		if err != nil {
+			code, mapped := mapPathError(err)
+			return fail(code, mapped)
+		}
+		if err := settingscodec.Validate(definition.Codec, data); err != nil {
+			return fail(CodeContentPolicy, err)
+		}
+		return nil
 	case "file-exists":
 		_, err := readRegularFile(target)
 		return err
@@ -125,7 +143,15 @@ func validateOne(target string, definition modules.ValidationDef) error {
 }
 
 func validateDefinition(definition modules.ValidationDef) error {
+	if definition.Type != "settings-codec" && (definition.Codec != "" || definition.Optional) {
+		return fail(CodeUnsupportedValidation, fmt.Errorf("codec and optional require settings-codec validation"))
+	}
 	switch definition.Type {
+	case "settings-codec":
+		if !settingscodec.Validates(definition.Codec) || definition.JSONPath != "" || definition.Section != "" || definition.Key != "" {
+			return fail(CodeUnsupportedValidation, fmt.Errorf("settings-codec validation requires a rejecting codec and no foreign fields"))
+		}
+		return nil
 	case "file-exists", "json-parse", "ini-parse":
 		return nil
 	case "json-path-exists":

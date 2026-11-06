@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -29,6 +30,7 @@ const (
 	ConfigCaptureLinkUnsupported      = "CONFIG_CAPTURE_LINK_UNSUPPORTED"
 	ConfigCaptureIO                   = "CONFIG_CAPTURE_IO"
 	ConfigCaptureRegistryUnsupported  = "CONFIG_CAPTURE_REGISTRY_UNSUPPORTED"
+	ConfigCaptureContentPolicy        = "CONFIG_CAPTURE_CONTENT_POLICY"
 )
 
 // ConfigCaptureError is a stable typed collection failure suitable for later
@@ -69,6 +71,10 @@ type ConfigSetCapturePlan struct {
 	Set        *modules.ConfigSetDef
 	Generation *modules.GenerationDef
 	Instance   modules.ConfigInstance
+
+	// ObservedFiles fences registry-backed collection to the selected source
+	// observations. Nil preserves ordinary, non-registry module collection.
+	ObservedFiles []SettingsFileCapturePlan
 }
 
 // ConfigSetCollection describes one isolated staged payload. PayloadRoot and
@@ -178,6 +184,8 @@ type configCopyItem struct {
 	source string
 	dest   string
 	digest [sha256.Size]byte
+	// Non-nil content holds the canonical bytes from a bounded observation.
+	content []byte
 }
 
 type configCopyPreflight struct {
@@ -286,7 +294,13 @@ func CollectConfigSetWithValidation(plan ConfigSetCapturePlan, stagingRoot strin
 			}
 			return nil, capturePathError(err, "destination %q", item.dest)
 		}
-		if err := copyRegularFile(item.source, destination, item.digest); err != nil {
+		var copyErr error
+		if item.content != nil {
+			copyErr = os.WriteFile(destination, item.content, 0o600)
+		} else {
+			copyErr = copyRegularFile(item.source, destination, item.digest)
+		}
+		if err := copyErr; err != nil {
 			if context != nil {
 				return nil, captureIsolation(plan.Module.ID, "capture.files[].source", "path", "capture.files[].source", validationmode.ErrUnsafePath)
 			}
@@ -393,6 +407,20 @@ func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Co
 	}
 	preflight := &configCopyPreflight{}
 	for index, declaration := range capture.Files {
+		var observation *SettingsFileCapturePlan
+		if plan.ObservedFiles != nil {
+			for i := range plan.ObservedFiles {
+				if plan.ObservedFiles[i].Target == declaration.Source {
+					if observation != nil {
+						return nil, captureError(ConfigCaptureInvalidPlan, "duplicate selected observation")
+					}
+					observation = &plan.ObservedFiles[i]
+				}
+			}
+			if observation == nil {
+				continue
+			}
+		}
 		var source string
 		if context != nil {
 			source, err = resolveCaptureHost(context, plan.Module.ID, fmt.Sprintf("capture.files[%d].source", index), declaration.Source, policy)
@@ -419,6 +447,29 @@ func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Co
 			continue
 		}
 		if matchesExcludeGlobs(filepath.Base(source), excludeGlobs) {
+			continue
+		}
+		if observation != nil {
+			if observation.CandidateID != plan.Module.ID || filepath.Clean(observation.Source) != filepath.Clean(source) || observation.ObservedSHA256 == "" {
+				return nil, captureError(ConfigCaptureInvalidPlan, "selected observation does not match its pinned source")
+			}
+			if err := validateHomeManagerCapturePlan(*observation); err != nil {
+				return nil, captureError(ConfigCaptureInvalidPlan, "invalid selected observation: %v", err)
+			}
+			data, err := readStableHomeManagerSource(*observation)
+			if err != nil {
+				return nil, captureError(ConfigCaptureIO, "selected settings source changed or could not be read")
+			}
+			canonical, err := settingscodec.Transform(observation.Codec, observation.Target, data)
+			if err != nil {
+				return nil, captureError(ConfigCaptureContentPolicy, "selected settings source violates its reviewed content policy: %v", err)
+			}
+			if err := checkConfigCopyDestination(preflight, destination); err != nil {
+				return nil, err
+			}
+			content := make([]byte, len(canonical))
+			copy(content, canonical)
+			preflight.items = append(preflight.items, configCopyItem{source: source, dest: destination, content: content})
 			continue
 		}
 		if err := ensureNoLinksInExistingPath(source); err != nil {
@@ -561,6 +612,18 @@ func preflightConfigDirectory(preflight *configCopyPreflight, sourceRoot, destin
 }
 
 func addConfigCopyItem(preflight *configCopyPreflight, source, destination string) error {
+	if err := checkConfigCopyDestination(preflight, destination); err != nil {
+		return err
+	}
+	digest, err := fingerprintConfigCaptureSource(source)
+	if err != nil {
+		return capturePathError(err, "fingerprint source %q", source)
+	}
+	preflight.items = append(preflight.items, configCopyItem{source: source, dest: destination, digest: digest})
+	return nil
+}
+
+func checkConfigCopyDestination(preflight *configCopyPreflight, destination string) error {
 	key := strings.ToLower(destination)
 	for _, existingItem := range preflight.items {
 		existing := existingItem.dest
@@ -569,11 +632,6 @@ func addConfigCopyItem(preflight *configCopyPreflight, source, destination strin
 			return captureError(ConfigCaptureDestinationCollision, "destination collision between %q and %q", existing, destination)
 		}
 	}
-	digest, err := fingerprintConfigCaptureSource(source)
-	if err != nil {
-		return capturePathError(err, "fingerprint source %q", source)
-	}
-	preflight.items = append(preflight.items, configCopyItem{source: source, dest: destination, digest: digest})
 	return nil
 }
 

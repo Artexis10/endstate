@@ -101,6 +101,7 @@ type JournalValidation struct {
 	Section  string `json:"section"`
 	Key      string `json:"key"`
 	HostPath string `json:"hostPath"`
+	Codec    string `json:"codec,omitempty"`
 }
 
 // JournalIntentRequest persists one already-verified PreparedSet beneath the

@@ -247,6 +247,8 @@ type ValidationDef struct {
 	JSONPath string `json:"jsonPath,omitempty"`
 	Section  string `json:"section,omitempty"`
 	Key      string `json:"key,omitempty"`
+	Codec    string `json:"codec,omitempty"`
+	Optional bool   `json:"optional,omitempty"`
 }
 
 // MatchCriteria defines how a module is matched to installed applications.

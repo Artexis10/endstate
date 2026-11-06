@@ -20,11 +20,11 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
-const maxHomeManagerCaptureFileSize int64 = 1 << 20
+const maxHomeManagerCaptureFileSize = settingscodec.MaxContentSize
 
-// HomeManagerFileCapturePlan joins a frozen portable target to one live host
+// SettingsFileCapturePlan joins a frozen portable target to one live host
 // source. Source is execution-only and is replaced by a bundle-relative ref.
-type HomeManagerFileCapturePlan struct {
+type SettingsFileCapturePlan struct {
 	CandidateID    string
 	Codec          string
 	Target         string
@@ -33,6 +33,9 @@ type HomeManagerFileCapturePlan struct {
 	ObservedSize   int64
 	ObservedSHA256 string
 }
+
+// HomeManagerFileCapturePlan preserves the existing placement caller API.
+type HomeManagerFileCapturePlan = SettingsFileCapturePlan
 
 func stageHomeManagerFiles(base *manifest.Manifest, plans []HomeManagerFileCapturePlan, stagingRoot string, context *validationmode.Context) (int, []string, error) {
 	if len(plans) == 0 {

@@ -14,6 +14,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
 const (
@@ -245,6 +246,17 @@ func validateGenerationPaths(mod *Module, filePath, setID string, generation *Ge
 			}
 			return validationError(mod, filePath, code, "config set %q generation %q validate[%d]: %v", setID, generation.ID, index, err)
 		}
+		if validation.Type == "settings-codec" {
+			matches := 0
+			for _, restore := range generation.Restore {
+				if filepath.ToSlash(filepath.Clean(restore.Source)) == filepath.ToSlash(filepath.Clean(validation.Path)) && restore.Type == "copy" && settingscodec.TargetSupported(validation.Codec, restore.Target) && validation.Optional == restore.Optional {
+					matches++
+				}
+			}
+			if matches != 1 {
+				return validationError(mod, filePath, DiagnosticInvalidValidation, "settings-codec validation must identify one reviewed copy target with matching optionality")
+			}
+		}
 	}
 	return nil
 }
@@ -455,7 +467,14 @@ func validateValidation(validation ValidationDef) error {
 	if err := validateStagingPath(validation.Path); err != nil {
 		return err
 	}
+	if validation.Type != "settings-codec" && (validation.Codec != "" || validation.Optional) {
+		return fmt.Errorf("codec and optional are reserved for settings-codec validation")
+	}
 	switch validation.Type {
+	case "settings-codec":
+		if !settingscodec.Validates(validation.Codec) || validation.JSONPath != "" || validation.Section != "" || validation.Key != "" {
+			return fmt.Errorf("settings-codec validation requires a rejecting codec and no foreign fields")
+		}
 	case "file-exists", "json-parse", "ini-parse":
 	case "json-path-exists":
 		if validation.JSONPath == "" {
@@ -479,7 +498,7 @@ func validateValidation(validation ValidationDef) error {
 
 func validationDiagnosticCode(validationType string) string {
 	switch validationType {
-	case "file-exists", "json-parse", "json-path-exists", "ini-parse", "ini-key-exists":
+	case "file-exists", "json-parse", "json-path-exists", "ini-parse", "ini-key-exists", "settings-codec":
 		return DiagnosticInvalidValidation
 	default:
 		return DiagnosticUnknownValidation

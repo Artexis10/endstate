@@ -528,6 +528,13 @@ and claim equivalent settings. Preserve the order of accepted arguments.
 Canonical output may omit comments. Application behavior proof supplies
 `RIPGREP_CONFIG_PATH`; this change does not manage the user's shell environment.
 
+The trusted generation declares `settings-codec` validations with a codec and
+optional-file handling. Each validation maps its payload path through one
+existing copy declaration to the reviewed target. Capture rejects unsupported
+content during canonicalizing collection. Restore reuses staged validation and
+journaled committed validation. A missing optional source creates no validation
+of a pre-existing host file; every transferred file requires validation.
+
 The harvester remains the producer of pinned metadata and observed probe
 targets. Curated runtime aliases remain reviewed registry data. Refresh does
 not manufacture module bindings; changed metadata invalidates the old binding.
