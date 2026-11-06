@@ -464,7 +464,8 @@ artifacts, promoted desktops/systemd, and readiness policy.
 - [ ] 12.1 Publish final CLI, event, capabilities, ownership, immutable-input, platform-module, desktop, and schedule contracts from stable producer schemas
 - [ ] 12.2 Correct `docs/COMPATIBILITY.md` to separate substrate support, ordinary-machine readiness, settings breadth, atomicity, and independent scheduling/desktop tiers
 - [ ] 12.3 Move unique durable deferred Linux/macOS roadmap contracts into explicit follow-on OpenSpec changes or non-normative deferred sections, then retire the competing roadmap authority
-- [ ] 12.4 Add byte-stable Ubuntu/Debian, Fedora/RPM, and Arch discovery fixtures/jobs
+- [x] 12.4 Add byte-stable Ubuntu/Debian, Fedora/RPM, and Arch discovery fixtures/jobs
+  - Independent acceptance at `2e20534` reuses the full passing run at that head; the 15 relevant source, fixture, and workflow files are unchanged. Committed apt/dpkg, RPM, and pacman fixtures cover explicit intent, native versions, dependency exclusion, stable ordering, fixed read-only arguments, malformed rows, and failed, missing, or cancelled queries. The existing `Go Tests` Ubuntu/macOS job runs them unfiltered on every pull request to `main`. This accepts fixture coverage only; native Ubuntu, Fedora, and Arch execution and the required-check setting stay with tasks 12.8, 12.9, and 13.3.
 - [ ] 12.5 Make no-Nix/no-Endstate-state capture a required job
 - [ ] 12.6 Ship deterministic Linux runtime bundles containing binary, modules, payload, package catalog, Home Manager registry, and schema identity; make Unix bootstrap install/resolve them
 - [ ] 12.7 Add required shipped-artifact bootstrap/catalog/pin/no-Nix capture smoke on Linux amd64 and arm64
