@@ -27,6 +27,12 @@ The engine SHALL support `capture` on Linux and Darwin without requiring Winget 
 - **WHEN** all available capture sources succeed but report no resolved applications and no selected configuration can be captured
 - **THEN** the engine SHALL return the governed zero-useful-state capture error
 - **AND** it SHALL NOT write a misleading empty artifact
+- **AND** an existing artifact at the destination SHALL remain unchanged
+
+#### Scenario: Detected optional settings disappear before collection
+- **WHEN** selected optional settings disappear and collection retains no package or configuration payload
+- **THEN** Linux capture SHALL fail without publishing an empty bundle or intermediate manifest
+- **AND** it SHALL preserve any artifact already stored at the destination
 
 #### Scenario: A backend infrastructure failure surfaces as an error
 - **WHEN** every selected available capture source fails with a systemic, permission, or malformed-output error

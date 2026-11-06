@@ -6,6 +6,7 @@ package bundle
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -82,7 +83,7 @@ func stageHomeManagerFiles(base *manifest.Manifest, plans []HomeManagerFileCaptu
 	warnings := make([]string, 0)
 	for _, plan := range ordered {
 		data, err := readStableHomeManagerSource(plan)
-		if os.IsNotExist(err) && plan.Optional {
+		if errors.Is(err, os.ErrNotExist) && plan.Optional {
 			warnings = append(warnings, "A detected optional settings file disappeared before it could be bundled.")
 			continue
 		}

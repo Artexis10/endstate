@@ -542,6 +542,33 @@ func captureCatalogDiagnosticIsRelevant(diagnostic modules.CatalogDiagnostic, ap
 // by every package backend. The caller has already written and verified the
 // manifest at ManifestPath. Sanitized capture returns it untouched; every
 // other capture publishes exactly one zip, including install-only output.
+func preflightPreparedCaptureConfig(request captureConfigFinalizeRequest, prepared *captureConfigPreparation) *envelope.Error {
+	context := request.ValidationContext
+	if context == nil {
+		context = prepared.ValidationContext
+	}
+	if context == nil || prepared.ValidationPreflightComplete {
+		return nil
+	}
+	planningManifest, err := validationManifestFromCapturePreparation(prepared, request.Apps)
+	if err != nil {
+		return validationPreflightFailureEnvelope(currentValidationSession, "planning.materialized", "capture-projection")
+	}
+	configPlans, instances := validationCapturePlanningFacts(prepared)
+	if err := preflightActiveValidationCommand(validationProductionModulePreflight{
+		Catalog: prepared.Catalog, Modules: prepared.Planning.Modules, Manifest: planningManifest,
+		PortableRoot: validationManifestPortableRoot(request.ManifestPath), ConfigPlans: configPlans, Instances: instances,
+		SandboxTargets: []validationProductionSandboxTarget{
+			validationSandboxTarget("capture.output", request.ManifestPath),
+			validationSandboxTarget("capture.bundle", prepared.OutputPath),
+		},
+	}); err != nil {
+		return err
+	}
+	prepared.ValidationPreflightComplete = true
+	return nil
+}
+
 func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigFinalization, error) {
 	empty := emptyCaptureConfigFinalization(request.ManifestPath)
 	if request.Flags.Sanitize {
@@ -561,22 +588,8 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 	if validationContext == nil {
 		validationContext = prepared.ValidationContext
 	}
-	if validationContext != nil && !prepared.ValidationPreflightComplete {
-		planningManifest, projectionErr := validationManifestFromCapturePreparation(prepared, request.Apps)
-		if projectionErr != nil {
-			return nil, validationPreflightFailure(currentValidationSession, "planning.materialized", "capture-projection", isolationReasonUnsafePath)
-		}
-		configPlans, instances := validationCapturePlanningFacts(prepared)
-		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
-			Catalog: prepared.Catalog, Modules: planning.Modules, Manifest: planningManifest,
-			PortableRoot: validationManifestPortableRoot(request.ManifestPath), ConfigPlans: configPlans, Instances: instances,
-			SandboxTargets: []validationProductionSandboxTarget{
-				validationSandboxTarget("capture.output", request.ManifestPath),
-				validationSandboxTarget("capture.bundle", outputPath),
-			},
-		}); validationErr != nil {
-			return nil, fmt.Errorf("validation capture preflight failed")
-		}
+	if validationErr := preflightPreparedCaptureConfig(request, prepared); validationErr != nil {
+		return nil, fmt.Errorf("validation capture preflight failed")
 	}
 	bundleResult, err := createCaptureBundleFn(bundle.CaptureBundleRequest{
 		ManifestPath:           request.ManifestPath,
@@ -585,6 +598,7 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		Modules:                planning.Modules,
 		GenerationPlans:        planning.GenerationPlans,
 		HomeManagerFiles:       request.Flags.linuxHomeManagerFiles,
+		RequireUsefulPayload:   request.Platform == "linux" && request.Flags.linuxDiscoveryCounts != nil && !request.Flags.Update && len(request.Apps) == 0,
 		PreplanningDiagnostics: planning.PreplanningDiagnostics,
 		Share:                  request.Flags.Share,
 		Name:                   request.Flags.Name,

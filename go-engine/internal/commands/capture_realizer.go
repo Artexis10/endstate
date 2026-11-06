@@ -350,6 +350,28 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 			fmt.Sprintf("Failed to marshal manifest: %v", marshalErr),
 		)
 	}
+	manifestPath := outputPath
+	var preparedCapture *captureConfigPreparation
+	if captureGOOSFn() == "linux" && !flags.Sanitize {
+		absoluteOutput, err := filepath.Abs(outputPath)
+		if err != nil {
+			return nil, envelope.NewError(envelope.ErrManifestWriteFailed, "The capture output path could not be resolved.")
+		}
+		request := captureConfigFinalizeRequest{
+			Flags: flags, ManifestPath: absoluteOutput, Apps: buildModuleMatchApps(captured),
+			Platform: captureGOOSFn(), Selection: appSelection, ValidationContext: currentValidationMode,
+		}
+		preparedCapture, err = prepareCaptureConfig(request)
+		if err != nil {
+			if selectionErr, ok := asCaptureSelectionError(err); ok {
+				return nil, selectionErr
+			}
+			return nil, envelope.NewError(envelope.ErrCaptureFailed, fmt.Sprintf("Failed to plan capture bundle: %v", err))
+		}
+		if err := preflightPreparedCaptureConfig(request, preparedCapture); err != nil {
+			return nil, err
+		}
+	}
 	if dir := filepath.Dir(outputPath); dir != "" && dir != "." {
 		if mkdirErr := os.MkdirAll(dir, 0755); mkdirErr != nil {
 			return nil, envelope.NewError(
@@ -361,7 +383,29 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	if flags.Sanitize {
 		emitter.EmitProgress("capture", "packaging")
 	}
-	if writeErr := os.WriteFile(outputPath, data, 0644); writeErr != nil {
+	var writeErr error
+	if preparedCapture != nil {
+		file, err := os.CreateTemp(filepath.Dir(outputPath), ".endstate-capture-*.jsonc")
+		if err != nil {
+			return nil, envelope.NewError(envelope.ErrManifestWriteFailed, "The intermediate capture manifest could not be created.")
+		}
+		manifestPath = file.Name()
+		defer os.Remove(manifestPath)
+		if currentValidationMode != nil {
+			if err := preflightActiveValidationSandboxPaths(validationSandboxTarget("capture.intermediate", manifestPath)); err != nil {
+				_ = file.Close()
+				return nil, err
+			}
+		}
+		_, writeErr = file.Write(data)
+		closeErr := file.Close()
+		if writeErr == nil {
+			writeErr = closeErr
+		}
+	} else {
+		writeErr = os.WriteFile(manifestPath, data, 0644)
+	}
+	if writeErr != nil {
 		return nil, envelope.NewError(
 			envelope.ErrManifestWriteFailed,
 			fmt.Sprintf("Failed to write manifest file: %v", writeErr),
@@ -369,16 +413,16 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	}
 
 	// --- 8. INV-CAPTURE-2: verify file exists and is non-empty ---
-	if fileInfo, statErr := os.Stat(outputPath); statErr != nil || fileInfo.Size() == 0 {
+	if fileInfo, statErr := os.Stat(manifestPath); statErr != nil || fileInfo.Size() == 0 {
 		return nil, envelope.NewError(
 			envelope.ErrManifestWriteFailed,
 			"Manifest file is empty or does not exist after write.",
 		).WithRemediation("Check disk space and directory permissions.")
 	}
 
-	absPath, absErr := filepath.Abs(outputPath)
+	absPath, absErr := filepath.Abs(manifestPath)
 	if absErr != nil {
-		absPath = outputPath
+		absPath = manifestPath
 	}
 
 	// --- 9. Build appsIncluded (package-scoped; source is the backend name) ---
@@ -401,7 +445,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 
 	// --- 10. Plan config capture and publish one canonical artifact ---
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
-		Flags: flags, ManifestPath: absPath,
+		Flags: flags, ManifestPath: absPath, Prepared: preparedCapture,
 		Apps:              buildModuleMatchApps(captured),
 		Platform:          captureGOOSFn(),
 		Selection:         appSelection,

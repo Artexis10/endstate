@@ -1187,22 +1187,9 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			}
 			return nil, envelope.NewError(envelope.ErrCaptureFailed, fmt.Sprintf("Failed to plan capture bundle: %v", prepareErr))
 		}
-		planningManifest, projectionErr := validationManifestFromCapturePreparation(preparedCapture, preparationRequest.Apps)
-		if projectionErr != nil {
-			return nil, validationPreflightFailureEnvelope(currentValidationSession, "planning.materialized", "capture-projection")
-		}
-		configPlans, instances := validationCapturePlanningFacts(preparedCapture)
-		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
-			Catalog: preparedCapture.Catalog, Modules: preparedCapture.Planning.Modules, Manifest: planningManifest,
-			PortableRoot: validationManifestPortableRoot(absoluteManifest), ConfigPlans: configPlans, Instances: instances,
-			SandboxTargets: []validationProductionSandboxTarget{
-				validationSandboxTarget("capture.output", absoluteManifest),
-				validationSandboxTarget("capture.bundle", preparedCapture.OutputPath),
-			},
-		}); validationErr != nil {
+		if validationErr := preflightPreparedCaptureConfig(preparationRequest, preparedCapture); validationErr != nil {
 			return nil, validationErr
 		}
-		preparedCapture.ValidationPreflightComplete = true
 	}
 
 	// Ensure parent directory exists.

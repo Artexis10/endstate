@@ -851,6 +851,12 @@ Omissions report `historical_settings_omitted`; preserved opaque ownership may
 report `home_manager_ownership_preserved`. Windows and Darwin retain their
 existing declaration recovery behavior.
 
+Linux settings-only capture requires a payload retained by actual collection.
+An optional file that disappears does not establish useful state. Capture
+stages its intermediate manifest separately and publishes the bundle atomically.
+A failed capture leaves an existing destination unchanged and creates no new
+artifact at that destination.
+
 Each `sources[].discovered` counts that source's normalized observations. These
 observations can overlap. Top-level `counts` uses unique candidates instead:
 

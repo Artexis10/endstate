@@ -55,6 +55,9 @@ type CaptureBundleRequest struct {
 	// sources never enter the published manifest; only staged portable refs do.
 	HomeManagerFiles []HomeManagerFileCapturePlan
 	OnStage          func(Stage)
+	// RequireUsefulPayload rejects a settings-only capture when every selected
+	// file was unavailable. It costs an empty capture, never a useful payload.
+	RequireUsefulPayload bool
 	// PreplanningDiagnostics carries deterministic catalog/discovery/generation
 	// refusals that produced no executable collection plan. They are reported
 	// and persisted exactly like collection-time diagnostics.
@@ -365,6 +368,15 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	legacy, err := collectLegacyCaptureLanes(captureModules, stagingRoot, manifestVersion == 2, request.ValidationContext)
 	if err != nil {
 		return nil, err
+	}
+	if request.RequireUsefulPayload && homeManagerFilesIncluded == 0 && len(configCaptures) == 0 {
+		useful := false
+		for _, module := range legacy.modules {
+			useful = useful || module.Status == LegacyCaptureStatusCaptured && module.FilesCaptured > 0
+		}
+		if !useful {
+			return nil, fmt.Errorf("capture bundle: no supported configuration files were captured; no setup was saved")
+		}
 	}
 
 	verifiedModules := append([]*modules.Module(nil), legacy.capturedModules...)

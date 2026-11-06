@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -464,6 +465,63 @@ func TestRunCaptureLinux_FailsBeforeWritingWhenNothingUsefulWasFound(t *testing.
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Fatalf("empty artifact was written before failure: %v", err)
+	}
+}
+
+func TestLinuxCaptureOptionalSettingsDisappearanceKeepsDestination(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		name := "new destination"
+		if existing {
+			name = "existing artifact"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			out := filepath.Join(root, "capture.endstate")
+			oldGOOS := captureGOOSFn
+			captureGOOSFn = func() string { return "linux" }
+			t.Cleanup(func() { captureGOOSFn = oldGOOS })
+			var previous []byte
+			withFakeRealizer(&fakeRealizer{currentSet: nixSet("ripgrep")}, func() {
+				withFakeGenerations(nil, nil, func() {
+					emptyCatalog(func() {
+						if existing {
+							if _, err := RunCapture(CaptureFlags{Out: out}); err != nil {
+								t.Fatalf("capture original artifact: %+v", err)
+							}
+							var err error
+							previous, err = os.ReadFile(out)
+							if err != nil {
+								t.Fatal(err)
+							}
+						}
+						newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+						discoverLinuxFn = func(context.Context, discovery.Request, realizer.Realizer) (discovery.Result, error) {
+							return discovery.Result{
+								SchemaVersion: discovery.SchemaVersion,
+								Settings:      []discovery.SettingsCandidate{{ID: "apps.ripgrep", ModuleID: "apps.ripgrep", Actions: []discovery.SettingsAction{discovery.SettingsCapture}}},
+								SettingsFiles: []discovery.SettingsFilePlan{{
+									Realization: "home-manager", CandidateID: "apps.ripgrep", Codec: "bounded-regular-file-v1",
+									Target: "${xdg.config}/ripgrep/ripgreprc", Source: filepath.Join(root, "disappeared-source"), Optional: true,
+								}},
+								Counts: discovery.Counts{Discovered: 1, Selected: 1, Settings: 1, SettingsOnly: 1},
+							}, nil
+						}
+						_, err := RunCapture(CaptureFlags{Out: out})
+						if err == nil || err.Code != envelope.ErrCaptureFailed {
+							t.Fatalf("disappeared optional payload reported successful capture: %+v", err)
+						}
+					})
+				})
+			})
+			got, err := os.ReadFile(out)
+			if existing {
+				if err != nil || !bytes.Equal(got, previous) {
+					t.Fatal("failed capture changed the prior artifact")
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatal("failed capture left an empty or intermediate artifact")
+			}
+		})
 	}
 }
 
