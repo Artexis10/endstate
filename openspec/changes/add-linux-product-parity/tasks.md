@@ -421,14 +421,15 @@ Native lifecycle acceptance remains separate from the injected manager proof.
 ./internal/commands -run 'Schedule'`. Promotion requires the real systemd-user
 lifecycle script.
 
-- [ ] 11.1 Author this change's `scheduled-drift-check` MODIFIED delta against the synced capability and modify the public CLI contract so Windows and Linux share `enable|disable|status|run|discard-upload`, backend-neutral results, and stable reason codes
-- [ ] 11.2 Replace the Windows-shaped pre-quoted registrar with structured availability/enable/disable/inspect intent while preserving Windows behavior
-- [ ] 11.3 Implement systemd-user availability and user-unit-directory resolution with no sudo, system unit, cron, or profile fallback
-- [ ] 11.4 Generate atomic service/timer units with structured native escaping, explicit engine/root/manifest coordinates, `Persistent=true`, and ownership marker/version/content hash
-- [ ] 11.5 Implement idempotent reassertion plus deterministic recovery from each unit-write, reload, enable/start, and config-persistence failure
-- [ ] 11.6 Implement ownership-checked disable/cleanup and refuse silent overwrite/delete of user-modified or foreign units
-- [ ] 11.7 Reconcile saved intent with availability, enabled/active/next-trigger, unit ownership/integrity, and last-run state
-- [ ] 11.8 Keep manual status/run and durable Cloud replay/discard scheduler-independent; expose separate schedule-operation and registration capability fields, advertising registration only with a usable user manager
+- [x] 11.1 Author this change's `scheduled-drift-check` MODIFIED delta against the synced capability and modify the public CLI contract so Windows and Linux share `enable|disable|status|run|discard-upload`, backend-neutral results, and stable reason codes
+- [x] 11.2 Replace the Windows-shaped pre-quoted registrar with structured availability/enable/disable/inspect intent while preserving Windows behavior
+- [x] 11.3 Implement systemd-user availability and user-unit-directory resolution with no sudo, system unit, cron, or profile fallback
+- [x] 11.4 Generate atomic service/timer units with structured native escaping, explicit engine/root/manifest coordinates, `Persistent=true`, and ownership marker/version/content hash
+- [x] 11.5 Implement idempotent reassertion plus deterministic recovery from each unit-write, reload, enable/start, and config-persistence failure
+- [x] 11.6 Implement ownership-checked disable/cleanup and refuse silent overwrite/delete of user-modified or foreign units
+- [x] 11.7 Reconcile saved intent with availability, enabled/active/next-trigger, unit ownership/integrity, and last-run state
+- [x] 11.8 Keep manual status/run and durable Cloud replay/discard scheduler-independent; expose separate schedule-operation and registration capability fields, advertising registration only with a usable user manager
+  - Independent review accepts `01930e95` and the GUI contract mirror, including copied-root ownership and shared native-argument corrections. Integration at `dd8d49e` passes the full engine suite: 5,596 named tests, 36 skips, and no failures. Injected manager workflows, native unit parsing, and Windows cross-builds support these implementation tasks. Task 11.9, native Windows lifecycle, rendered GUI, final engine acceptance, and delivery remain open.
 - [ ] 11.9 Run the real user-scope lifecycle: enable, inspect, force run, read result, reassert, disable, and prove generated cleanup with no system units or lingering process
 
 ## 12. Contracts, runtime artifacts, CI, and release truth
