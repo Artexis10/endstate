@@ -152,7 +152,7 @@ func (r *SystemdRegistrar) Inspect(ctx context.Context, cfg *Config) Observation
 		out.Units[name] = u
 	}
 	if out.Supported && cfg.Registration != nil {
-		intent := Intent{Executable: cfg.Registration.Executable, Root: cfg.Root, Manifest: cfg.Manifest, Interval: cfg.Interval, Time: cfg.Time, Args: []string{"schedule", "run", "--root", cfg.Root, "--json"}}
+		intent := Intent{Executable: cfg.Registration.Executable, Root: cfg.Root, Manifest: cfg.Manifest, Interval: cfg.Interval, Time: cfg.Time, Args: RunArgs(cfg.Root)}
 		if out.Units[ServiceName].Present != nil && *out.Units[ServiceName].Present && out.Units[TimerName].Present != nil && *out.Units[TimerName].Present {
 			if err := r.checkEffective(ctx, cfg, intent); err != nil {
 				var detail *RegistrationError

@@ -16,6 +16,11 @@ type Intent struct {
 	Root, Manifest, Interval, Time string
 }
 
+// RunArgs is the shared native payload. The saved config selects the manifest.
+func RunArgs(root string) []string {
+	return []string{"schedule", "run", "--root", root, "--json"}
+}
+
 type Availability struct {
 	Supported bool   `json:"supported"`
 	Backend   string `json:"backend,omitempty"`

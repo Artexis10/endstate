@@ -287,7 +287,7 @@ func (r *SystemdRegistrar) Disable(ctx context.Context, cfg *Config, save func()
 				return registrationError("preflight", "INSPECTION_FAILED", err)
 			}
 			if active != "inactive" && active != "failed" || enabled == "enabled" || enabled == "enabled-runtime" {
-				intent := Intent{Executable: cfg.Registration.Executable, Root: cfg.Root, Manifest: cfg.Manifest, Interval: cfg.Interval, Time: cfg.Time, Args: []string{"schedule", "run", "--root", cfg.Root, "--json"}}
+				intent := Intent{Executable: cfg.Registration.Executable, Root: cfg.Root, Manifest: cfg.Manifest, Interval: cfg.Interval, Time: cfg.Time, Args: RunArgs(cfg.Root)}
 				if err := r.checkEffective(ctx, cfg, intent); err != nil {
 					return err
 				}

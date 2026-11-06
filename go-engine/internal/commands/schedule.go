@@ -222,6 +222,9 @@ func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	if previousErr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, "Failed to read existing schedule config: "+previousErr.Error())
 	}
+	if rootErr := scheduleRegistrationRootError(root, previous); rootErr != nil {
+		return nil, rootErr
+	}
 	previous.NormalizePendingUploads()
 	if availability := reg.Availability(ctx, previous); !availability.Supported {
 		return nil, envelope.NewError(envelope.ErrNotSupported, "Schedule registration is unavailable.").WithDetail(availability)
@@ -264,7 +267,7 @@ func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	if priorFileErr != nil && !os.IsNotExist(priorFileErr) {
 		return nil, envelope.NewError(envelope.ErrInternalError, "Failed to inspect existing schedule config: "+priorFileErr.Error())
 	}
-	intent := schedule.Intent{Executable: exePath, Args: []string{"schedule", "run", "--root", root, "--json"}, Root: root, Manifest: manifestPath, Interval: interval, Time: timeOfDay}
+	intent := schedule.Intent{Executable: exePath, Args: schedule.RunArgs(root), Root: root, Manifest: manifestPath, Interval: interval, Time: timeOfDay}
 	save := func() error { return scheduleWriteConfigFn(cfgPath, cfg) }
 	if err := reg.Enable(ctx, intent, cfg, save); err != nil {
 		// Windows retains its established prior-config rollback. Linux retains the
@@ -316,7 +319,11 @@ func runScheduleDisable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	}
 	defer unlock()
 
-	stateDir := scheduleStateDir(flags.Root)
+	root, rootErr := scheduleRootWithError(flags.Root)
+	if rootErr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "Invalid schedule root: "+rootErr.Error())
+	}
+	stateDir := filepath.Join(root, "state")
 	if err := os.MkdirAll(filepath.Join(stateDir, "schedule"), 0o755); err != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, "Create schedule state directory: "+err.Error())
 	}
@@ -333,6 +340,9 @@ func runScheduleDisable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 			envelope.ErrInternalError,
 			"Failed to read schedule config: "+err.Error(),
 		)
+	}
+	if rootErr := scheduleRegistrationRootError(root, cfg); rootErr != nil {
+		return nil, rootErr
 	}
 	if availability := reg.Availability(ctx, cfg); !availability.Supported {
 		return nil, envelope.NewError(envelope.ErrNotSupported, "Schedule registration is unavailable.").WithDetail(availability)
@@ -1022,6 +1032,29 @@ func scheduleStateDir(flagRoot string) string {
 		return filepath.Join(root, "state")
 	}
 	return filepath.Join(".", "state")
+}
+
+func scheduleRegistrationRootError(root string, cfg *schedule.Config) *envelope.Error {
+	// Legacy configs without a root have no Linux registration ownership.
+	if cfg.Root == "" && cfg.Registration == nil {
+		return nil
+	}
+	savedRoot, err := canonicalSchedulePath(cfg.Root)
+	matches := savedRoot == root
+	if !matches && runtime.GOOS == "windows" {
+		// Preserve Windows path aliases only when they identify the same root.
+		savedInfo, savedErr := os.Stat(savedRoot)
+		rootInfo, rootErr := os.Stat(root)
+		matches = savedErr == nil && rootErr == nil && os.SameFile(savedInfo, rootInfo)
+	}
+	if err == nil && savedRoot != "" && matches {
+		return nil
+	}
+	// Copied state cannot authorize native writes under another root's lock.
+	return scheduleRegistrationFailure(&schedule.RegistrationError{
+		Phase: "preflight", Reason: "OWNERSHIP_CONFLICT",
+		Detail: "The saved schedule belongs to a different engine root.",
+	})
 }
 
 func scheduleRegistrationFailure(err error) *envelope.Error {

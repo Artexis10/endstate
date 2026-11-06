@@ -489,6 +489,53 @@ func TestRunScheduleLinuxAnotherRootCannotReplaceRegistration(t *testing.T) {
 		t.Fatalf("created foreign config: %v", err)
 	}
 }
+
+func TestRunScheduleLinuxCopiedConfigCannotDisableOriginalRoot(t *testing.T) {
+	flags, _, manager := isolatedSchedule(t)
+	if _, err := RunSchedule(flags); err != nil {
+		t.Fatal(err)
+	}
+	originalPath := schedule.ConfigPath(filepath.Join(flags.Root, "state"))
+	original, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := map[string][]byte{}
+	for _, name := range []string{schedule.ServiceName, schedule.TimerName} {
+		units[name], err = os.ReadFile(filepath.Join(manager.dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	copiedRoot := t.TempDir()
+	copiedPath := schedule.ConfigPath(filepath.Join(copiedRoot, "state"))
+	if err := os.MkdirAll(filepath.Dir(copiedPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(copiedPath, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	before := len(manager.commands)
+	_, registrationErr := RunSchedule(ScheduleFlags{Subcommand: "disable", Root: copiedRoot})
+	if registrationErr == nil || registrationErr.Code != envelope.ErrTaskRegistrationFailed {
+		t.Fatalf("copied-root disable must reject foreign ownership: %v", registrationErr)
+	}
+	if !manager.active || !manager.enabled || len(manager.commands) != before {
+		t.Fatalf("copied-root disable changed native registration: active=%v enabled=%v commands=%v", manager.active, manager.enabled, manager.commands[before:])
+	}
+	for _, path := range []string{originalPath, copiedPath} {
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(original, after) {
+			t.Fatalf("copied-root disable changed configuration %s: %v", path, err)
+		}
+	}
+	for name, original := range units {
+		after, err := os.ReadFile(filepath.Join(manager.dir, name))
+		if err != nil || !bytes.Equal(original, after) {
+			t.Fatalf("copied-root disable changed foreign unit %s: %v", name, err)
+		}
+	}
+}
 func TestRunScheduleLinuxManualCommandsNeverProbeManager(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux manual operations")
