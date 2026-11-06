@@ -3,7 +3,11 @@
 
 package configrestore
 
-import "context"
+import (
+	"context"
+
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
+)
 
 // JournalState is the closed durable transaction-state vocabulary. An
 // incomplete rollback leaves the state pending for recovery.
@@ -59,6 +63,7 @@ type JournalLineage struct {
 // JournalActionState is the canonical prior or desired state recorded for an
 // action. Mode contains portable permission bits as an unsigned integer.
 type JournalActionState struct {
+	Desktop    *desktopsettings.Value   `json:"desktop,omitempty"`
 	Kind       StateKind                `json:"kind"`
 	Digest     string                   `json:"digest"`
 	Mode       uint32                   `json:"mode"`
@@ -79,17 +84,19 @@ type JournalFilesystemEntry struct {
 // JournalAction is one ordered concrete transaction action without staged
 // bytes or a mutable source path.
 type JournalAction struct {
-	TransferredPaths  []string           `json:"transferredPaths,omitempty"`
-	Index             int                `json:"index"`
-	Kind              ActionKind         `json:"kind"`
-	Strategy          string             `json:"strategy"`
-	Target            string             `json:"target"`
-	RegistryKey       string             `json:"registryKey"`
-	RegistryValueName string             `json:"registryValueName"`
-	MissingParents    []string           `json:"missingParents"`
-	Prior             JournalActionState `json:"prior"`
-	Desired           JournalActionState `json:"desired"`
-	SourceDigest      string             `json:"sourceDigest"`
+	DesktopTarget     *desktopsettings.Target `json:"desktopTarget,omitempty"`
+	DesktopScope      string                  `json:"desktopScope,omitempty"`
+	TransferredPaths  []string                `json:"transferredPaths,omitempty"`
+	Index             int                     `json:"index"`
+	Kind              ActionKind              `json:"kind"`
+	Strategy          string                  `json:"strategy"`
+	Target            string                  `json:"target"`
+	RegistryKey       string                  `json:"registryKey"`
+	RegistryValueName string                  `json:"registryValueName"`
+	MissingParents    []string                `json:"missingParents"`
+	Prior             JournalActionState      `json:"prior"`
+	Desired           JournalActionState      `json:"desired"`
+	SourceDigest      string                  `json:"sourceDigest"`
 }
 
 // JournalValidation is one resolved final-target validation in declaration
@@ -219,6 +226,18 @@ func cloneJournalActions(actions []JournalAction) []JournalAction {
 	result := make([]JournalAction, len(actions))
 	for index, action := range actions {
 		result[index] = action
+		if action.DesktopTarget != nil {
+			target := *action.DesktopTarget
+			result[index].DesktopTarget = &target
+		}
+		if action.Prior.Desktop != nil {
+			value := action.Prior.Desktop.Clone()
+			result[index].Prior.Desktop = &value
+		}
+		if action.Desired.Desktop != nil {
+			value := action.Desired.Desktop.Clone()
+			result[index].Desired.Desktop = &value
+		}
 		result[index].TransferredPaths = append([]string(nil), action.TransferredPaths...)
 		result[index].MissingParents = append([]string{}, action.MissingParents...)
 		result[index].Prior.Entries = append([]JournalFilesystemEntry{}, action.Prior.Entries...)

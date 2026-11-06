@@ -743,6 +743,27 @@ Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with u
 
 Schema-v3 config captures add `sourcePlatform` and retain `captureModule.schemaVersion: 3` for the authored snapshot. Source platform is required and must match instance evidence when present. Legacy schema-v2 captures remain Windows-scoped. Generation IDs remain local; module, platform, config set, and generation qualify their identity.
 
+Schema-v3 Linux generations can declare a `desktop` instance detector and
+`capture.desktopValues` entries. Each entry contains `target` and `dest`.
+A `desktop-value` restore declares `source` and `desktop`.
+The trusted target contains `schema`, the backing directory `path`, `key`, and
+`type: "boolean"`. Its identity is `gsettings:<path><key>`, preserving case.
+Different schemas that name the same backing key have conflicting ownership.
+
+The portable payload contains only desired user state. Its canonical JSON is
+`{"type":"boolean","present":false}` or
+`{"type":"boolean","present":true,"value":false}`, with the boolean value
+as captured and one final newline. The maximum payload size is 1024 bytes.
+Unknown fields, other types, duplicate fields, trailing data, and contradictory
+presence are invalid. Inherited defaults remain outside the portable payload.
+
+Desktop source evidence uses `type: "desktop"`, `backend: "gsettings"`, and
+`platform: "linux"`, without package identity or private runtime scope.
+Standalone content verification compares the captured user override or absence.
+Desktop-bearing private journal intents use version 2 and bind prior and desired
+state to the resolved runtime scope. Existing intents retain version 1 unchanged.
+Desktop production detection remains unavailable until its native acceptance gates pass.
+
 Generation resolution data and `config-resolution` events add optional `sourcePlatform`, `targetPlatform`, `mappingId`, and `targetConfigSetId`.
 `configSetId` retains source identity; `targetConfigSetId` identifies a mapped target set and otherwise defaults to the source set.
 A different target platform requires an authored one-step mapping from the current target catalog, including explicit source-fingerprint acceptance and target validation.

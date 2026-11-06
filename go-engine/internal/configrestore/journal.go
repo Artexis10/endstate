@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
@@ -318,6 +319,13 @@ func validateJournalIntentRequest(
 			MissingParents:   prepared.MissingParents(),
 			Prior:            journalActionState(prior), Desired: journalActionState(desired), SourceDigest: prepared.SourceDigest(),
 		}
+		if action.DesktopTarget != nil {
+			target := *action.DesktopTarget
+			actions[index].DesktopTarget = &target
+			if prior.desktop != nil {
+				actions[index].DesktopScope = prior.desktop.Scope
+			}
+		}
 		if action.RegistryValue != nil {
 			actions[index].RegistryKey = action.RegistryValue.Key
 			actions[index].RegistryValueName = action.RegistryValue.ValueName
@@ -457,8 +465,14 @@ func journalActionState(state StateRecord) JournalActionState {
 			Path: entry.Path, Kind: entry.Kind, Mode: uint32(entry.Mode.Perm()), Size: entry.Size, ContentHash: entry.ContentHash,
 		}
 	}
+	var desktop *desktopsettings.Value
+	if state.desktop != nil {
+		value := state.desktop.Value.Clone()
+		desktop = &value
+	}
 	return JournalActionState{
-		Kind: state.Kind, Digest: state.Digest, Mode: uint32(state.Mode.Perm()), BackupPath: state.BackupPath,
+		Desktop: desktop,
+		Kind:    state.Kind, Digest: state.Digest, Mode: uint32(state.Mode.Perm()), BackupPath: state.BackupPath,
 		Entries: entries,
 	}
 }

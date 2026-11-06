@@ -29,10 +29,28 @@ func verifyTransactionActionState(
 	registry RegistryMutator,
 	desired bool,
 ) error {
-	if action.Kind != ActionRegistrySet {
+	if action.Kind != ActionRegistrySet && action.Kind != ActionDesktopValue {
 		if err := verifyTransactionParentState(ctx, action.MissingParents, desired); err != nil {
 			return err
 		}
+	}
+	if action.Kind == ActionDesktopValue {
+		want := action.Prior
+		if desired {
+			want = action.Desired
+		}
+		expected, err := journalDesktopSnapshot(action, want)
+		if err != nil {
+			return err
+		}
+		actual, err := readDesktopSnapshot(ctx, expected.Target)
+		if err != nil {
+			return err
+		}
+		if actual.digest() != expected.digest() {
+			return fmt.Errorf("desktop state or scope differs from recorded %s state", statePosition(desired))
+		}
+		return nil
 	}
 	want := action.Prior
 	if desired {

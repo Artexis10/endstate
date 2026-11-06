@@ -191,7 +191,7 @@ func validateSnapshotRequest(ctx context.Context, request SnapshotRequest) (*Mat
 			return nil, "", fmt.Errorf("action[%d] is not marked snapshot-required", index)
 		}
 		copy.Actions[index] = cloneAction(action)
-		if action.Kind != ActionRegistrySet {
+		if action.Kind != ActionRegistrySet && action.Kind != ActionDesktopValue {
 			ioAction, err := resolveActionForHostIO(action, request.Boundary, request.Set.instance)
 			if err != nil {
 				return nil, "", fmt.Errorf("action[%d]: %w", index, err)
@@ -237,6 +237,9 @@ func prepareSnapshotAction(
 	}
 	result := preparedInternal{record: record, ioAction: ioAction}
 	switch action.Kind {
+	case ActionDesktopValue:
+		return prepareDesktopSnapshot(ctx, result, actionDirectory, finalDirectory, boundary)
+
 	case ActionCopy, ActionWriteFile, ActionDeleteFile:
 		missingParents, err := findMissingTransactionParents(ctx, ioAction.Target)
 		if err != nil {
@@ -326,6 +329,9 @@ func verifyPreparedAction(ctx context.Context, registryReader RegistryReader, bo
 	action := prepared.record.action
 	ioAction := prepared.ioAction
 	switch action.Kind {
+	case ActionDesktopValue:
+		return verifyPreparedDesktop(ctx, prepared)
+
 	case ActionCopy, ActionWriteFile, ActionDeleteFile:
 		for _, parent := range prepared.ioMissingParents {
 			if boundary != nil {

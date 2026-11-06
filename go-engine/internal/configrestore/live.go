@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/gofrs/flock"
 )
 
@@ -34,6 +35,7 @@ type Guard struct {
 	restoreRunID     string
 	runStartedAt     time.Time
 	nextOrdinal      uint64
+	desktop          desktopsettings.Mutator
 	registry         RegistryMutator
 	boundary         HostBoundary
 	closed           bool
@@ -110,7 +112,8 @@ func BeginLiveWithBoundary(
 		return nil, fmt.Errorf("create restore run identity: %w", err)
 	}
 	guard := &Guard{
-		lock: processLock, storeRoot: storeRoot, transactions: transactions,
+		desktop: desktopsettings.Backend(ctx),
+		lock:    processLock, storeRoot: storeRoot, transactions: transactions,
 		legacyMembers: legacyMembers, legacyReverts: legacyReverts, legacyRevertWork: legacyRevertWork,
 		runID: runID, restoreRunID: restoreRunID, runStartedAt: time.Now().UTC(), registry: registry, boundary: boundary,
 	}

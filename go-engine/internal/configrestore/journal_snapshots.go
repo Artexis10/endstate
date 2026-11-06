@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
@@ -81,7 +82,15 @@ func validateJournalActions(transactionRoot string, actions []JournalAction) err
 			return fmt.Errorf("journal action[%d] desired state has a backup path", index)
 		}
 		actionRoot := filepath.Join(snapshotRoot, formatActionIndex(index))
+		if action.Kind != ActionDesktopValue && (action.DesktopTarget != nil || action.DesktopScope != "" || action.Prior.Desktop != nil || action.Desired.Desktop != nil) {
+			return fmt.Errorf("non-desktop action has desktop fields")
+		}
 		switch action.Kind {
+		case ActionDesktopValue:
+			if err := validateDesktopJournalAction(action, actionRoot); err != nil {
+				return fmt.Errorf("journal action[%d]: %w", index, err)
+			}
+
 		case ActionCopy, ActionWriteFile, ActionDeleteFile:
 			if err := validateJournalMissingParents(transactionRoot, action); err != nil {
 				return fmt.Errorf("journal filesystem action[%d] missing parents: %w", index, err)
@@ -190,6 +199,8 @@ func validateJournalActionStrategy(action JournalAction) error {
 		valid = action.Strategy == "merge-json" || action.Strategy == "merge-ini" || action.Strategy == "append"
 	case ActionDeleteFile:
 		valid = action.Strategy == "delete-glob"
+	case ActionDesktopValue:
+		valid = action.Strategy == "desktop-value"
 	case ActionRegistrySet:
 		valid = action.Strategy == "registry-set"
 	}
@@ -388,6 +399,20 @@ func verifySnapshotArtifacts(ctx context.Context, snapshotRoot string, actions [
 			return nil, nil, err
 		}
 		switch action.Kind {
+		case ActionDesktopValue:
+			if len(entries) != 1 || entries[0].Name() != "prior.desktop" || entries[0].IsDir() {
+				return nil, nil, fmt.Errorf("desktop snapshot layout is not canonical")
+			}
+			if err := validateHostIO(ctx, action.Prior.BackupPath); err != nil {
+				return nil, nil, err
+			}
+			data, _, err := safepath.ReadRegularFileBounded(action.Prior.BackupPath, maxDesktopSnapshotBytes)
+			if err != nil {
+				return nil, nil, err
+			}
+			if err := verifyDesktopBackup(action, data); err != nil {
+				return nil, nil, err
+			}
 		case ActionRegistrySet:
 			if len(entries) != 1 || entries[0].Name() != "prior.registry" || entries[0].IsDir() {
 				return nil, nil, fmt.Errorf("registry snapshot action[%d] layout is not canonical", index)

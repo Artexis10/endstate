@@ -23,12 +23,14 @@ func executeTransactionAction(
 	afterMutation func() error,
 ) error {
 	action := prepared.Action()
-	if action.Kind != ActionRegistrySet {
+	if action.Kind != ActionRegistrySet && action.Kind != ActionDesktopValue {
 		if err := createMissingTransactionParents(ctx, journal.MissingParents, touch, afterMutation); err != nil {
 			return err
 		}
 	}
 	switch action.Kind {
+	case ActionDesktopValue:
+		return commitDesktopAction(ctx, action, journal, touch, afterMutation)
 	case ActionCopy:
 		return commitCopyAction(ctx, action, journal, touch, afterMutation)
 	case ActionWriteFile:
@@ -411,6 +413,9 @@ func runAfterTransactionMutation(afterMutation func() error) error {
 }
 
 func rollbackTransactionAction(ctx context.Context, action JournalAction, registry RegistryMutator) error {
+	if action.Kind == ActionDesktopValue {
+		return rollbackDesktopAction(ctx, action)
+	}
 	if action.Kind == ActionRegistrySet {
 		return rollbackRegistryAction(ctx, action, registry)
 	}

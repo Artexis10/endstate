@@ -79,7 +79,7 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 	boundary := newConfigRestoreHostBoundary(currentValidationMode)
 	registry, _ := newConfigRestorePlatformAdapters(currentValidationMode)
 	guard, beginErr := configrestore.BeginLiveWithBoundary(
-		context.Background(), filepath.Clean(stateDir), runID, registry,
+		desktopSettingsContext(context.Background()), filepath.Clean(stateDir), runID, registry,
 		boundary,
 	)
 	if beginErr != nil {

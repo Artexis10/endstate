@@ -65,7 +65,7 @@ func newJournalIntentDisk(lineage JournalLineage, actions []JournalAction, valid
 		return journalIntentDisk{}, nil, err
 	}
 	identity := journalIntentIdentity{
-		Format: journalIntentFormat, Version: journalFormatVersion, State: JournalPending,
+		Format: journalIntentFormat, Version: journalIntentVersion(actions), State: JournalPending,
 		Lineage: cloneJournalLineage(lineage), Actions: cloneJournalActions(actions),
 		Validations:      append([]JournalValidation{}, validations...),
 		ValidationStatus: ValidationPending, RollbackOutcome: RollbackNotAttempted,
@@ -88,6 +88,16 @@ func newJournalIntentDisk(lineage JournalLineage, actions []JournalAction, valid
 	return disk, append(encoded, '\n'), nil
 }
 
+// Only desktop-bearing intents use v2; old action encodings stay unchanged.
+func journalIntentVersion(actions []JournalAction) int {
+	for _, action := range actions {
+		if action.Kind == ActionDesktopValue {
+			return 2
+		}
+	}
+	return 1
+}
+
 func decodeJournalIntent(data []byte) (journalIntentDisk, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -98,7 +108,7 @@ func decodeJournalIntent(data []byte) (journalIntentDisk, error) {
 	if err := ensureJSONEOF(decoder); err != nil {
 		return journalIntentDisk{}, err
 	}
-	if disk.Format != journalIntentFormat || disk.Version != journalFormatVersion || disk.State != JournalPending ||
+	if disk.Format != journalIntentFormat || (disk.Version != 1 && disk.Version != 2) || disk.State != JournalPending ||
 		disk.ValidationStatus != ValidationPending || disk.RollbackOutcome != RollbackNotAttempted {
 		return journalIntentDisk{}, fmt.Errorf("unsupported or inconsistent journal intent header")
 	}

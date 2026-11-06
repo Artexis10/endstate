@@ -314,6 +314,11 @@ func validateConfigCapture(capture *ConfigCapture) error {
 	}
 	evidence := capture.SourceInstance.Evidence
 	switch evidence.Type {
+	case "desktop":
+		if capture.CaptureModule.SchemaVersion != 3 || capture.SourcePlatform != "linux" || evidence.Backend != "gsettings" || evidence.Platform != "linux" || evidence.AppID != "" || evidence.Ref != "" || evidence.Driver != "" {
+			return fmt.Errorf("desktop source evidence requires Linux GSettings without package identity")
+		}
+
 	case "package":
 		if strings.TrimSpace(evidence.Backend) == "" || strings.TrimSpace(evidence.Ref) == "" {
 			return fmt.Errorf("package evidence requires backend and ref")

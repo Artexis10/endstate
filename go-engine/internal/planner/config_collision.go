@@ -16,6 +16,7 @@ type resolvedTargetKind uint8
 const (
 	resolvedFilesystemTarget resolvedTargetKind = iota
 	resolvedRegistryTarget
+	resolvedDesktopTarget
 )
 
 type resolvedTargetClaim struct {
@@ -107,6 +108,14 @@ func resolveRestoreTarget(
 	planIndex int,
 ) (resolvedTargetClaim, error) {
 	switch restore.Type {
+	case "desktop-value":
+		if restore.Desktop == nil {
+			return resolvedTargetClaim{}, &unsupportedRestoreTargetError{restoreType: restore.Type}
+		}
+		if err := restore.Desktop.Validate(); err != nil {
+			return resolvedTargetClaim{}, err
+		}
+		return resolvedTargetClaim{planIndex: planIndex, kind: resolvedDesktopTarget, canonical: restore.Desktop.Identity(), display: restore.Desktop.Identity()}, nil
 	case "copy", "merge-json", "merge-ini", "append", "delete-glob":
 		target, err := modules.ExpandInstancePath(restore.Target, instance, modules.HostPath)
 		if err != nil {

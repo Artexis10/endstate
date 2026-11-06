@@ -27,7 +27,7 @@ func verifyCapturedConfigurations(flags VerifyFlags, mf *manifest.Manifest, emit
 	if envErr != nil {
 		return nil, envErr
 	}
-	ctx := context.Background()
+	ctx := desktopSettingsContext(context.Background())
 	coordinator := newConfigRestoreCoordinator(runtime, newStandaloneConfigRestoreEvidenceSource(mf.Apps))
 	plan, err := coordinator.Preview(ctx)
 	if err != nil {

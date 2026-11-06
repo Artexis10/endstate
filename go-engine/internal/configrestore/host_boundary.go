@@ -132,7 +132,7 @@ func resolveActionForHostIO(action Action, boundary HostBoundary, instance modul
 		return resolved, nil
 	}
 	var err error
-	if action.Kind != ActionRegistrySet {
+	if action.Kind != ActionRegistrySet && action.Kind != ActionDesktopValue {
 		resolved.Target = action.resolvedTarget
 		if resolved.Target == "" {
 			resolved.Target, err = boundary.ResolveFilesystemIdentity(action.Target)
@@ -168,7 +168,7 @@ func resolveJournalActionForHostIO(action JournalAction, boundary HostBoundary) 
 		return resolved, nil
 	}
 	var err error
-	if action.Kind != ActionRegistrySet {
+	if action.Kind != ActionRegistrySet && action.Kind != ActionDesktopValue {
 		resolved.Target, err = boundary.ResolveFilesystemIdentity(action.Target)
 		if err != nil {
 			return JournalAction{}, fmt.Errorf("resolve journal target: %w", err)

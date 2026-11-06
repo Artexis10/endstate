@@ -4,6 +4,7 @@
 package modules
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 )
 
 // PackageEvidence is runtime evidence supplied by an engine package backend.
@@ -55,6 +57,7 @@ type ConfigInstance struct {
 // DiscoveryOptions contains replaceable operating-system boundaries. A zero
 // value uses filepath.Glob.
 type DiscoveryOptions struct {
+	Desktop         desktopsettings.Reader
 	Glob            func(pattern string) ([]string, error)
 	ResolveHostPath func(authored string) (string, error)
 }
@@ -104,6 +107,16 @@ func DiscoverInstances(mod *Module, packages []PackageEvidence, options Discover
 	accumulators := make(map[string]*instanceAccumulator)
 	for _, detector := range mod.Config.InstanceDetectors {
 		switch detector.Type {
+		case "desktop":
+			if detector.Desktop == nil {
+				return nil, fmt.Errorf("desktop detector requires target")
+			}
+			_, err := desktopsettings.Read(context.Background(), options.Desktop, *detector.Desktop)
+			if err != nil {
+				return nil, err
+			}
+			locator := detector.Desktop.Identity()
+			accumulateInstance(accumulators, ConfigInstance{ID: StableInstanceID(mod.ID, detector.ID, locator), ModuleID: mod.ID, DetectorID: detector.ID, CanonicalLocator: locator, Evidence: InstanceEvidence{Type: "desktop", Backend: "gsettings", Platform: mod.Platform}, Version: NewVersionEvidence("")})
 		case "package":
 			for _, evidence := range packages {
 				instance, err := packageInstance(mod.ID, detector.ID, evidence)

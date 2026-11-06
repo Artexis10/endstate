@@ -58,11 +58,13 @@ const (
 	StateFile          StateKind = "file"
 	StateDirectory     StateKind = "directory"
 	StateRegistryValue StateKind = "registry-value"
+	StateDesktopValue  StateKind = "desktop-value"
 )
 
 // StateRecord is an immutable-by-value summary of one prior or desired state.
 // BackupPath is empty when the prior filesystem target was absent.
 type StateRecord struct {
+	desktop    *desktopSnapshot
 	Kind       StateKind
 	Digest     string
 	Mode       os.FileMode
@@ -159,6 +161,14 @@ func formatActionIndex(index int) string { return fmt.Sprintf("%06d", index) }
 
 func cloneAction(action Action) Action {
 	copy := action
+	if action.DesktopTarget != nil {
+		target := *action.DesktopTarget
+		copy.DesktopTarget = &target
+	}
+	if action.DesktopValue != nil {
+		value := action.DesktopValue.Clone()
+		copy.DesktopValue = &value
+	}
 	copy.Exclude = append([]string(nil), action.Exclude...)
 	copy.transferredPaths = append([]string(nil), action.transferredPaths...)
 	copy.DesiredContent = append([]byte(nil), action.DesiredContent...)
@@ -178,6 +188,11 @@ func clonePreparedAction(action PreparedAction) PreparedAction {
 }
 
 func cloneStateRecord(state StateRecord) StateRecord {
+	if state.desktop != nil {
+		snapshot := *state.desktop
+		snapshot.Value = snapshot.Value.Clone()
+		state.desktop = &snapshot
+	}
 	state.entries = append([]StateEntry(nil), state.entries...)
 	return state
 }

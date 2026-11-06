@@ -26,6 +26,28 @@ func CompareMaterialized(ctx context.Context, set *MaterializedSet) (Comparison,
 	}
 	ctx = withHostBoundary(ctx, set.boundary)
 	for _, action := range set.Actions {
+		if action.Kind == ActionDesktopValue {
+			if action.DesktopTarget == nil || action.DesktopValue == nil {
+				return result, fmt.Errorf("desktop desired state is missing")
+			}
+			actual, err := readDesktopSnapshot(ctx, *action.DesktopTarget)
+			if err != nil {
+				return result, err
+			}
+			again, err := readDesktopSnapshot(ctx, *action.DesktopTarget)
+			if err != nil {
+				return result, err
+			}
+			if actual.digest() != again.digest() {
+				return result, fmt.Errorf("desktop state changed during comparison")
+			}
+			result.Checked++
+			if !actual.Value.Equal(*action.DesktopValue) {
+				result.Drifted = true
+				result.Missing = result.Missing || !actual.Value.Present && action.DesktopValue.Present
+			}
+			continue
+		}
 		// ActionKind is the closed operation vocabulary of the materializer.
 		switch action.Kind {
 		case ActionCopy, ActionWriteFile, ActionDeleteFile:

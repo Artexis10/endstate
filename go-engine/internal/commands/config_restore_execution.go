@@ -114,6 +114,7 @@ func (session *configRestoreExecutionSession) Execute(
 	ctx context.Context,
 	options configRestoreExecutionOptions,
 ) (result configRestoreExecutionResult, envErr *envelope.Error) {
+	ctx = desktopSettingsContext(ctx)
 	result = configRestoreExecutionResult{
 		Plan: emptyConfigRestorePlan(), RestoreItems: []restore.RestoreResult{}, Results: []restore.RestoreResult{},
 		EventResults: []restore.RestoreResult{},
@@ -900,6 +901,9 @@ func applyLegacyConcreteConfigRestoreCollisions(plan *planner.ConfigPlan, state 
 }
 
 func concreteConfigRestoreClaim(action configrestore.Action) string {
+	if action.Kind == configrestore.ActionDesktopValue && action.DesktopTarget != nil {
+		return "desktop\x00" + action.DesktopTarget.Identity()
+	}
 	if action.Kind == configrestore.ActionRegistrySet && action.RegistryValue != nil {
 		return "registry-value\x00" + normalizeConfigRestoreRegistryKey(action.RegistryValue.Key) + "\x00" + strings.ToLower(action.RegistryValue.ValueName)
 	}
@@ -915,6 +919,9 @@ func concreteConfigRestoreClaim(action configrestore.Action) string {
 }
 
 func concreteConfigRestoreClaimsOverlap(left, right string) bool {
+	if strings.HasPrefix(left, "desktop\x00") || strings.HasPrefix(right, "desktop\x00") {
+		return left == right
+	}
 	if strings.HasPrefix(left, "registry-") || strings.HasPrefix(right, "registry-") {
 		return registryConfigRestoreClaimsOverlap(left, right)
 	}

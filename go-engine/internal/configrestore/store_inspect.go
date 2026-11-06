@@ -654,13 +654,16 @@ func verifyInspectionSnapshotLayout(fs storeInspectionFS, root string, actions [
 		if err != nil {
 			return err
 		}
-		if action.Prior.Kind == StateAbsent {
+		if action.Prior.Kind == StateAbsent && action.Kind != ActionDesktopValue {
 			if len(members) != 0 {
 				return fmt.Errorf("absent snapshot has artifacts")
 			}
 			continue
 		}
 		want := "prior"
+		if action.Kind == ActionDesktopValue {
+			want = "prior.desktop"
+		}
 		if action.Kind == ActionRegistrySet {
 			want = "prior.registry"
 		}
@@ -700,7 +703,7 @@ func inspectionJournalActions(fs storeInspectionFS, root string, actions []Journ
 }
 
 func inspectActionBackup(fs storeInspectionFS, root string, action JournalAction) (StoreBackupInspection, error) {
-	if action.Prior.Kind == StateAbsent {
+	if action.Prior.Kind == StateAbsent && action.Kind != ActionDesktopValue {
 		return StoreBackupInspection{}, nil
 	}
 	path := action.Prior.BackupPath
@@ -708,6 +711,17 @@ func inspectActionBackup(fs storeInspectionFS, root string, action JournalAction
 		return StoreBackupInspection{}, fmt.Errorf("missing prior backup path")
 	}
 	backup := StoreBackupInspection{Exists: true, Identity: opaqueInspectionIdentity(path), Kind: action.Prior.Kind, Mode: action.Prior.Mode}
+	if action.Kind == ActionDesktopValue {
+		read, err := readInspectionBoundedFile(fs, path)
+		if err != nil {
+			return StoreBackupInspection{}, err
+		}
+		if err := verifyDesktopBackup(action, read.data); err != nil {
+			return StoreBackupInspection{}, err
+		}
+		backup.Digest = action.Prior.Digest
+		return backup, nil
+	}
 	if action.Kind == ActionRegistrySet {
 		read, err := readInspectionBoundedFile(fs, path)
 		if err != nil {

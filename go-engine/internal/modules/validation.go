@@ -91,6 +91,14 @@ func validationError(mod *Module, filePath, code, format string, args ...any) er
 
 func validateModuleV2(mod *Module, filePath string) error {
 	schemaVersion := mod.EffectiveSchemaVersion()
+	if mod.Capture != nil && len(mod.Capture.DesktopValues) > 0 {
+		return validationError(mod, filePath, DiagnosticInvalidValidation, "desktop capture requires an authored generation")
+	}
+	for _, restore := range mod.Restore {
+		if restore.Type == "desktop-value" || restore.Desktop != nil {
+			return validationError(mod, filePath, DiagnosticInvalidValidation, "desktop restore requires an authored generation")
+		}
+	}
 	if schemaVersion != 1 && schemaVersion != 2 {
 		return validationError(mod, filePath, DiagnosticUnsupportedSchema, "moduleSchemaVersion %d is not supported", schemaVersion)
 	}
@@ -117,7 +125,17 @@ func validateModuleV2(mod *Module, filePath string) error {
 			return validationError(mod, filePath, DiagnosticDuplicateID, "duplicate instance detector id %q", detector.ID)
 		}
 		detectorIDs[detector.ID] = struct{}{}
+		if detector.Type != "desktop" && detector.Desktop != nil {
+			return validationError(mod, filePath, DiagnosticInvalidDetector, "non-desktop detector has desktop target")
+		}
 		switch detector.Type {
+		case "desktop":
+			if mod.SourceSchemaVersion != 3 || mod.Platform != "linux" || mod.Realization != "endstate-restore" || detector.Desktop == nil || detector.Glob != "" || detector.VersionPattern != "" {
+				return validationError(mod, filePath, DiagnosticInvalidDetector, "desktop detector requires schema-v3 Linux endstate-restore target")
+			}
+			if err := detector.Desktop.Validate(); err != nil {
+				return validationError(mod, filePath, DiagnosticInvalidDetector, "desktop detector: %v", err)
+			}
 		case "package":
 			if detector.Glob != "" || detector.VersionPattern != "" {
 				return validationError(mod, filePath, DiagnosticInvalidDetector, "package detector %q cannot declare glob or versionPattern", detector.ID)
@@ -211,6 +229,9 @@ func validateConfigSet(mod *Module, filePath string, set *ConfigSetDef) error {
 }
 
 func validateGenerationPaths(mod *Module, filePath, setID string, generation *GenerationDef) error {
+	if err := validateDesktopGeneration(mod, generation); err != nil {
+		return validationError(mod, filePath, DiagnosticInvalidValidation, "desktop generation: %v", err)
+	}
 	if generation.Capture != nil {
 		for index, captureFile := range generation.Capture.Files {
 			if err := validateModuleHostPath(mod, captureFile.Source); err != nil {

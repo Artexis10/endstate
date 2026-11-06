@@ -399,7 +399,7 @@ func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []
 	for _, mod := range generationModules {
 		candidateStart := len(planning.Candidates)
 		diagnosticStart := len(planning.PreplanningDiagnostics)
-		discovery := modules.DiscoveryOptions{}
+		discovery := modules.DiscoveryOptions{Desktop: desktopSettingsBackend}
 		if context != nil {
 			discovery.Glob = context.GlobSandboxPattern
 			discovery.ResolveHostPath = func(authored string) (string, error) {
@@ -455,7 +455,7 @@ func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []
 						continue
 					}
 					planning.GenerationPlans = append(planning.GenerationPlans, bundle.ConfigSetCapturePlan{
-						Module: mod, Set: set, Generation: generation, Instance: instance,
+						Module: mod, Set: set, Generation: generation, Instance: instance, Desktop: desktopSettingsBackend,
 					})
 				}
 			}

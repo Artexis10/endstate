@@ -263,6 +263,12 @@ func cloneConfigModuleConfigDef(value *modules.ConfigDef) *modules.ConfigDef {
 	}
 	cloned := *value
 	cloned.InstanceDetectors = cloneConfigSlice(value.InstanceDetectors)
+	for index := range cloned.InstanceDetectors {
+		if target := value.InstanceDetectors[index].Desktop; target != nil {
+			copy := *target
+			cloned.InstanceDetectors[index].Desktop = &copy
+		}
+	}
 	cloned.Sets = nil
 	if value.Sets != nil {
 		cloned.Sets = make([]modules.ConfigSetDef, len(value.Sets))
@@ -304,6 +310,10 @@ func cloneConfigModuleRestoreDefs(values []modules.RestoreDef) []modules.Restore
 	cloned := cloneConfigSlice(values)
 	for index := range cloned {
 		cloned[index].Exclude = cloneConfigSlice(values[index].Exclude)
+		if values[index].Desktop != nil {
+			target := *values[index].Desktop
+			cloned[index].Desktop = &target
+		}
 	}
 	return cloned
 }
@@ -314,6 +324,7 @@ func cloneConfigModuleCaptureDef(value *modules.CaptureDef) *modules.CaptureDef 
 	}
 	cloned := *value
 	cloned.Files = cloneConfigSlice(value.Files)
+	cloned.DesktopValues = cloneConfigSlice(value.DesktopValues)
 	cloned.RegistryKeys = cloneConfigSlice(value.RegistryKeys)
 	cloned.RegistryValues = cloneConfigSlice(value.RegistryValues)
 	cloned.ExcludeGlobs = cloneConfigSlice(value.ExcludeGlobs)

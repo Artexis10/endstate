@@ -492,6 +492,13 @@ Reports the engine's final compatibility/target decision for one captured config
 - `migrationPath` is the ordered generation path and is `[]` unless a migration is planned.
 - `label`, `message`, nullable `remediation`, and all technical detail are engine-authored. Consumers render them verbatim and do not recompute copy, compatibility, or evidence.
 
+A desktop generation uses the existing `config-resolution`, `restore-item`,
+and `config-migration` events. Its portable instance evidence uses
+`type: "desktop"`, `backend: "gsettings"`, and `platform: "linux"`.
+A `restore-item` uses `restorer: "desktop-value"` and the case-sensitive target
+identity `gsettings:<backing-directory><key>`. Events omit the private runtime
+scope and effective defaults. Native desktop availability remains unadvertised.
+
 **Guarantees:**
 
 - Exactly one final config-resolution event is emitted per captured config set in restore-capable input.

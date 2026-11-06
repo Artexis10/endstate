@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
@@ -54,6 +55,7 @@ type storedPendingTransaction struct {
 
 func (g *Guard) recoverPending(ctx context.Context) error {
 	ctx = withHostBoundary(ctx, g.boundary)
+	ctx = desktopsettings.WithBackend(ctx, g.desktop)
 	if err := g.reconcileLegacyRevertWork(ctx); err != nil {
 		return err
 	}

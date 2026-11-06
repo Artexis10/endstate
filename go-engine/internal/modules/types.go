@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 )
 
@@ -124,12 +125,14 @@ type ConfigDef struct {
 }
 
 // InstanceDetectorDef declares one engine-owned source of application/config
-// instances. The first schema-v2 release supports package and path detectors.
+// instances. Schema-v2 supports package and path detectors. Schema-v3 Linux
+// variants can also probe an individual desktop value.
 type InstanceDetectorDef struct {
-	ID             string `json:"id"`
-	Type           string `json:"type"`
-	Glob           string `json:"glob,omitempty"`
-	VersionPattern string `json:"versionPattern,omitempty"`
+	Desktop        *desktopsettings.Target `json:"desktop,omitempty"`
+	ID             string                  `json:"id"`
+	Type           string                  `json:"type"`
+	Glob           string                  `json:"glob,omitempty"`
+	VersionPattern string                  `json:"versionPattern,omitempty"`
 }
 
 // ConfigSetDef is an independently evolving family of application settings.
@@ -275,14 +278,15 @@ type MatchCriteria struct {
 // For the value-level registry-set restore type, Source/Target are unused; the
 // operation is fully described by Key, ValueName, ValueType, and Data.
 type RestoreDef struct {
-	Type     string   `json:"type"`
-	Source   string   `json:"source"`
-	Target   string   `json:"target"`
-	Pattern  string   `json:"pattern,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
-	Backup   bool     `json:"backup,omitempty"`
-	Optional bool     `json:"optional,omitempty"`
-	Exclude  []string `json:"exclude,omitempty"`
+	Desktop  *desktopsettings.Target `json:"desktop,omitempty"`
+	Type     string                  `json:"type"`
+	Source   string                  `json:"source"`
+	Target   string                  `json:"target"`
+	Pattern  string                  `json:"pattern,omitempty"`
+	Reason   string                  `json:"reason,omitempty"`
+	Backup   bool                    `json:"backup,omitempty"`
+	Optional bool                    `json:"optional,omitempty"`
+	Exclude  []string                `json:"exclude,omitempty"`
 
 	// registry-set fields (value-level Windows OS-settings ops). Key is an HKCU
 	// key path; ValueName/ValueType/Data describe the single named value to set.
@@ -307,6 +311,7 @@ type VerifyDef struct {
 
 // CaptureDef describes the capture configuration for a module.
 type CaptureDef struct {
+	DesktopValues  []CaptureDesktopValue  `json:"desktopValues,omitempty"`
 	Files          []CaptureFile          `json:"files"`
 	RegistryKeys   []CaptureRegistryKey   `json:"registryKeys,omitempty"`
 	RegistryValues []CaptureRegistryValue `json:"registryValues,omitempty"`
@@ -314,9 +319,9 @@ type CaptureDef struct {
 }
 
 // HasCaptureWork reports whether the capture declaration names anything to
-// collect: files, whole registry keys, or named registry values.
+// collect: files, registry keys/values, or individual desktop values.
 func (capture *CaptureDef) HasCaptureWork() bool {
-	return capture != nil && (len(capture.Files) > 0 || len(capture.RegistryKeys) > 0 || len(capture.RegistryValues) > 0)
+	return capture != nil && (len(capture.DesktopValues) > 0 || len(capture.Files) > 0 || len(capture.RegistryKeys) > 0 || len(capture.RegistryValues) > 0)
 }
 
 // CapturesRegistryValue reports whether registryValues names key and
@@ -332,6 +337,12 @@ func (capture *CaptureDef) CapturesRegistryValue(key, valueName string) bool {
 		}
 	}
 	return false
+}
+
+// CaptureDesktopValue binds one trusted target to a portable payload path.
+type CaptureDesktopValue struct {
+	Target desktopsettings.Target `json:"target"`
+	Dest   string                 `json:"dest"`
 }
 
 // CaptureFile describes a single file mapping for capture operations.

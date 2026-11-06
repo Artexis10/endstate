@@ -16,6 +16,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
@@ -201,6 +202,17 @@ func resolveDefinition(
 ) (resolvedRestore, error) {
 	entry := resolvedRestore{definition: definition, boundary: boundary}
 	switch definition.Type {
+	case "desktop-value":
+		if definition.Desktop == nil {
+			return entry, newError(CodeUnsupportedRestore, index, "", fmt.Errorf("desktop target is missing"))
+		}
+		if err := definition.Desktop.Validate(); err != nil {
+			return entry, newError(CodeUnsupportedRestore, index, "", err)
+		}
+		entry.target = definition.Desktop.Identity()
+		entry.targetIdentity = entry.target
+		entry.canonical = entry.target
+
 	case "copy", "merge-json", "merge-ini", "append", "delete-glob":
 		var target string
 		var err error
@@ -315,11 +327,13 @@ func validateConcreteHostPath(target string) error {
 func rejectOverlappingTargets(entries []resolvedRestore) error {
 	for left := 0; left < len(entries); left++ {
 		for right := left + 1; right < len(entries); right++ {
-			if entries[left].registryClaim != entries[right].registryClaim {
+			leftDesktop := entries[left].definition.Type == "desktop-value"
+			rightDesktop := entries[right].definition.Type == "desktop-value"
+			if leftDesktop != rightDesktop || entries[left].registryClaim != entries[right].registryClaim {
 				continue
 			}
 			overlaps := entries[left].canonical == entries[right].canonical
-			if !entries[left].registryClaim {
+			if !entries[left].registryClaim && !leftDesktop {
 				overlaps = filesystemTargetsOverlap(entries[left].canonical, entries[right].canonical)
 			}
 			if overlaps {
@@ -351,6 +365,17 @@ func materializeOne(entry resolvedRestore, index int) ([]Action, error) {
 		return []Action{}, nil
 	}
 	switch entry.definition.Type {
+	case "desktop-value":
+		data, _, err := safepath.ReadRegularFileBounded(entry.source, desktopsettings.MaxPayloadBytes)
+		if err != nil {
+			return nil, newError(CodeMaterialization, index, entry.target, err)
+		}
+		value, err := desktopsettings.Decode(data)
+		if err != nil {
+			return nil, newError(CodeMaterialization, index, entry.target, err)
+		}
+		target := *entry.definition.Desktop
+		return []Action{{Kind: ActionDesktopValue, Strategy: "desktop-value", Source: entry.sourceIdentity, Target: target.Identity(), DesktopTarget: &target, DesktopValue: &value, SnapshotRequired: true}}, nil
 	case "copy":
 		return []Action{{
 			Kind: ActionCopy, Strategy: "copy", Source: entry.sourceIdentity, Target: entry.targetIdentity,

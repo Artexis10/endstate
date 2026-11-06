@@ -4,6 +4,7 @@
 package bundle
 
 import (
+	stdcontext "context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -67,6 +69,7 @@ func ConfigCaptureDiagnosticCode(err error) string {
 // ConfigSetCapturePlan pins the exact catalog objects and discovered source
 // instance used to collect one independently versioned config set.
 type ConfigSetCapturePlan struct {
+	Desktop    desktopsettings.Reader
 	Module     *modules.Module
 	Set        *modules.ConfigSetDef
 	Generation *modules.GenerationDef
@@ -406,6 +409,20 @@ func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Co
 		return nil, err
 	}
 	preflight := &configCopyPreflight{}
+	for _, decl := range capture.DesktopValues {
+		observed, err := desktopsettings.Read(stdcontext.Background(), plan.Desktop, decl.Target)
+		if err != nil {
+			return nil, captureError(ConfigCaptureIO, "desktop read: %v", err)
+		}
+		content, err := desktopsettings.Encode(observed.User)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkConfigCopyDestination(preflight, decl.Dest); err != nil {
+			return nil, err
+		}
+		preflight.items = append(preflight.items, configCopyItem{dest: decl.Dest, content: content})
+	}
 	for index, declaration := range capture.Files {
 		var observation *SettingsFileCapturePlan
 		if plan.ObservedFiles != nil {

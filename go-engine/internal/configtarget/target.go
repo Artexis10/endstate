@@ -25,6 +25,7 @@ const (
 	Filesystem Kind = iota
 	// Registry is a Windows registry value or key target (registry-set/import).
 	Registry
+	Desktop
 )
 
 // Claim is a normalized restore target used for cross-set collision checks.
@@ -54,7 +55,7 @@ func ClaimsOverlap(left, right Claim) bool {
 	if left.Kind != right.Kind {
 		return false
 	}
-	if left.Kind == Registry {
+	if left.Kind == Registry || left.Kind == Desktop {
 		return left.Canonical == right.Canonical
 	}
 	return filesystemOverlap(left.Canonical, right.Canonical)

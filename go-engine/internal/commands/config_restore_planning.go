@@ -93,7 +93,7 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 			targetsByModule[moduleID] = []planner.TargetInstance{}
 			continue
 		}
-		discovery := modules.DiscoveryOptions{Glob: evidence.Glob}
+		discovery := modules.DiscoveryOptions{Glob: evidence.Glob, Desktop: desktopSettingsBackend}
 		if currentValidationMode != nil {
 			discovery.Glob = currentValidationMode.GlobSandboxPattern
 			discovery.ResolveHostPath = func(authored string) (string, error) {

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
@@ -53,10 +54,11 @@ type Request struct {
 type ActionKind string
 
 const (
-	ActionCopy        ActionKind = "copy"
-	ActionWriteFile   ActionKind = "write-file"
-	ActionDeleteFile  ActionKind = "delete-file"
-	ActionRegistrySet ActionKind = "registry-set"
+	ActionDesktopValue ActionKind = "desktop-value"
+	ActionCopy         ActionKind = "copy"
+	ActionWriteFile    ActionKind = "write-file"
+	ActionDeleteFile   ActionKind = "delete-file"
+	ActionRegistrySet  ActionKind = "registry-set"
 )
 
 // RegistryValue is one normalized HKCU named-value desired state.
@@ -70,10 +72,12 @@ type RegistryValue struct {
 // Action is one exact target operation. SnapshotRequired is unconditional for
 // every action; legacy RestoreDef.Backup is intentionally ignored.
 type Action struct {
-	Kind     ActionKind
-	Strategy string
-	Source   string
-	Target   string
+	DesktopTarget *desktopsettings.Target
+	DesktopValue  *desktopsettings.Value
+	Kind          ActionKind
+	Strategy      string
+	Source        string
+	Target        string
 	// Label is the authored reason of the restore declaration that produced
 	// this action. It is empty when the declaration has none.
 	Label string

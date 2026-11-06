@@ -25,6 +25,14 @@ func validateModuleV3(mod *Module, filePath string) error {
 		return validationError(mod, filePath, DiagnosticMixedPlatformDeclarations, "schema-v3 module cannot mix platforms with top-level matches, capture, restore, verify, secrets, or config")
 	}
 	for platform, variant := range mod.Platforms {
+		if variant.Capture != nil && len(variant.Capture.DesktopValues) > 0 {
+			return validationError(mod, filePath, DiagnosticInvalidValidation, "desktop capture requires an authored generation")
+		}
+		for _, restore := range variant.Restore {
+			if restore.Type == "desktop-value" || restore.Desktop != nil {
+				return validationError(mod, filePath, DiagnosticInvalidValidation, "desktop restore requires an authored generation")
+			}
+		}
 		if !manifest.IsSupportedConfigPlatform(platform) {
 			return validationError(mod, filePath, DiagnosticMissingPlatform, "platform %q is not supported", platform)
 		}

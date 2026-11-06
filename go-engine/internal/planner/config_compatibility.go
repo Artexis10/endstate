@@ -54,6 +54,12 @@ func NewCompatibilityResolver(catalog map[string]*modules.Module, diagnostics []
 		}
 		if current.Config != nil {
 			pinned.instanceDetectors = append([]modules.InstanceDetectorDef(nil), current.Config.InstanceDetectors...)
+			for index := range pinned.instanceDetectors {
+				if target := current.Config.InstanceDetectors[index].Desktop; target != nil {
+					copy := *target
+					pinned.instanceDetectors[index].Desktop = &copy
+				}
+			}
 			for _, set := range current.Config.Sets {
 				pinned.sets[set.ID] = cloneCompatibilitySet(set)
 			}
@@ -382,6 +388,7 @@ func cloneCaptureDef(capture *modules.CaptureDef) *modules.CaptureDef {
 	cloned.Files = append([]modules.CaptureFile(nil), capture.Files...)
 	cloned.RegistryKeys = append([]modules.CaptureRegistryKey(nil), capture.RegistryKeys...)
 	cloned.RegistryValues = append([]modules.CaptureRegistryValue(nil), capture.RegistryValues...)
+	cloned.DesktopValues = append([]modules.CaptureDesktopValue(nil), capture.DesktopValues...)
 	cloned.ExcludeGlobs = append([]string(nil), capture.ExcludeGlobs...)
 	return &cloned
 }
@@ -393,6 +400,10 @@ func cloneRestoreDefs(restores []modules.RestoreDef) []modules.RestoreDef {
 	cloned := append([]modules.RestoreDef(nil), restores...)
 	for index := range cloned {
 		cloned[index].Exclude = append([]string(nil), restores[index].Exclude...)
+		if restores[index].Desktop != nil {
+			target := *restores[index].Desktop
+			cloned[index].Desktop = &target
+		}
 	}
 	return cloned
 }

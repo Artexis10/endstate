@@ -15,6 +15,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
@@ -352,6 +353,7 @@ func (g *Guard) RevertGenerationMember(ctx context.Context, member *StoreMember)
 		return nil, err
 	}
 	ctx = withHostBoundary(ctx, g.boundary)
+	ctx = desktopsettings.WithBackend(ctx, g.desktop)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if err := g.requireLeaseLocked(); err != nil {
@@ -866,7 +868,9 @@ func preflightGenerationRevert(ctx context.Context, actions []JournalAction, reg
 	for index := len(actions) - 1; index >= 0; index-- {
 		action := actions[index]
 		var err error
-		if action.Kind == ActionRegistrySet {
+		if action.Kind == ActionDesktopValue {
+			_, err = classifyDesktopState(ctx, action)
+		} else if action.Kind == ActionRegistrySet {
 			_, err = classifyRegistryRollbackState(ctx, action, registry)
 		} else {
 			_, _, err = classifyFilesystemRollbackState(ctx, action)

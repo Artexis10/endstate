@@ -234,18 +234,6 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		return nil, onlyErr
 	}
 	captured = selectedApps
-	if flags.linuxDiscoveryCounts != nil && !flags.Update && len(captured) == 0 && len(flags.linuxHomeManagerFiles) == 0 && len(flags.linuxConfigFiles) == 0 {
-		counts := *flags.linuxDiscoveryCounts
-		return nil, envelope.NewError(
-			envelope.ErrCaptureFailed,
-			fmt.Sprintf(
-				"Linux discovery found no portable applications or capturable settings: %d discovered, %d unresolved, %d ignored.",
-				counts.Discovered,
-				counts.Unresolved,
-				counts.Ignored,
-			),
-		).WithRemediation("Install a supported application or keep a reviewed settings file, then run capture again. Review unresolved items for missing package mappings.")
-	}
 
 	// --- 4. If --update and --manifest: merge with existing manifest (host-keyed) ---
 	if flags.Update && flags.Manifest != "" {
@@ -371,6 +359,18 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		if err := preflightPreparedCaptureConfig(request, preparedCapture); err != nil {
 			return nil, err
 		}
+	}
+	if flags.linuxDiscoveryCounts != nil && !flags.Update && len(captured) == 0 && len(flags.linuxHomeManagerFiles) == 0 && len(flags.linuxConfigFiles) == 0 && (preparedCapture == nil || len(preparedCapture.Planning.GenerationPlans) == 0) {
+		counts := *flags.linuxDiscoveryCounts
+		return nil, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			fmt.Sprintf(
+				"Linux discovery found no portable applications or capturable settings: %d discovered, %d unresolved, %d ignored.",
+				counts.Discovered,
+				counts.Unresolved,
+				counts.Ignored,
+			),
+		).WithRemediation("Install a supported application or keep a reviewed settings file, then run capture again. Review unresolved items for missing package mappings.")
 	}
 	if dir := filepath.Dir(outputPath); dir != "" && dir != "." {
 		if mkdirErr := os.MkdirAll(dir, 0755); mkdirErr != nil {

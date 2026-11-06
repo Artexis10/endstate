@@ -305,6 +305,8 @@ GNOME and KDE value operations SHALL extend a shared durable configuration trans
 
 The first implementation SHALL extend the existing configuration transaction with boolean preference `org.gnome.desktop.interface/clock-show-date` at `/org/gnome/desktop/interface/clock-show-date`. Canonical bounded payloads SHALL distinguish explicit absence from `false`, reject unsupported or contradictory state, and keep effective defaults separate from user overrides. Trusted generation declarations SHALL supply target authority; payloads SHALL supply only desired state. An unavailable or schema-filtered wrong-type read SHALL NOT become absence.
 
+The declaration grammar SHALL use a `desktop` instance detector with a `desktop` target, `capture.desktopValues` entries with `target` and `dest`, and `desktop-value` restores with `source` and `desktop`. Each target SHALL declare `schema`, an absolute backing directory `path` ending in `/`, `key`, and `type: "boolean"`. The payload SHALL contain `type`, `present`, and a boolean `value` exactly when present, in that field order with one final newline, within 1024 bytes. It SHALL contain no target or scope authority.
+
 Desktop-bearing journals SHALL use a new format version. Existing filesystem and registry journal encodings, digests, readers, and offline inspection SHALL remain compatible without rewriting history. A private desktop snapshot SHALL bind the resolved backend/profile namespace and preserve case-sensitive target identity. Recovery SHALL refuse an unrelated third value or a changed runtime scope rather than overwrite it.
 
 #### Scenario: Prior value is inherited rather than user-set
