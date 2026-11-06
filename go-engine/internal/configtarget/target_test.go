@@ -5,6 +5,7 @@ package configtarget
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -45,5 +46,36 @@ func TestClaimsOverlap(t *testing.T) {
 				t.Fatalf("ClaimsOverlap is not symmetric for %q", tt.name)
 			}
 		})
+	}
+}
+
+// Replacing the dconf user database, or any directory above it, is undone by the
+// session's dconf writer, so only that path set conflicts with a desktop value.
+func TestDesktopValueClaimsTheDconfDatabasePathChain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG coordinates are not valid on Windows")
+	}
+	t.Setenv("HOME", "/home/me")
+	t.Setenv("XDG_CONFIG_HOME", "/home/me/.config")
+	desktop := Claim{Kind: Desktop, Canonical: "gsettings:/org/gnome/desktop/interface/clock-show-date"}
+	for _, test := range []struct {
+		target string
+		want   bool
+	}{
+		{"/home/me/.config/dconf/user", true},
+		{"/home/me/.config/dconf", true},
+		{"/home/me/.config", true},
+		{"/home/me", true},
+		{"/home/me/.config/dconf-keyfiles", false},
+		{"/home/me/.config/gtk-3.0/settings.ini", false},
+		{"/home/other/.config/dconf/user", false},
+	} {
+		file := Claim{Kind: Filesystem, Canonical: CanonicalFilesystem(test.target)}
+		if ClaimsOverlap(desktop, file) != test.want || ClaimsOverlap(file, desktop) != test.want {
+			t.Fatalf("%s: want conflict=%v", test.target, test.want)
+		}
+	}
+	if ClaimsOverlap(desktop, Claim{Kind: Registry, Canonical: CanonicalRegistry(`HKCU\Software\App`, "")}) {
+		t.Fatal("a registry claim cannot cover the dconf database")
 	}
 }

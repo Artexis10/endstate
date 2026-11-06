@@ -14,6 +14,9 @@ package configtarget
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/desktopsettings"
 )
 
 // Kind distinguishes the two comparable restore-target domains. Overlap is only
@@ -49,11 +52,12 @@ func CanonicalRegistry(key, valueName string) string {
 	return strings.ToLower(key) + "\x00" + strings.ToLower(valueName)
 }
 
-// ClaimsOverlap reports whether two claims collide: same-kind only, registry by
-// equality, filesystem by equal-or-nested paths.
+// ClaimsOverlap reports whether two claims collide: registry and desktop by
+// equality, filesystem by equal-or-nested paths. A filesystem claim also
+// collides with a desktop claim when it covers the dconf user database.
 func ClaimsOverlap(left, right Claim) bool {
 	if left.Kind != right.Kind {
-		return false
+		return desktopDatabaseCovered(left, right) || desktopDatabaseCovered(right, left)
 	}
 	if left.Kind == Registry || left.Kind == Desktop {
 		return left.Canonical == right.Canonical
@@ -68,4 +72,20 @@ func filesystemOverlap(left, right string) bool {
 	left = strings.TrimSuffix(left, "/")
 	right = strings.TrimSuffix(right, "/")
 	return strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+// desktopDatabaseCovered reports whether a filesystem claim replaces the dconf
+// user database or one of its parent directories. The session's dconf writer
+// persists its cached copy on the next write, so such a restore would be undone
+// and could revert unrelated keys; every GSettings value therefore conflicts
+// with it. The path is host-dependent, so an unresolvable one claims nothing.
+func desktopDatabaseCovered(desktop, filesystem Claim) bool {
+	if desktop.Kind != Desktop || filesystem.Kind != Filesystem {
+		return false
+	}
+	database, err := config.ResolveHostEnginePath(desktopsettings.UserDatabaseCoordinate)
+	if err != nil {
+		return false
+	}
+	return filesystemOverlap(CanonicalFilesystem(database), filesystem.Canonical)
 }

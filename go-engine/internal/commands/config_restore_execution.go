@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
+	"github.com/Artexis10/endstate/go-engine/internal/configtarget"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
@@ -993,7 +994,7 @@ func concreteConfigRestoreClaim(action configrestore.Action) string {
 
 func concreteConfigRestoreClaimsOverlap(left, right string) bool {
 	if strings.HasPrefix(left, "desktop\x00") || strings.HasPrefix(right, "desktop\x00") {
-		return left == right
+		return left == right || desktopClaimCoversDatabase(left, right) || desktopClaimCoversDatabase(right, left)
 	}
 	if strings.HasPrefix(left, "registry-") || strings.HasPrefix(right, "registry-") {
 		return registryConfigRestoreClaimsOverlap(left, right)
@@ -1001,6 +1002,18 @@ func concreteConfigRestoreClaimsOverlap(left, right string) bool {
 	left = strings.TrimPrefix(left, "file\x00")
 	right = strings.TrimPrefix(right, "file\x00")
 	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+// desktopClaimCoversDatabase applies the shared dconf database rule to concrete
+// claims: a file claim that covers the user database conflicts with every value.
+func desktopClaimCoversDatabase(desktop, file string) bool {
+	if !strings.HasPrefix(desktop, "desktop\x00") || !strings.HasPrefix(file, "file\x00") {
+		return false
+	}
+	return configtarget.ClaimsOverlap(
+		configtarget.Claim{Kind: configtarget.Desktop, Canonical: desktop},
+		configtarget.Claim{Kind: configtarget.Filesystem, Canonical: configtarget.CanonicalFilesystem(strings.TrimPrefix(file, "file\x00"))},
+	)
 }
 
 func concreteLegacyRestoreClaim(action restore.RestoreAction, options restore.RestoreOptions) (string, error) {

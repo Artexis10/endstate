@@ -1,0 +1,59 @@
+// Reviewed GNOME allowlist, kept dark as test data. It moves into the shipped
+// module catalogue only after the real-session gate (task 10.9) passes.
+//
+// Each reviewed value needs one entry here and nowhere else: the schema, its
+// backing directory, the key, and a boolean type. The backing path is the
+// directory that `gsettings list-schemas --print-paths` reports for the schema,
+// so the engine can prove the installed schema matches before it touches dconf.
+//
+// Reviewed value: org.gnome.desktop.interface clock-show-date (boolean).
+// It holds a display preference only: no account, history, device, or
+// window-session state. Forbidden state stays out of this file by construction:
+// the module declares no filesystem capture or restore, so it cannot name the
+// dconf database or any directory above it.
+{
+  "moduleSchemaVersion": 3,
+  "id": "desktop.gnome-clock-show-date",
+  "displayName": "GNOME clock shows the date",
+  "sensitivity": "low",
+  "platforms": {
+    "linux": {
+      "realization": "endstate-restore",
+      "config": {
+        "instanceDetectors": [
+          {
+            "id": "session",
+            "type": "desktop",
+            "desktop": {"schema": "org.gnome.desktop.interface", "path": "/org/gnome/desktop/interface/", "key": "clock-show-date", "type": "boolean"}
+          }
+        ],
+        "sets": [
+          {
+            "id": "preferences",
+            "generations": [
+              {
+                "id": "g1",
+                "order": 1,
+                "capture": {
+                  "desktopValues": [
+                    {
+                      "target": {"schema": "org.gnome.desktop.interface", "path": "/org/gnome/desktop/interface/", "key": "clock-show-date", "type": "boolean"},
+                      "dest": "clock-show-date.json"
+                    }
+                  ]
+                },
+                "restore": [
+                  {
+                    "type": "desktop-value",
+                    "source": "clock-show-date.json",
+                    "desktop": {"schema": "org.gnome.desktop.interface", "path": "/org/gnome/desktop/interface/", "key": "clock-show-date", "type": "boolean"}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
