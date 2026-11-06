@@ -254,7 +254,7 @@ func externalHomeManagerAction(r realizer.Realizer, flake string, generated bool
 func generatedHomeModulePath(flake string) string {
 	location, _, _ := strings.Cut(flake, "#")
 	location = strings.TrimPrefix(location, "path:")
-	return filepath.Join(filepath.FromSlash(location), "home.nix")
+	return filepath.Join(filepath.FromSlash(location), nix.HomeImportModule)
 }
 
 // runApplyRealizer is the whole-set apply path for a realizer backend (Nix). It

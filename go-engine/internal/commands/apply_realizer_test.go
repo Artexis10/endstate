@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
 
@@ -953,7 +954,7 @@ func TestRunApplyRealizer_ExternalHomeManagerGetsImportActionNotActivation(t *te
 	if action.Owner != "external" || action.Action != "import_generated_module" || !action.Required {
 		t.Fatalf("ownership action = %+v", action)
 	}
-	if filepath.Base(action.ModulePath) != "home.nix" {
+	if filepath.Base(action.ModulePath) != nix.HomeImportModule {
 		t.Fatalf("importable module path = %q", action.ModulePath)
 	}
 	if _, err := os.Stat(action.ModulePath); err != nil {

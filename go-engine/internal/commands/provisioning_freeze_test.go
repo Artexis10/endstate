@@ -23,11 +23,12 @@ import (
 )
 
 type nativeFreezeFixture struct {
-	t        *testing.T
-	backend  *nix.Backend
-	elements map[string]any
-	wrapper  string
-	packages map[string]struct {
+	t          *testing.T
+	backend    *nix.Backend
+	elements   map[string]any
+	wrapper    string
+	homeModule string
+	packages   map[string]struct {
 		DrvPath  string `json:"drvPath"`
 		Priority int    `json:"priority"`
 	}
@@ -103,6 +104,9 @@ func (f *nativeFreezeFixture) run(args ...string) ([]byte, []byte, int, error) {
 		}
 		return []byte(`{"url":"github:example/packages/1111111111111111111111111111111111111111","locked":{"type":"github","rev":"1111111111111111111111111111111111111111"}}`), nil, 0, nil
 	case "build", "eval":
+		if root, _, ok := strings.Cut(target, "#homeConfigurations."); ok {
+			f.homeModule = filepath.Join(strings.TrimPrefix(root, "path:"), "home.nix")
+		}
 		dry := false
 		for i, arg := range args {
 			if arg == "--dry-run" {
@@ -201,11 +205,14 @@ func (f *nativeFreezeFixture) run(args ...string) ([]byte, []byte, int, error) {
 				t.Fatal(err)
 			}
 			// The generated source is now different too; activation must use its output.
-			paths, _ := filepath.Glob(filepath.Join(os.Getenv("ENDSTATE_ROOT"), "state", "home-manager", "*", "home.nix"))
-			for _, path := range paths {
-				if err := os.WriteFile(path, []byte("throw \"changed\""), 0600); err != nil {
-					t.Fatal(err)
-				}
+			if f.homeModule == "" {
+				t.Fatal("generated home module was not observed before package mutation")
+			}
+			if _, err := os.Stat(f.homeModule); err != nil {
+				t.Fatalf("generated home module is unavailable for mutation: %v", err)
+			}
+			if err := os.WriteFile(f.homeModule, []byte("throw \"changed\""), 0600); err != nil {
+				t.Fatal(err)
 			}
 			if f.persistFails {
 				if err := os.WriteFile(provision.Dir(), []byte("not a directory"), 0600); err != nil {

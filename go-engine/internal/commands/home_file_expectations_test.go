@@ -114,7 +114,8 @@ func TestHomeManagerFrozenFilesApplyVerifyAndRollback(t *testing.T) {
 		if err := os.WriteFile(source, []byte("B"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		generated := generatedHomeModulePath(flake)
+		directory, _, _ := strings.Cut(strings.TrimPrefix(flake, "path:"), "#")
+		generated := filepath.Join(directory, "home.nix")
 		if err := os.WriteFile(generated, []byte(`throw "changed generated module"`), 0600); err != nil {
 			t.Fatal(err)
 		}

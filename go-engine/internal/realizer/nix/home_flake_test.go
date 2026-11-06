@@ -4,10 +4,15 @@
 package nix
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
 // TestRenderHomeFlake_PinsIdentityModule asserts the pure render wraps the user's
@@ -32,7 +37,7 @@ func TestRenderHomeFlake_PinsIdentityModule(t *testing.T) {
 		`home-manager.url = "github:nix-community/home-manager/def456"`,
 		`home-manager.inputs.nixpkgs.follows = "nixpkgs"`,
 		// the user's config, referenced relative to the flake dir (copied in)
-		"./home.nix",
+		"./" + HomeImportModule,
 		// engine-injected identity
 		`home.username = "hugo"`,
 		`home.homeDirectory = "/home/hugo"`,
@@ -89,10 +94,9 @@ func TestGenerateHomeFlake_WritesSelfContainedFlakeAndReturnsRef(t *testing.T) {
 		t.Fatalf("GenerateHomeFlake: %v", err)
 	}
 
-	wantDir := filepath.Join(stateDir, "home-manager", "tester")
-	wantRef := wantDir + "#tester"
-	if ref != wantRef {
-		t.Errorf("flakeref = %q, want %q", ref, wantRef)
+	wantDir, name, _ := strings.Cut(ref, "#")
+	if name != "tester" || filepath.Dir(wantDir) != filepath.Join(stateDir, "home-manager", "tester") {
+		t.Fatalf("flakeref = %q, want a generated directory for tester", ref)
 	}
 
 	// flake.nix is written and references ./home.nix with the injected identity.
@@ -101,7 +105,7 @@ func TestGenerateHomeFlake_WritesSelfContainedFlakeAndReturnsRef(t *testing.T) {
 		t.Fatalf("generated flake.nix not readable: %v", err)
 	}
 	flake := string(flakeBytes)
-	for _, w := range []string{"./home.nix", `home.username = "tester"`, `home.homeDirectory = "/home/tester"`, `homeConfigurations."tester"`} {
+	for _, w := range []string{"./" + HomeImportModule, `home.username = "tester"`, `home.homeDirectory = "/home/tester"`, `homeConfigurations."tester"`} {
 		if !strings.Contains(flake, w) {
 			t.Errorf("generated flake.nix missing %q", w)
 		}
@@ -129,5 +133,105 @@ func TestGenerateHomeFlake_MissingConfigErrors(t *testing.T) {
 
 	if _, err := GenerateHomeFlake(t.TempDir(), filepath.Join(t.TempDir(), "nope.nix"), nil); err == nil {
 		t.Fatal("expected an error for a missing config path, got nil")
+	}
+}
+
+func TestGeneratedHomeImportSurvivesLaterGeneration(t *testing.T) {
+	defer fakeIdentity(t)()
+	stateDir := t.TempDir()
+	parent := filepath.Join(stateDir, "home-manager", "tester")
+	if err := os.MkdirAll(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(parent, "home.nix")
+	legacyBody := []byte("{ ... }: { programs.example.enable = true; }\n")
+	if err := os.WriteFile(legacy, legacyBody, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := writeHomeFlake(stateDir, []byte("{ ... }: {}\n"), map[string][]byte{"files/payload": {0, 1, 255}}, []manifest.HomeManagerSecret{{Name: "token", Path: "/run/secrets/example"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDir, _, _ := strings.Cut(ref, "#")
+	firstFiles := readGeneratedDir(t, firstDir)
+	nextRef, err := writeHomeFlake(stateDir, []byte("{ ... }: { programs.example.enable = false; }\n"), map[string][]byte{"files/payload": []byte("later")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextDir, _, _ := strings.Cut(nextRef, "#")
+	if ref == nextRef || !reflect.DeepEqual(firstFiles, readGeneratedDir(t, firstDir)) {
+		t.Fatal("later generation changed an earlier import or payload")
+	}
+	if _, err := os.Stat(filepath.Join(nextDir, "secrets.nix")); !os.IsNotExist(err) {
+		t.Fatalf("secret-free generation inherited secret references: %v", err)
+	}
+	if strings.Contains(string(readGeneratedDir(t, nextDir)[HomeImportModule]), "secrets.nix") {
+		t.Fatal("secret-free import retained an earlier secret module")
+	}
+	if body, err := os.ReadFile(legacy); err != nil || !bytes.Equal(body, legacyBody) {
+		t.Fatalf("generation changed a legacy import: %q %v", body, err)
+	}
+}
+
+func TestConcurrentHomeGenerationKeepsPayloadsSeparate(t *testing.T) {
+	defer fakeIdentity(t)()
+	stateDir := t.TempDir()
+	type outcome struct {
+		ref     string
+		payload []byte
+		err     error
+	}
+	start, completed := make(chan struct{}), make(chan outcome, 2)
+	for _, payload := range [][]byte{[]byte("first"), []byte("second")} {
+		go func() {
+			<-start
+			ref, err := writeHomeFlake(stateDir, []byte("{ ... }: {}\n"), map[string][]byte{"files/payload": payload}, nil)
+			completed <- outcome{ref: ref, payload: payload, err: err}
+		}()
+	}
+	close(start)
+	seen := map[string]bool{}
+	for range 2 {
+		result := <-completed
+		if result.err != nil || seen[result.ref] {
+			t.Fatalf("generation was not independent: %q %v", result.ref, result.err)
+		}
+		seen[result.ref] = true
+		dir, _, _ := strings.Cut(result.ref, "#")
+		got, err := os.ReadFile(filepath.Join(dir, "files", "payload"))
+		if err != nil || !bytes.Equal(got, result.payload) {
+			t.Fatalf("generation consumed another run's payload: %q %v", got, err)
+		}
+	}
+}
+
+func TestFailedHomeGenerationRemovesOnlyItsIncompleteArtifact(t *testing.T) {
+	defer fakeIdentity(t)()
+	stateDir := t.TempDir()
+	ref, err := writeHomeFlake(stateDir, []byte("{ ... }: {}\n"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _, _ := strings.Cut(ref, "#")
+	before := readGeneratedDir(t, dir)
+	original := writeGeneratedHomeFile
+	t.Cleanup(func() { writeGeneratedHomeFile = original })
+	writeErr := errors.New("generated file storage unavailable")
+	writeGeneratedHomeFile = func(path string, data []byte, mode os.FileMode) error {
+		if filepath.Base(path) == HomeImportModule {
+			return writeErr
+		}
+		return original(path, data, mode)
+	}
+	failedRef, err := writeHomeFlake(stateDir, []byte("{ ... }: {}\n"), map[string][]byte{"files/payload": []byte("incomplete")}, nil)
+	if failedRef != "" || !errors.Is(err, writeErr) {
+		t.Fatalf("failed generation published an artifact: %q %v", failedRef, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(dir))
+	if err != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(dir) {
+		t.Fatalf("incomplete artifact remains or prior artifact was removed: %v %v", entries, err)
+	}
+	if !reflect.DeepEqual(before, readGeneratedDir(t, dir)) {
+		t.Fatal("failed generation changed a prior import")
 	}
 }

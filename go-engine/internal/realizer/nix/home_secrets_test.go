@@ -219,8 +219,11 @@ func TestWriteHomeFlake_SecretsStagedModuleReferencedNotEmbedded(t *testing.T) {
 	if !ok {
 		t.Fatal("flake.nix not generated")
 	}
-	if !strings.Contains(string(flake), "./secrets.nix") {
-		t.Errorf("flake.nix does not reference ./secrets.nix:\n%s", flake)
+	if !strings.Contains(string(flake), "./"+HomeImportModule) {
+		t.Errorf("flake.nix does not reference the shared import entry:\n%s", flake)
+	}
+	if !strings.Contains(string(files[HomeImportModule]), "./secrets.nix") {
+		t.Errorf("import entry omits secret references:\n%s", files[HomeImportModule])
 	}
 	secMod, ok := files["secrets.nix"]
 	if !ok {

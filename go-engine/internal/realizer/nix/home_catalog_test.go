@@ -483,9 +483,9 @@ func TestGenerateHomeFlakeFromSettings_WritesSelfContainedFlake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateHomeFlakeFromSettings: %v", err)
 	}
-	wantDir := filepath.Join(stateDir, "home-manager", "tester")
-	if ref != wantDir+"#tester" {
-		t.Errorf("ref = %q, want %q", ref, wantDir+"#tester")
+	wantDir, name, _ := strings.Cut(ref, "#")
+	if name != "tester" || filepath.Dir(wantDir) != filepath.Join(stateDir, "home-manager", "tester") {
+		t.Fatalf("ref = %q, want a generated directory for tester", ref)
 	}
 	// flake.nix + compiled home.nix + staged file all present and readable.
 	_, staged, compileErr := CompileHomeNix(s, manDir)
