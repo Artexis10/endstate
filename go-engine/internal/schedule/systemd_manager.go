@@ -8,9 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/sessionbus"
 	"github.com/godbus/dbus/v5"
 )
 
@@ -22,21 +22,12 @@ type sessionManager struct {
 
 func newSessionManager(env []string) *sessionManager {
 	m := &sessionManager{env: append([]string(nil), env...)}
-	values := map[string]string{}
-	for _, entry := range env {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok {
-			values[key] = value
-		}
-	}
-	m.address = values["DBUS_SESSION_BUS_ADDRESS"]
-	if m.address == "" && filepath.IsAbs(values["XDG_RUNTIME_DIR"]) {
-		m.address = "unix:path=" + dbus.EscapeBusAddressValue(filepath.Join(values["XDG_RUNTIME_DIR"], "bus"))
-	}
-	if m.address == "" {
-		m.initErr = fmt.Errorf("no existing user session bus address")
+	address, err := sessionbus.Address(env)
+	if err != nil {
+		m.initErr = err
 		return m
 	}
+	m.address = address
 	// systemctl otherwise prefers XDG_RUNTIME_DIR/systemd/private, which can
 	// differ from the explicit bus used for typed reads. Force that same bus.
 	m.env = nil
@@ -55,8 +46,7 @@ func (m *sessionManager) connect(ctx context.Context) (*dbus.Conn, error) {
 	if m.initErr != nil {
 		return nil, m.initErr
 	}
-	// An explicit address prevents godbus's session-bus autolaunch path.
-	conn, err := dbus.Connect(m.address, dbus.WithContext(ctx))
+	conn, err := sessionbus.Connect(ctx, m.address)
 	if err != nil {
 		return nil, err
 	}
