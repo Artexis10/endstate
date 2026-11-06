@@ -138,7 +138,7 @@ func (f *nativeFreezeFixture) run(args ...string) ([]byte, []byte, int, error) {
 			if f.priorityChanged {
 				drv = "/nix/store/changed.drv"
 			}
-			return result(map[string]any{"drvPath": drv, "priority": priority})
+			return result(map[string]any{"drvPath": drv, "priority": priority, "targets": nil})
 		}
 		if !dry {
 			if frozenAlpha {
@@ -418,7 +418,7 @@ type frozenHomeRollbackFixture struct {
 	restored *realizer.InputResolution
 }
 
-func (*frozenHomeRollbackFixture) PrepareHome(string, bool) (*realizer.InputResolution, error) {
+func (*frozenHomeRollbackFixture) PrepareHome(string, bool) (*realizer.HomePreparation, error) {
 	panic("rollback must not evaluate a source")
 }
 func (f *frozenHomeRollbackFixture) ActivatePreparedHome(r *realizer.InputResolution) (int, error) {

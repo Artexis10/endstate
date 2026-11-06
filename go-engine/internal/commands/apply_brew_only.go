@@ -111,8 +111,8 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 
 	if flags.DryRun {
 		var configErr *envelope.Error
-		configFields, configErr = executePreparedApplyConfigRestore(
-			context.Background(), flags, runID, emitter, configSession,
+		configFields, _, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession, nil,
 		)
 		dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
 		dryActions = append(dryActions, unsupportedActions...)
@@ -156,8 +156,8 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	failedCount += brewFailed
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
 	var configErr *envelope.Error
-	configFields, configErr = executePreparedApplyConfigRestore(
-		context.Background(), flags, runID, emitter, configSession,
+	configFields, _, configErr = executePreparedApplyConfigRestore(
+		context.Background(), flags, runID, emitter, configSession, nil,
 	)
 	if configErr != nil {
 		brewActions := brew.brewActions()

@@ -36,7 +36,7 @@ func (b *Backend) ActivateHome(flake string) (generation int, resultErr error) {
 	if err != nil {
 		return 0, err
 	}
-	return b.ActivatePreparedHome(r)
+	return b.ActivatePreparedHome(r.Resolution)
 }
 
 // normalizeHomeFlakeRef makes generated absolute directories explicit path
@@ -165,7 +165,7 @@ func parsePlainLog(stderr []byte) parsedLog {
 
 // PrepareHome uses native installable selection, then builds only the frozen
 // activation derivation. The out-link retains the output through finalization.
-func (b *Backend) PrepareHome(flake string, build bool) (*realizer.InputResolution, error) {
+func (b *Backend) PrepareHome(flake string, build bool) (*realizer.HomePreparation, error) {
 	normalized := normalizeHomeFlakeRef(flake)
 	root, name, ok := strings.Cut(normalized, "#")
 	if !ok || name == "" {
@@ -173,6 +173,10 @@ func (b *Backend) PrepareHome(flake string, build bool) (*realizer.InputResoluti
 	}
 	target := root + "#homeConfigurations." + name + ".activationPackage"
 	r, err := b.resolve(target)
+	if err != nil {
+		return nil, err
+	}
+	targets, err := b.projectHomeTargets(r, name)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +207,7 @@ func (b *Backend) PrepareHome(flake string, build bool) (*realizer.InputResoluti
 			r.OutputPaths[name] = path
 		}
 	}
-	return r, nil
+	return &realizer.HomePreparation{Resolution: r, FlatTargets: targets}, nil
 }
 
 func (b *Backend) ActivatePreparedHome(r *realizer.InputResolution) (int, error) {

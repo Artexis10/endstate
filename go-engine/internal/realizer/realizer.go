@@ -69,9 +69,17 @@ type InputResolver interface {
 // run. Committed roots remain available to provisioning history and rollback.
 type PreparationFinalizer interface{ FinalizePreparation(committed bool) }
 
+// HomePreparation keeps ephemeral flat targets beside frozen activation provenance.
+// FlatTargets is nil when optional parent configuration metadata is unavailable.
+// A non-nil empty slice means evaluation found no enabled nonrecursive targets.
+type HomePreparation struct {
+	Resolution  *InputResolution
+	FlatTargets []string
+}
+
 // HomePreparer freezes and optionally builds activation before package mutation.
 type HomePreparer interface {
-	PrepareHome(flake string, build bool) (*InputResolution, error)
+	PrepareHome(flake string, build bool) (*HomePreparation, error)
 	// A positive generation with an error identifies the active intended output
 	// after failed settings activation. The profile may already have been active.
 	ActivatePreparedHome(*InputResolution) (int, error)

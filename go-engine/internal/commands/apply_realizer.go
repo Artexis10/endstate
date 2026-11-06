@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
@@ -186,6 +187,7 @@ type preparedHomeManager struct {
 	ownershipAction  *HomeManagerOwnershipAction
 	previousHome     *provision.HomeGenRef
 	resolution       *realizer.InputResolution
+	flatTargets      []string
 	fileExpectations *provision.HomeFileExpectations
 }
 
@@ -202,15 +204,16 @@ func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Real
 		return nil, homeOwnershipError(ownershipErr)
 	}
 	if preparer, ok := r.(realizer.HomePreparer); ok && home.ownershipAction == nil {
-		resolution, prepareErr := preparer.PrepareHome(flake, !flags.DryRun)
+		preparation, prepareErr := preparer.PrepareHome(flake, !flags.DryRun)
 		if prepareErr != nil {
 			return nil, inputResolutionError(prepareErr)
 		}
-		home.resolution = resolution
+		home.resolution = preparation.Resolution
+		home.flatTargets = preparation.FlatTargets
 		if !flags.DryRun && mf.HomeManager.Settings != nil {
 			// Missing evidence would make a new generated activation unverifiable.
 			// Refuse before package mutation; the caller can repair and retry apply.
-			home.fileExpectations, prepareErr = readHomeFileExpectations(resolution)
+			home.fileExpectations, prepareErr = readHomeFileExpectations(preparation.Resolution)
 			if prepareErr != nil {
 				return nil, inputResolutionError(prepareErr)
 			}
@@ -440,6 +443,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		return nil, configSessionErr
 	}
 	var configFields *ConfigResultFields
+	var homeBlocked bool
 	preparedHome, homePreparationErr := prepareHomeManager(flags, mf, r)
 	if homePreparationErr != nil {
 		return nil, homePreparationErr
@@ -447,8 +451,8 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 
 	if flags.DryRun {
 		var configErr *envelope.Error
-		configFields, configErr = executePreparedApplyConfigRestore(
-			context.Background(), flags, runID, emitter, configSession,
+		configFields, homeBlocked, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession, preparedHome,
 		)
 		if configErr != nil {
 			dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
@@ -479,6 +483,8 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			emitter.EmitPhase("config")
 			if preparedHome.ownershipAction != nil {
 				emitter.EmitItem(preparedHome.flake, driverName, "action_required", "external_home_manager", preparedHome.ownershipAction.Message, "home-manager")
+			} else if homeBlocked {
+				emitter.EmitItem(preparedHome.flake, driverName, "failed", planner.ReasonTargetCollision.String(), "Home-manager targets overlap another selected settings writer", "home-manager")
 			} else {
 				emitter.EmitItem(preparedHome.flake, driverName, "would_configure", "dry_run", "Would activate home-manager configuration", "home-manager")
 			}
@@ -502,7 +508,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			Pruned:                  pruned,
 			HomeManager:             hmPreview,
 			ConfigResultFields:      configFields,
-		}, nil
+		}, homeManagerCollisionError(homeBlocked)
 	}
 
 	// --- Phase 2: Apply (one atomic generation switch over diff.ToAdd) ---
@@ -667,8 +673,8 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
 	var configErr *envelope.Error
-	configFields, configErr = executePreparedApplyConfigRestore(
-		context.Background(), flags, runID, emitter, configSession,
+	configFields, homeBlocked, configErr = executePreparedApplyConfigRestore(
+		context.Background(), flags, runID, emitter, configSession, preparedHome,
 	)
 	if configErr != nil {
 
@@ -747,6 +753,11 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				Flake: flake, Generated: generated, Activated: false,
 				OwnershipAction: preparedHome.ownershipAction,
 			}
+		} else if homeBlocked {
+			emitter.EmitPhase("config")
+			emitter.EmitItem(flake, driverName, "failed", planner.ReasonTargetCollision.String(), "Home-manager targets overlap another selected settings writer", "home-manager")
+			emitter.EmitSummary("config", 1, 0, 0, 1)
+			homeResult = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: false}
 		} else {
 			emitter.EmitPhase("config")
 			emitter.EmitItem(flake, driverName, "configuring", "", "Activating home-manager configuration", "home-manager")
@@ -819,7 +830,15 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		Pruned:                  removed,
 		HomeManager:             homeResult,
 		ConfigResultFields:      configFields,
-	}, nil
+	}, homeManagerCollisionError(homeBlocked)
+}
+
+func homeManagerCollisionError(blocked bool) *envelope.Error {
+	if !blocked {
+		return nil
+	}
+	return envelope.NewError(envelope.ErrRestoreFailed, "Selected settings writers have overlapping targets.").
+		WithDetail(map[string]string{"reason": planner.ReasonTargetCollision.String()})
 }
 
 func inputResolutionError(err error) *envelope.Error {

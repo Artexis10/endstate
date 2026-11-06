@@ -225,8 +225,8 @@ func runApplyDriverLanes(
 	var configFields *ConfigResultFields
 	if flags.DryRun {
 		var configErr *envelope.Error
-		configFields, configErr = executePreparedApplyConfigRestore(
-			context.Background(), flags, runID, emitter, configSession,
+		configFields, _, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession, nil,
 		)
 		if configErr != nil {
 			return &ApplyResult{
@@ -359,8 +359,8 @@ func runApplyDriverLanes(
 		}
 
 		var configErr *envelope.Error
-		configFields, configErr = executePreparedApplyConfigRestore(
-			context.Background(), flags, runID, emitter, configSession,
+		configFields, _, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession, nil,
 		)
 		if configErr != nil {
 			// Package mutation already committed. Preserve backend rollback facts

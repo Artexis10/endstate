@@ -31,17 +31,19 @@ func executePreparedApplyConfigRestore(
 	runID string,
 	emitter *events.Emitter,
 	session *configRestoreExecutionSession,
-) (*ConfigResultFields, *envelope.Error) {
+	home *preparedHomeManager,
+) (*ConfigResultFields, bool, *envelope.Error) {
 	if session == nil || flags.configRestoreRuntime == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	inputs := flags.configRestoreRuntime.inputs
-	execution, envErr := session.Execute(
-		ctx,
-		applyConfigRestoreExecutionOptions(flags, runID, flags.configRestoreRepoRoot, emitter),
-	)
-	if !inputs.hasConfigPayloads {
-		return nil, envErr
+	options := applyConfigRestoreExecutionOptions(flags, runID, flags.configRestoreRepoRoot, emitter)
+	if home != nil && home.ownershipAction == nil {
+		options.HomeManagerTargets = home.flatTargets
 	}
-	return NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems), envErr
+	execution, envErr := session.Execute(ctx, options)
+	if !inputs.hasConfigPayloads {
+		return nil, execution.HomeManagerBlocked, envErr
+	}
+	return NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems), execution.HomeManagerBlocked, envErr
 }

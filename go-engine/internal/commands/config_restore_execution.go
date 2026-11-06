@@ -63,28 +63,30 @@ type configRestoreDetectionFailureProvider interface {
 }
 
 type configRestoreExecutionOptions struct {
-	RestoreEnabled    bool
-	DryRun            bool
-	RunID             string
-	StateDir          string
-	ManifestPath      string
-	ManifestDir       string
-	ExportRoot        string
-	BackupDir         string
-	JournalLogsDir    string
-	Emitter           *events.Emitter
-	Registry          configrestore.RegistryMutator
-	ProcessObserver   configrestore.ProcessObserver
-	ValidationContext *validationmode.Context
-	HostBoundary      configrestore.HostBoundary
+	RestoreEnabled     bool
+	DryRun             bool
+	RunID              string
+	StateDir           string
+	ManifestPath       string
+	ManifestDir        string
+	ExportRoot         string
+	BackupDir          string
+	JournalLogsDir     string
+	Emitter            *events.Emitter
+	Registry           configrestore.RegistryMutator
+	ProcessObserver    configrestore.ProcessObserver
+	ValidationContext  *validationmode.Context
+	HostBoundary       configrestore.HostBoundary
+	HomeManagerTargets []string
 }
 
 type configRestoreExecutionResult struct {
-	Plan         planner.ConfigPlan
-	RestoreItems []restore.RestoreResult
-	Results      []restore.RestoreResult
-	EventResults []restore.RestoreResult
-	JournalPath  string
+	Plan               planner.ConfigPlan
+	RestoreItems       []restore.RestoreResult
+	Results            []restore.RestoreResult
+	EventResults       []restore.RestoreResult
+	JournalPath        string
+	HomeManagerBlocked bool
 }
 
 type preparedConfigRestoreExecution struct {
@@ -154,6 +156,7 @@ func (session *configRestoreExecutionSession) Execute(
 		prepared := session.stageAndMaterialize(ctx, &result.Plan, options)
 		defer closePreparedConfigRestoreExecutions(prepared)
 		collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
+		result.HomeManagerBlocked = collisions.homeManagerBlocked
 		applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
 		prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 		dryRunOutcomes := make(map[int]configRestoreSetOutcome, len(prepared))
@@ -227,6 +230,7 @@ func (session *configRestoreExecutionSession) Execute(
 	prepared := session.stageAndMaterialize(ctx, &result.Plan, options)
 	defer closePreparedConfigRestoreExecutions(prepared)
 	collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
+	result.HomeManagerBlocked = collisions.homeManagerBlocked
 	applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
 	earlyItems := make(map[int][]restore.RestoreResult, len(prepared))
 	for index := range prepared {
@@ -785,8 +789,9 @@ func configRestoreResultsForSet(
 }
 
 type configRestoreCollisionState struct {
-	legacyCaptures  map[string]planner.ResolutionReason
-	ordinaryActions map[int]planner.ResolutionReason
+	legacyCaptures     map[string]planner.ResolutionReason
+	ordinaryActions    map[int]planner.ResolutionReason
+	homeManagerBlocked bool
 }
 
 type ownedConfigRestoreClaim struct {
@@ -803,6 +808,8 @@ func (claim ownedConfigRestoreClaim) ownerKey() string {
 		return fmt.Sprintf("generation:%d", claim.setIndex)
 	case "legacy":
 		return "legacy:" + claim.captureID
+	case "home-manager":
+		return "home-manager"
 	default:
 		return fmt.Sprintf("ordinary:%d", claim.actionIndex)
 	}
@@ -859,6 +866,16 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 			claims = append(claims, ownedConfigRestoreClaim{claim: claim, kind: "ordinary", actionIndex: index})
 		}
 	}
+	for _, target := range options.HomeManagerTargets {
+		concrete, err := restore.FilesystemTargetIdentity(target)
+		if err != nil {
+			// Unavailable filesystem identity supplies no known overlapping claim.
+			continue
+		}
+		claims = append(claims, ownedConfigRestoreClaim{
+			claim: "file\x00" + strings.TrimSuffix(filepath.ToSlash(concrete), "/"), kind: "home-manager",
+		})
+	}
 	blockedGeneration := make(map[int]bool)
 	for left := 0; left < len(claims); left++ {
 		for right := left + 1; right < len(claims); right++ {
@@ -869,7 +886,8 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 			// reversible state chain. Parent/child overlaps are not: changing a
 			// child also changes the parent's captured tree state, so reject those
 			// before any forward mutation.
-			if claims[left].ownerKey() == claims[right].ownerKey() && claims[left].claim == claims[right].claim {
+			// Home Manager handles overlaps within its own atomic activation.
+			if claims[left].ownerKey() == claims[right].ownerKey() && (claims[left].kind == "home-manager" || claims[left].claim == claims[right].claim) {
 				continue
 			}
 			for _, owner := range []ownedConfigRestoreClaim{claims[left], claims[right]} {
@@ -880,6 +898,8 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 					state.legacyCaptures[owner.captureID] = planner.ReasonTargetCollision
 				case "ordinary":
 					state.ordinaryActions[owner.actionIndex] = planner.ReasonTargetCollision
+				case "home-manager":
+					state.homeManagerBlocked = true
 				}
 			}
 		}

@@ -53,3 +53,21 @@ func TestConcreteFilesystemTargetRejectsLinkAlias(t *testing.T) {
 		t.Fatalf("ConcreteFilesystemTarget() error = %v", err)
 	}
 }
+
+func TestFilesystemIdentityKeepsHomeManagerSymlinkLeaf(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(root, "managed")
+	if err := os.Symlink(filepath.Join(root, "missing-store-source"), link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	identity, err := FilesystemTargetIdentity(link)
+	if err != nil || identity != link {
+		t.Fatalf("native leaf lost its lexical identity: %q %v", identity, err)
+	}
+	if _, err := ConcreteFilesystemTarget(link); err == nil {
+		t.Fatal("identity lookup granted direct-restore authority over a symlink")
+	}
+	if err := ValidateFilesystemTarget(link); err == nil {
+		t.Fatal("direct mutation accepted an existing symlink")
+	}
+}

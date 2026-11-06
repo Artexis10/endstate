@@ -54,13 +54,16 @@ type expectationHomeBackend struct {
 	activeOutput string
 	prepare      func(string)
 	activate     func(string)
+	targets      []string
+	built        bool
 }
 
-func (b *expectationHomeBackend) PrepareHome(flake string, build bool) (*realizer.InputResolution, error) {
+func (b *expectationHomeBackend) PrepareHome(flake string, build bool) (*realizer.HomePreparation, error) {
+	b.built = build
 	if build && b.prepare != nil {
 		b.prepare(flake)
 	}
-	return &realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": b.output}}, nil
+	return &realizer.HomePreparation{Resolution: &realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": b.output}}, FlatTargets: b.targets}, nil
 }
 
 func (b *expectationHomeBackend) ActivatePreparedHome(resolution *realizer.InputResolution) (int, error) {

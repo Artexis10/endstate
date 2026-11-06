@@ -61,6 +61,15 @@ func ConcreteFilesystemTarget(target string) (string, error) {
 	if err := ValidateFilesystemTarget(target); err != nil {
 		return "", err
 	}
+	return FilesystemTargetIdentity(target)
+}
+
+// FilesystemTargetIdentity identifies a lexical path without granting mutation
+// authority or following a leaf symlink. Direct writers must still validate it.
+func FilesystemTargetIdentity(target string) (string, error) {
+	if strings.TrimSpace(target) == "" {
+		return "", fmt.Errorf("filesystem target is empty")
+	}
 	abs, err := filepath.Abs(filepath.Clean(target))
 	if err != nil {
 		return "", err
