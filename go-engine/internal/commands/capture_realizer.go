@@ -545,8 +545,15 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 		}
 	}
 	matching, outputHistory := matchingHomeManagerReference(gens, active.ActivationOutput, 0)
-	if outputHistory && matching == nil {
-		return unavailable()
+	if outputHistory {
+		if matching == nil || matching.ActivationFailed {
+			return unavailable()
+		}
+		// Output identity proves ownership; completion also requires the selected generation.
+		matching, _ = matchingHomeManagerReference(gens, active.ActivationOutput, active.Generation)
+		if matching == nil {
+			return unavailable()
+		}
 	}
 
 	homeHistory := false

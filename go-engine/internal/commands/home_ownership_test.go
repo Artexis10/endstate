@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/discovery"
@@ -486,5 +487,162 @@ func TestHomeOwnershipSpawnFailureReleasesUncommittedPreparation(t *testing.T) {
 	roots, globErr := filepath.Glob(filepath.Join(filepath.Dir(f.backend.Profile), "activation-root-*"))
 	if err != nil || len(history) != 0 || globErr != nil || len(roots) != 0 {
 		t.Fatalf("the unstarted config-only activation kept commit evidence or roots: %+v, %v, %v, %v", history, roots, err, globErr)
+	}
+}
+
+func TestHomeManagerCompletionAfterUncertainTransition(t *testing.T) {
+	const outputA, outputB = "/nix/store/home-output", "/nix/store/other-owned-home"
+	for _, tc := range []struct {
+		name                                        string
+		rollback                                    bool
+		historyGen, currentGen, afterGen, failedGen int
+		historyOut, currentOut, afterOut, failedOut string
+	}{
+		{name: "rollback leaves another owned output", rollback: true, historyGen: 2, historyOut: outputB, currentGen: 2, currentOut: outputB, afterGen: 2, afterOut: outputB, failedGen: 2, failedOut: outputB},
+		{name: "rollback leaves a later generation of the same output", rollback: true, historyGen: 3, historyOut: outputA, currentGen: 3, currentOut: outputA, afterGen: 3, afterOut: outputA, failedGen: 3, failedOut: outputA},
+		{name: "apply advances to an older recorded output", historyGen: 2, historyOut: outputB, currentGen: 2, currentOut: outputB, afterGen: 3, afterOut: outputA, failedGen: 2, failedOut: outputB},
+		{name: "apply retries a selected older generation", historyGen: 3, historyOut: outputA, currentGen: 1, currentOut: outputA, afterGen: 1, afterOut: outputA, failedGen: 3, failedOut: outputA},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newNativeFreezeFixture(t)
+			mf, flags := freezeManifest(t)
+			mf.Apps, flags.Prune = nil, false
+			if _, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "first-completed-home", nil, nil, nil, nil, nil); eerr != nil {
+				t.Fatal(eerr)
+			}
+			history, err := provision.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			other := *history[0].HomeManager
+			other.Generation, other.ActivationOutput = tc.historyGen, tc.historyOut
+			resolution := *other.Resolution
+			resolution.Derivation, resolution.MutationRef = "/nix/store/historical-home.drv", "/nix/store/historical-home.drv^out"
+			resolution.OutputPaths = map[string]string{"out": tc.historyOut}
+			other.Resolution = &resolution
+			if err := provision.Write(&provision.Generation{Backend: "nix", HomeManager: &other}); err != nil {
+				t.Fatal(err)
+			}
+			profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+			if err := os.Remove(profile); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("home-manager-"+strconv.Itoa(tc.currentGen)+"-link", profile); err != nil {
+				t.Fatal(err)
+			}
+			f.activeHome = tc.currentOut
+			started := false
+			native := f.backend.Run
+			f.backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+				if started && args[0] == "path-info" {
+					return nil, nil, -1, errors.New("native observation unavailable after the transition started")
+				}
+				return native(args...)
+			}
+			f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
+				started = true
+				if err := os.Remove(profile); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("home-manager-"+strconv.Itoa(tc.afterGen)+"-link", profile); err != nil {
+					t.Fatal(err)
+				}
+				f.activeHome = tc.afterOut
+				return nil, []byte("settings step failed after starting"), 1, nil
+			}
+			var eerr *envelope.Error
+			if tc.rollback {
+				_, eerr = runRealizerRollback(RollbackFlags{To: "1", Confirm: true, EnableRestore: true}, f.backend)
+			} else {
+				_, eerr = runApplyRealizer(flags, mf, f.backend, noopEmitter(), "uncertain-home-transition", nil, nil, nil, nil, nil)
+			}
+			started = false
+			history, err = provision.List()
+			if eerr == nil || err != nil || len(history) != 3 || history[0].HomeManager == nil {
+				t.Fatalf("the uncertain attempt lost its historical evidence: %+v, %v, %+v", history, err, eerr)
+			}
+			if failed := history[0].HomeManager; !failed.ActivationFailed || failed.Generation != tc.failedGen || failed.ActivationOutput != tc.failedOut {
+				t.Fatalf("the uncertain attempt invalidated the wrong historical completion: %+v", failed)
+			}
+			if cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend); cfg != nil || len(warnings) != 1 {
+				t.Fatalf("capture revived an older completion after a failed transition: %+v, %v", cfg, warnings)
+			}
+			if item := checkHomeManagerGeneration(f.backend, noopEmitter()); item.Status != "fail" {
+				t.Fatalf("verify revived an older completion: %+v", item)
+			}
+			if action, _, err := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil || err != nil {
+				t.Fatalf("missing completion erased exact-output ownership: %+v, %v", action, err)
+			}
+			f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
+				if err := os.Remove(profile); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("home-manager-4-link", profile); err != nil {
+					t.Fatal(err)
+				}
+				f.activeHome = outputA
+				return nil, nil, 0, nil
+			}
+			if _, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "repaired-home-transition", nil, nil, nil, nil, nil); eerr != nil {
+				t.Fatal(eerr)
+			}
+			if cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend); cfg == nil || cfg.Settings == nil || len(warnings) != 0 {
+				t.Fatalf("successful repair did not restore selected-generation completion: %+v, %v", cfg, warnings)
+			}
+		})
+	}
+}
+
+func TestHomeManagerCaptureUsesCompletedSelectedGeneration(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	mf, flags := freezeManifest(t)
+	mf.Apps, flags.Prune = nil, false
+	if _, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "selected-older-home", nil, nil, nil, nil, nil); eerr != nil {
+		t.Fatal(eerr)
+	}
+	history, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := *history[0].HomeManager
+	later.Generation = 3
+	later.SourceManifest = filepath.Join(t.TempDir(), "unavailable-later-source.jsonc")
+	if err := provision.Write(&provision.Generation{Backend: "nix", HomeManager: &later}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend); cfg == nil || cfg.Settings == nil || len(warnings) != 0 {
+		t.Fatalf("a newer record for the same output hid the completed selected generation: %+v, %v", cfg, warnings)
+	}
+}
+
+func TestHomeManagerRollbackCurrentReadOutageDoesNotRefuseActivation(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	mf, flags := freezeManifest(t)
+	mf.Apps, flags.Prune = nil, false
+	if _, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "rollback-target", nil, nil, nil, nil, nil); eerr != nil {
+		t.Fatal(eerr)
+	}
+	native := f.backend.Run
+	unavailable := true
+	f.backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+		if unavailable && args[0] == "path-info" {
+			unavailable = false
+			return nil, nil, -1, errors.New("current identity is temporarily unavailable")
+		}
+		return native(args...)
+	}
+	profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+	f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
+		if err := os.Remove(profile); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("home-manager-2-link", profile); err != nil {
+			t.Fatal(err)
+		}
+		return nil, nil, 0, nil
+	}
+	raw, eerr := runRealizerRollback(RollbackFlags{To: "1", Confirm: true, EnableRestore: true}, f.backend)
+	if eerr != nil || raw.(*RollbackResult).HomeManager.NewGeneration != 2 {
+		t.Fatalf("the preliminary read added a refusal to an explicit rollback: %+v, %+v", raw, eerr)
 	}
 }

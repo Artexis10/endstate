@@ -296,12 +296,35 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 	// generation. Mints a new forward home-manager generation (append-only).
 	var homeResult *RollbackHomeResult
 	if flags.EnableRestore && homeRef != nil {
+		previousHome := homeRef
+		// Recover current historical completion without gating an explicit rollback.
+		if observer, ok := r.(realizer.HomeObserver); ok {
+			if active, err := observer.ObserveHome(); err == nil && active.Present {
+				if history, err := listGenerationsFn(); err == nil {
+					previous, outputHistory := matchingHomeManagerReference(history, active.ActivationOutput, active.Generation)
+					if previous == nil {
+						previous, _ = matchingHomeManagerReference(history, active.ActivationOutput, 0)
+					}
+					if !outputHistory {
+						for _, generation := range history {
+							if generation != nil && homeManagerOwnsActive(generation.HomeManager, active) {
+								previous = generation.HomeManager
+								break
+							}
+						}
+					}
+					if previous != nil {
+						previousHome = previous
+					}
+				}
+			}
+		}
 		newGen, viaFallback, herr := rollbackHomeConfig(r, homeRef)
-		if newGen == 0 && herr != nil && homeRef.Generation > 0 {
+		if newGen == 0 && herr != nil && previousHome.Generation > 0 {
 			if detail, ok := herr.Detail.(map[string]interface{}); ok && detail["stage"] == "commit" {
-				// This invalidates the attempted historical snapshot's completion;
+				// This invalidates the recovered historical completion;
 				// it supplies no new native identity for the unreadable outcome.
-				copyRef := *homeRef
+				copyRef := *previousHome
 				copyRef.ActivationFailed = true
 				newHomeRef = &copyRef
 			}
