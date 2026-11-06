@@ -50,9 +50,9 @@ const (
 	ErrConfirmationRequired ErrorCode = "CONFIRMATION_REQUIRED"
 
 	// Schedule error codes. Additive in schema 1.x.
-	// ErrNotSupported is returned by schedule enable/disable/run on non-Windows platforms.
+	// ErrNotSupported reports unavailable platform operations or scheduler registration.
 	ErrNotSupported ErrorCode = "NOT_SUPPORTED"
-	// ErrTaskRegistrationFailed is returned when schtasks.exe fails to register the task.
+	// ErrTaskRegistrationFailed reports a failed native registration phase on Windows or Linux.
 	ErrTaskRegistrationFailed ErrorCode = "TASK_REGISTRATION_FAILED"
 	// ErrScheduleDisabled is returned when schedule run is invoked but no schedule is
 	// enabled; the caller should run 'schedule enable --manifest <path>' first.

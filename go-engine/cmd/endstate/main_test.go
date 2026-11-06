@@ -17,6 +17,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/schedule"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -864,5 +865,63 @@ func TestProfileInspectParsingAndHelp(t *testing.T) {
 	usage := commandUsage("profile")
 	if !strings.Contains(usage, "inspect <manifest-path>") || !strings.Contains(usage, "extracted") {
 		t.Fatalf("profile help does not describe extracted inspection: %s", usage)
+	}
+}
+
+func TestScheduleRootReachesNestedVerifyCatalog(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux nested root workflow")
+	}
+	root := t.TempDir()
+	other := t.TempDir()
+	t.Setenv("ENDSTATE_ROOT", other)
+	t.Setenv("XDG_CONFIG_HOME", root)
+	moduleDir := filepath.Join(root, "modules", "apps", "scheduled-example")
+	if err := os.MkdirAll(moduleDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(root, "expected.conf")
+	if err := os.WriteFile(expected, []byte("present"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	module := map[string]interface{}{"moduleSchemaVersion": 3, "id": "apps.scheduled-example", "displayName": "Scheduled example", "sensitivity": "low", "platforms": map[string]interface{}{runtime.GOOS: map[string]interface{}{"realization": "endstate-restore", "matches": map[string]interface{}{"pathExists": []string{"${xdg.config}/expected.conf"}}}}}
+	data, err := json.Marshal(module)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(root, "profile.jsonc")
+	if err := os.WriteFile(manifest, []byte(`{"version":1,"name":"schedule root","apps":[],"configModules":["apps.scheduled-example"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &schedule.Config{SchemaVersion: "1.0", Root: root, Enabled: true, Manifest: manifest}
+	if err := schedule.WriteConfig(schedule.ConfigPath(filepath.Join(root, "state")), cfg); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"schedule", "run", "--root", root, "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var result struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Verify struct {
+				Summary struct{ Total, Pass, Fail int } `json:"summary"`
+			} `json:"verify"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success || result.Data.Verify.Summary.Total != 1 || result.Data.Verify.Summary.Pass != 1 {
+		t.Fatalf("nested verify missed selected root's module catalog: %s", stdout.String())
+	}
+	if os.Getenv("ENDSTATE_ROOT") != other {
+		t.Fatal("CLI root override escaped the invocation")
+	}
+	if _, err := os.Stat(schedule.LastRunPath(filepath.Join(other, "state"))); !os.IsNotExist(err) {
+		t.Fatalf("nested run wrote another root: %v", err)
 	}
 }

@@ -7,7 +7,10 @@
 package commands
 
 import (
+	"context"
+	"github.com/Artexis10/endstate/go-engine/internal/schedule"
 	"runtime"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup"
 	"github.com/Artexis10/endstate/go-engine/internal/discovery"
@@ -72,7 +75,8 @@ type LinuxDiscoveryFeature struct {
 // ScheduleFeature advertises the scheduled drift-check capability. The GUI gates
 // its "Scheduled setup checks" card on this block. Additive in schema 1.x.
 type ScheduleFeature struct {
-	// Supported is true only on Windows where schtasks.exe is available.
+	Registration schedule.Availability `json:"registration"`
+	// Supported describes shared manual operations, independently of registration.
 	Supported bool `json:"supported"`
 	// AutoPush indicates that schedule run supports --auto-push via the
 	// persisted keychain session.
@@ -217,7 +221,8 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				IfChanged:        true,
 			},
 			Schedule: ScheduleFeature{
-				Supported:               runtime.GOOS == "windows",
+				Supported:               schedule.ManualSupported(),
+				Registration:            scheduleRegistrationAvailability(),
 				AutoPush:                true,
 				BundleManifestSupported: true,
 			},
@@ -271,4 +276,10 @@ func platformInfoFor(goos string) PlatformInfo {
 // executables: capabilities advertises engine support, not current machine state.
 func driversFor(goos string) []string {
 	return platformBackendsFor(goos).SupportedNames()
+}
+
+func scheduleRegistrationAvailability() schedule.Availability {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return scheduleRegistrarFn().Availability(ctx, nil)
 }

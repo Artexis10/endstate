@@ -2,115 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package schedule provides the task-registration layer for the Endstate
-// scheduled drift-check feature. It wraps schtasks.exe behind a Registrar
-// interface so command handlers are unit-testable without touching the real
-// Windows Task Scheduler.
+// scheduled drift-check feature, shared by Windows Task Scheduler and systemd
+// user timers. Native operations sit behind the Registrar interface.
 package schedule
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 // TaskName is the Windows Task Scheduler task name used by Endstate.
 const TaskName = `Endstate\DriftCheck`
-
-// ---------------------------------------------------------------------------
-// Registrar interface (test seam)
-// ---------------------------------------------------------------------------
-
-// Registrar abstracts the OS task-scheduler operations so command handlers
-// can be tested without shelling out to schtasks.exe.
-type Registrar interface {
-	// Register creates or updates (idempotent /F) the scheduled task with the
-	// given command line, schedule interval, and time-of-day.
-	Register(taskName, exePath, args, interval, timeOfDay string) error
-	// Unregister removes the scheduled task (/F, no error if absent).
-	Unregister(taskName string) error
-}
-
-// ---------------------------------------------------------------------------
-// Real schtasks.exe implementation
-// ---------------------------------------------------------------------------
-
-// SchtasksRegistrar is the production Registrar that shells out to schtasks.exe.
-// It is used on Windows only; on other platforms schedule enable returns
-// NOT_SUPPORTED before ever calling the registrar.
-type SchtasksRegistrar struct{}
-
-// Register creates or updates the Endstate drift-check task via schtasks.exe.
-// The task runs as the current interactive user (LOGONTYPE interactive-only so
-// the Credential Manager keychain is accessible).
-//
-// schtasks command:
-//
-//	schtasks /Create /F /SC DAILY|WEEKLY /ST HH:MM /TN <name> /TR "<exe> <args>" /RL LIMITED
-func (r *SchtasksRegistrar) Register(taskName, exePath, args, interval, timeOfDay string) error {
-	sc := "DAILY"
-	if interval == "weekly" {
-		sc = "WEEKLY"
-	}
-
-	tr := fmt.Sprintf(`"%s" %s`, exePath, args)
-
-	cmd := exec.Command("schtasks",
-		"/Create",
-		"/F",
-		"/SC", sc,
-		"/ST", timeOfDay,
-		"/TN", taskName,
-		"/TR", tr,
-		"/RL", "LIMITED",
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("schtasks /Create failed: %w (output: %s)", err, string(out))
-	}
-	return nil
-}
-
-// Unregister deletes the scheduled task via schtasks.exe /Delete /F.
-// Returns nil if the task does not exist.
-func (r *SchtasksRegistrar) Unregister(taskName string) error {
-	cmd := exec.Command("schtasks", "/Delete", "/F", "/TN", taskName)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// schtasks exits non-zero if the task does not exist; treat that as success.
-		msg := string(out)
-		if isNotFoundOutput(msg) {
-			return nil
-		}
-		return fmt.Errorf("schtasks /Delete failed: %w (output: %s)", err, msg)
-	}
-	return nil
-}
-
-// isNotFoundOutput returns true when schtasks output indicates the task did
-// not exist (so Unregister can be idempotent).
-func isNotFoundOutput(output string) bool {
-	// schtasks prints "ERROR: The system cannot find the file specified." or
-	// "ERROR: The specified task name ... does not exist" on deletion of a
-	// missing task. A simple substring check is sufficient.
-	return len(output) == 0 ||
-		containsAny(output, "does not exist", "cannot find", "not found")
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if len(s) >= len(sub) {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
 
 // ---------------------------------------------------------------------------
 // Config state types
@@ -119,16 +25,17 @@ func containsAny(s string, subs ...string) bool {
 // Config is the persisted schedule configuration stored at
 // state/schedule/config.json. Written atomically on enable/disable.
 type Config struct {
-	SchemaVersion string `json:"schemaVersion"`
-	Enabled       bool   `json:"enabled"`
-	Manifest      string `json:"manifest"`
-	Interval      string `json:"interval"`
-	Time          string `json:"time"`
-	AutoPush      bool   `json:"autoPush"`
-	BackupID      string `json:"backupId,omitempty"`
-	TaskName      string `json:"taskName"`
-	Root          string `json:"root"`
-	RegisteredAt  string `json:"registeredAt,omitempty"`
+	SchemaVersion string        `json:"schemaVersion"`
+	Enabled       bool          `json:"enabled"`
+	Manifest      string        `json:"manifest"`
+	Interval      string        `json:"interval"`
+	Time          string        `json:"time"`
+	AutoPush      bool          `json:"autoPush"`
+	BackupID      string        `json:"backupId,omitempty"`
+	TaskName      string        `json:"taskName"`
+	Root          string        `json:"root"`
+	RegisteredAt  string        `json:"registeredAt,omitempty"`
+	Registration  *Registration `json:"registration,omitempty"`
 	// PendingArtifact is a locally published fresh capture awaiting a cloud
 	// push. It is never the configured verification manifest.
 	PendingArtifact string `json:"pendingArtifact,omitempty"`
@@ -304,11 +211,7 @@ func writeAtomic(path string, v interface{}) error {
 	if err != nil {
 		return err
 	}
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+	return safepath.AtomicWriteFile(path, data, 0644)
 }
 
 // NowUTC returns the current time in RFC3339 UTC format.

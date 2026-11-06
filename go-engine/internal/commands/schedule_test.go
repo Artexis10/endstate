@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,15 +33,31 @@ type fakeScheduleRegistrar struct {
 	lastArgs        string
 }
 
-func (f *fakeScheduleRegistrar) Register(taskName, exePath, args, interval, timeOfDay string) error {
+func (f *fakeScheduleRegistrar) Availability(context.Context, *schedule.Config) schedule.Availability {
+	return schedule.Availability{Supported: true, Backend: "windows-task-scheduler"}
+}
+func (f *fakeScheduleRegistrar) LockRegistration(context.Context) (func(), error) {
+	return func() {}, nil
+}
+func (f *fakeScheduleRegistrar) Enable(_ context.Context, intent schedule.Intent, cfg *schedule.Config, save func() error) error {
+	cfg.Enabled = true
+	if err := save(); err != nil {
+		return err
+	}
 	f.registerCalls++
-	f.lastArgs = args
+	f.lastArgs = strings.Join(intent.Args, " ")
 	return f.registerErr
 }
-
-func (f *fakeScheduleRegistrar) Unregister(taskName string) error {
+func (f *fakeScheduleRegistrar) Disable(_ context.Context, cfg *schedule.Config, save func() error) error {
+	cfg.Enabled = false
+	if err := save(); err != nil {
+		return err
+	}
 	f.unregisterCalls++
 	return f.unregisterErr
+}
+func (f *fakeScheduleRegistrar) Inspect(context.Context, *schedule.Config) schedule.Observation {
+	return schedule.Observation{Availability: schedule.Availability{Supported: true, Backend: "windows-task-scheduler"}}
 }
 
 // withFakeRegistrar installs a fake registrar for the duration of the test
@@ -47,6 +65,9 @@ func (f *fakeScheduleRegistrar) Unregister(taskName string) error {
 func withFakeRegistrar(t *testing.T, reg *fakeScheduleRegistrar) {
 	t.Helper()
 	orig := scheduleRegistrarFn
+	originalSupported := scheduleRunSupportedFn
+	scheduleRunSupportedFn = func() bool { return true }
+	t.Cleanup(func() { scheduleRunSupportedFn = originalSupported })
 	scheduleRegistrarFn = func() schedule.Registrar { return reg }
 	t.Cleanup(func() { scheduleRegistrarFn = orig })
 }
@@ -198,8 +219,8 @@ func TestRunScheduleStatus_DistinguishesHardError(t *testing.T) {
 
 // TestRunScheduleEnable_NonWindows verifies NOT_SUPPORTED on non-Windows.
 func TestRunScheduleEnable_NonWindows(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("NOT_SUPPORTED path only applies to non-Windows")
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		t.Skip("shared schedule platform")
 	}
 
 	_, envErr := RunSchedule(ScheduleFlags{
@@ -216,8 +237,8 @@ func TestRunScheduleEnable_NonWindows(t *testing.T) {
 
 // TestRunScheduleDisable_NonWindows verifies NOT_SUPPORTED on non-Windows.
 func TestRunScheduleDisable_NonWindows(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("NOT_SUPPORTED path only applies to non-Windows")
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		t.Skip("shared schedule platform")
 	}
 
 	_, envErr := RunSchedule(ScheduleFlags{Subcommand: "disable"})
@@ -232,9 +253,6 @@ func TestRunScheduleDisable_NonWindows(t *testing.T) {
 // TestRunScheduleEnable_RegistrationFailure verifies TASK_REGISTRATION_FAILED
 // error code and that config is not persisted as enabled.
 func TestRunScheduleEnable_RegistrationFailure(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule enable Windows-only")
-	}
 
 	dir := t.TempDir()
 	withStateRoot(t, dir)
@@ -265,9 +283,6 @@ func TestRunScheduleEnable_RegistrationFailure(t *testing.T) {
 }
 
 func TestRunScheduleEnable_CorruptExistingConfigDoesNotRegisterTask(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule enable Windows-only")
-	}
 	dir := t.TempDir()
 	withStateRoot(t, dir)
 	manifestPath := filepath.Join(dir, "manifest.jsonc")
@@ -293,9 +308,6 @@ func TestRunScheduleEnable_CorruptExistingConfigDoesNotRegisterTask(t *testing.T
 }
 
 func TestRunScheduleEnable_ConfigWriteFailureKeepsExistingHealthyTask(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule enable Windows-only")
-	}
 	dir := t.TempDir()
 	withStateRoot(t, dir)
 	manifest := filepath.Join(dir, "manifest.jsonc")
@@ -320,9 +332,6 @@ func TestRunScheduleEnable_ConfigWriteFailureKeepsExistingHealthyTask(t *testing
 }
 
 func TestRunScheduleEnable_ReconfigurationWriteFailureDoesNotMutatePriorTask(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule enable Windows-only")
-	}
 	dir := t.TempDir()
 	withStateRoot(t, dir)
 	manifest := filepath.Join(dir, "manifest.jsonc")
@@ -352,9 +361,6 @@ func TestRunScheduleEnable_ReconfigurationWriteFailureDoesNotMutatePriorTask(t *
 }
 
 func TestRunScheduleDisable_WaitsForRunningScheduleLockBeforeMutatingState(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule disable Windows-only")
-	}
 	dir := t.TempDir()
 	withStateRoot(t, dir)
 	stateDir := filepath.Join(dir, "state")
@@ -403,9 +409,6 @@ func TestRunScheduleDisable_WaitsForRunningScheduleLockBeforeMutatingState(t *te
 // TestRunScheduleEnable_BakesRoot verifies that the registered task args
 // contain --root with the resolved root value.
 func TestRunScheduleEnable_BakesRoot(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule enable Windows-only")
-	}
 
 	dir := t.TempDir()
 	withStateRoot(t, dir)
@@ -436,9 +439,6 @@ func TestRunScheduleEnable_BakesRoot(t *testing.T) {
 // TestRunScheduleEnable_Idempotent verifies that calling enable twice
 // results in two Register calls (schtasks /F makes it idempotent at OS level).
 func TestRunScheduleEnable_Idempotent(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule enable Windows-only")
-	}
 
 	dir := t.TempDir()
 	withStateRoot(t, dir)
@@ -468,8 +468,8 @@ func TestRunScheduleEnable_Idempotent(t *testing.T) {
 // TestRunScheduleRun_DisabledReturnsError verifies that schedule run on a
 // disabled schedule returns SCHEDULE_DISABLED and records it in last-run.json.
 func TestRunScheduleRun_DisabledReturnsError(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("schedule run disabled-config path only reachable on Windows (non-Windows returns NOT_SUPPORTED first)")
+	if !schedule.ManualSupported() {
+		t.Skip("manual schedule unsupported on this host")
 	}
 
 	dir := t.TempDir()
@@ -507,8 +507,8 @@ func TestRunScheduleRun_DisabledReturnsError(t *testing.T) {
 // TestRunScheduleRun_NonWindows verifies that schedule run on a non-Windows
 // platform returns NOT_SUPPORTED before attempting any state access.
 func TestRunScheduleRun_NonWindows(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("NOT_SUPPORTED path only applies to non-Windows")
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		t.Skip("shared schedule platform")
 	}
 
 	_, envErr := RunSchedule(ScheduleFlags{Subcommand: "run"})
@@ -1111,7 +1111,7 @@ func TestCapabilities_ScheduleFeature(t *testing.T) {
 	if !sched.BundleManifestSupported {
 		t.Error("features.schedule.bundleManifestSupported = false, want true")
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
 		if !sched.Supported {
 			t.Error("features.schedule.supported = false on Windows, want true")
 		}

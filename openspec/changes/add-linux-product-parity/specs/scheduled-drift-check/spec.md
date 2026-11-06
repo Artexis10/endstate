@@ -87,6 +87,14 @@ that distinguish saved intent from native availability and observed state.
 Unavailable or failed inspection SHALL remain visible; unknown enabled, active,
 or trigger values SHALL NOT become false values or invented timestamps.
 
+The additive `registration` object SHALL expose `supported`, `backend`, optional
+availability `reason`/`detail`, and independent `stateReason`/`stateDetail`.
+Native `enabled`, `active`, and `nextTriggerUtc` SHALL be absent when unknown.
+The object SHALL expose per-unit path, presence, ownership, integrity, SHA256,
+fragment path, and drop-in paths when observed. Native service result, active
+state, and exit status SHALL remain separate from the saved last-run result.
+A failed result read SHALL expose `lastRunError.code: LAST_RUN_READ_FAILED`.
+
 Status SHALL remain read-only. It SHALL preserve the distinction between no
 saved run, an unreadable saved run, an interrupted running check, drift, and a
 terminal failure. Linux inspection SHALL additionally satisfy the unit

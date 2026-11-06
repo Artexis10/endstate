@@ -4,8 +4,10 @@
 package commands
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,18 +23,14 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/schedule"
 )
 
-// scheduleRegistrarFn is the factory that returns the Registrar used by
-// schedule enable/disable. It defaults to the real schtasks.exe implementation
-// and is replaced in tests to inject a fake.
-var scheduleRegistrarFn func() schedule.Registrar = func() schedule.Registrar {
-	return &schedule.SchtasksRegistrar{}
-}
+// scheduleRegistrarFn supplies the native registration boundary.
+var scheduleRegistrarFn = schedule.NewRegistrar
 
 var (
 	scheduleVerifyFn         = RunVerify
 	scheduleCaptureFn        = RunCapture
 	scheduleBackupFn         = RunBackup
-	scheduleRunSupportedFn   = func() bool { return runtime.GOOS == "windows" }
+	scheduleRunSupportedFn   = schedule.ManualSupported
 	scheduleWriteLastRunFn   = schedule.WriteLastRun
 	scheduleRemoveLastRunFn  = os.Remove
 	scheduleWriteConfigFn    = schedule.WriteConfig
@@ -99,15 +97,17 @@ type ScheduleDiscardUploadData struct {
 // It composes config.json + last-run.json and is the sole client-facing
 // drift-truth source (CLI is source of truth invariant).
 type ScheduleStatusData struct {
-	Enabled       bool                  `json:"enabled"`
-	Manifest      string                `json:"manifest,omitempty"`
-	Interval      string                `json:"interval,omitempty"`
-	Time          string                `json:"time,omitempty"`
-	AutoPush      bool                  `json:"autoPush"`
-	BackupID      string                `json:"backupId,omitempty"`
-	TaskName      string                `json:"taskName,omitempty"`
-	PendingUpload SchedulePendingUpload `json:"pendingUpload"`
-	LastRun       *schedule.LastRun     `json:"lastRun,omitempty"`
+	Registration  schedule.Observation   `json:"registration"`
+	LastRunError  *schedule.LastRunError `json:"lastRunError,omitempty"`
+	Enabled       bool                   `json:"enabled"`
+	Manifest      string                 `json:"manifest,omitempty"`
+	Interval      string                 `json:"interval,omitempty"`
+	Time          string                 `json:"time,omitempty"`
+	AutoPush      bool                   `json:"autoPush"`
+	BackupID      string                 `json:"backupId,omitempty"`
+	TaskName      string                 `json:"taskName,omitempty"`
+	PendingUpload SchedulePendingUpload  `json:"pendingUpload"`
+	LastRun       *schedule.LastRun      `json:"lastRun,omitempty"`
 }
 
 // SchedulePendingUpload exposes cloud-push truth without disclosing the
@@ -162,11 +162,17 @@ func RunSchedule(flags ScheduleFlags) (interface{}, *envelope.Error) {
 
 func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	if !scheduleRunSupportedFn() {
-		return nil, envelope.NewError(
-			envelope.ErrNotSupported,
-			"schedule enable is only supported on Windows.",
-		).WithRemediation("Use cron or launchd on Linux/macOS.")
+		return nil, envelope.NewError(envelope.ErrNotSupported, "Schedule registration is unsupported on this platform.")
 	}
+	reg := scheduleRegistrarFn()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	unlock, lockErr := reg.LockRegistration(ctx)
+	if lockErr != nil {
+		return nil, scheduleRegistrationFailure(lockErr)
+	}
+	defer unlock()
 
 	if flags.Manifest == "" {
 		return nil, envelope.NewError(
@@ -217,6 +223,9 @@ func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 		return nil, envelope.NewError(envelope.ErrInternalError, "Failed to read existing schedule config: "+previousErr.Error())
 	}
 	previous.NormalizePendingUploads()
+	if availability := reg.Availability(ctx, previous); !availability.Supported {
+		return nil, envelope.NewError(envelope.ErrNotSupported, "Schedule registration is unavailable.").WithDetail(availability)
+	}
 
 	// Bake the root into the registered task command line so scheduled runs and
 	// GUI-spawned runs share one state directory. Task Scheduler cannot set env vars.
@@ -230,7 +239,7 @@ func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 
 	cfg := &schedule.Config{
 		SchemaVersion: "1.0",
-		Enabled:       true,
+		Enabled:       false,
 		Manifest:      manifestPath,
 		Interval:      interval,
 		Time:          timeOfDay,
@@ -241,6 +250,7 @@ func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 		RegisteredAt:  schedule.NowUTC(),
 	}
 	if previous != nil {
+		cfg.Registration = previous.Registration
 		cfg.ReplacePendingUploads(previous.PendingUploads)
 		if cfg.BackupID == "" {
 			cfg.BackupID = previous.BackupID
@@ -254,31 +264,26 @@ func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	if priorFileErr != nil && !os.IsNotExist(priorFileErr) {
 		return nil, envelope.NewError(envelope.ErrInternalError, "Failed to inspect existing schedule config: "+priorFileErr.Error())
 	}
-	if err := scheduleWriteConfigFn(cfgPath, cfg); err != nil {
-		return nil, envelope.NewError(
-			envelope.ErrInternalError,
-			"Failed to write schedule config: "+err.Error(),
-		)
-	}
-
-	taskArgs := fmt.Sprintf(`schedule run --root "%s" --json`, root)
-	reg := scheduleRegistrarFn()
-	if err := reg.Register(schedule.TaskName, exePath, taskArgs, interval, timeOfDay); err != nil {
-		var rollbackErr error
-		if hadPriorFile {
-			rollbackErr = scheduleWriteConfigFn(cfgPath, previous)
-		} else {
-			rollbackErr = os.Remove(cfgPath)
-			if os.IsNotExist(rollbackErr) {
-				rollbackErr = nil
+	intent := schedule.Intent{Executable: exePath, Args: []string{"schedule", "run", "--root", root, "--json"}, Root: root, Manifest: manifestPath, Interval: interval, Time: timeOfDay}
+	save := func() error { return scheduleWriteConfigFn(cfgPath, cfg) }
+	if err := reg.Enable(ctx, intent, cfg, save); err != nil {
+		// Windows retains its established prior-config rollback. Linux retains the
+		// persisted per-unit recovery evidence after any native mutation.
+		if reg.Availability(ctx, cfg).Backend == "windows-task-scheduler" {
+			var rollbackErr error
+			if hadPriorFile {
+				rollbackErr = scheduleWriteConfigFn(cfgPath, previous)
+			} else {
+				rollbackErr = os.Remove(cfgPath)
+				if os.IsNotExist(rollbackErr) {
+					rollbackErr = nil
+				}
+			}
+			if rollbackErr != nil {
+				err = fmt.Errorf("%w; restore prior schedule config: %v", err, rollbackErr)
 			}
 		}
-		message := "Failed to register scheduled task: " + err.Error()
-		if rollbackErr != nil {
-			message += "; failed to restore prior schedule config: " + rollbackErr.Error()
-		}
-		return nil, envelope.NewError(envelope.ErrTaskRegistrationFailed, message).
-			WithRemediation("Ensure schtasks.exe is available and the user has permission to create tasks.")
+		return nil, scheduleRegistrationFailure(err)
 	}
 
 	return &ScheduleEnableData{
@@ -299,11 +304,17 @@ func runScheduleEnable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 
 func runScheduleDisable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	if !scheduleRunSupportedFn() {
-		return nil, envelope.NewError(
-			envelope.ErrNotSupported,
-			"schedule disable is only supported on Windows.",
-		)
+		return nil, envelope.NewError(envelope.ErrNotSupported, "Schedule registration is unsupported on this platform.")
 	}
+	reg := scheduleRegistrarFn()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	unlock, lockErr := reg.LockRegistration(ctx)
+	if lockErr != nil {
+		return nil, scheduleRegistrationFailure(lockErr)
+	}
+	defer unlock()
 
 	stateDir := scheduleStateDir(flags.Root)
 	if err := os.MkdirAll(filepath.Join(stateDir, "schedule"), 0o755); err != nil {
@@ -323,24 +334,20 @@ func runScheduleDisable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 			"Failed to read schedule config: "+err.Error(),
 		)
 	}
-	wasEnabled := cfg.Enabled
-	cfg.Enabled = false
-	if err := scheduleWriteConfigFn(cfgPath, cfg); err != nil {
-		return nil, envelope.NewError(
-			envelope.ErrInternalError,
-			"Failed to write schedule config: "+err.Error(),
-		)
+	if availability := reg.Availability(ctx, cfg); !availability.Supported {
+		return nil, envelope.NewError(envelope.ErrNotSupported, "Schedule registration is unavailable.").WithDetail(availability)
 	}
-	reg := scheduleRegistrarFn()
-	if err := reg.Unregister(schedule.TaskName); err != nil {
-		cfg.Enabled = wasEnabled
-		_ = scheduleWriteConfigFn(cfgPath, cfg)
-		return nil, envelope.NewError(envelope.ErrInternalError, "Failed to unregister scheduled task: "+err.Error())
+	previous := *cfg
+	if err := reg.Disable(ctx, cfg, func() error { return scheduleWriteConfigFn(cfgPath, cfg) }); err != nil {
+		if reg.Availability(ctx, cfg).Backend == "windows-task-scheduler" {
+			_ = scheduleWriteConfigFn(cfgPath, &previous)
+		}
+		return nil, scheduleRegistrationFailure(err)
 	}
 
 	return &ScheduleDisableData{
 		Enabled:  false,
-		TaskName: schedule.TaskName,
+		TaskName: cfg.TaskName,
 	}, nil
 }
 
@@ -348,7 +355,7 @@ func runScheduleDisable(flags ScheduleFlags) (interface{}, *envelope.Error) {
 // stopping automatic retries while retaining the local baseline and artifact.
 func runScheduleDiscardUpload(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	if !scheduleRunSupportedFn() {
-		return nil, envelope.NewError(envelope.ErrNotSupported, "schedule discard-upload is only supported on Windows.")
+		return nil, envelope.NewError(envelope.ErrNotSupported, "schedule discard-upload is unsupported on this platform.")
 	}
 	if !flags.Confirm || strings.TrimSpace(flags.ArtifactSHA256) == "" {
 		return nil, envelope.NewError(envelope.ErrInternalError, "schedule discard-upload requires --artifact-sha256 <sha> --confirm")
@@ -399,10 +406,13 @@ func runScheduleStatus(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	}
 
 	lr, err := schedule.ReadLastRun(schedule.LastRunPath(stateDir))
+	var lastRunError *schedule.LastRunError
 	if err != nil {
-		// Non-fatal: return status without last-run data.
-		lr = nil
+		lastRunError = &schedule.LastRunError{Code: "LAST_RUN_READ_FAILED", Message: err.Error()}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	registration := scheduleRegistrarFn().Inspect(ctx, cfg)
 
 	cfg.NormalizePendingUploads()
 	pending := SchedulePendingUpload{Pending: len(cfg.PendingUploads) > 0, Count: len(cfg.PendingUploads)}
@@ -415,7 +425,7 @@ func runScheduleStatus(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	return &ScheduleStatusData{
 		Enabled: cfg.Enabled, Manifest: cfg.Manifest, Interval: cfg.Interval,
 		Time: cfg.Time, AutoPush: cfg.AutoPush, BackupID: cfg.BackupID, TaskName: cfg.TaskName,
-		PendingUpload: pending, LastRun: lr,
+		PendingUpload: pending, LastRun: lr, Registration: registration, LastRunError: lastRunError,
 	}, nil
 }
 
@@ -430,8 +440,8 @@ func runScheduleRun(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	if !scheduleRunSupportedFn() {
 		return nil, envelope.NewError(
 			envelope.ErrNotSupported,
-			"schedule run is only supported on Windows.",
-		).WithRemediation("Use cron or launchd on Linux/macOS.")
+			"schedule run is unsupported on this platform.",
+		).WithRemediation("Use a platform with shared schedule support.")
 	}
 
 	stateDir := scheduleStateDir(flags.Root)
@@ -453,7 +463,14 @@ func runScheduleRun(flags ScheduleFlags) (interface{}, *envelope.Error) {
 	// configuration, so a completed run cannot resurrect stale state after a
 	// reconfiguration.
 	lock := flock.New(filepath.Join(stateDir, "schedule", "run.lock"))
-	locked, lockErr := lock.TryLock()
+	var locked bool
+	var lockErr error
+	if runtime.GOOS == "linux" {
+		lockErr = lock.Lock()
+		locked = lockErr == nil
+	} else {
+		locked, lockErr = lock.TryLock()
+	}
 	if lockErr != nil || !locked {
 		message := "A schedule run is already in progress."
 		if lockErr != nil {
@@ -1005,4 +1022,15 @@ func scheduleStateDir(flagRoot string) string {
 		return filepath.Join(root, "state")
 	}
 	return filepath.Join(".", "state")
+}
+
+func scheduleRegistrationFailure(err error) *envelope.Error {
+	var detail *schedule.RegistrationError
+	if !errors.As(err, &detail) {
+		detail = &schedule.RegistrationError{Phase: "registration", Reason: "NATIVE_OPERATION_FAILED", Detail: err.Error()}
+	}
+	if detail.Reason == "USER_MANAGER_UNAVAILABLE" || detail.Reason == "SCHEDULER_UNAVAILABLE" || detail.Reason == "PLATFORM_UNSUPPORTED" {
+		return envelope.NewError(envelope.ErrNotSupported, err.Error()).WithDetail(detail)
+	}
+	return envelope.NewError(envelope.ErrTaskRegistrationFailed, "Schedule registration failed: "+err.Error()).WithDetail(map[string]string{"phase": detail.Phase, "reason": detail.Reason, "detail": detail.Detail}).WithRemediation("Resolve the reported conflict or backend failure, then retry schedule enable or disable.")
 }

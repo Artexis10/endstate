@@ -12,6 +12,7 @@ godebug (
 require (
 	github.com/bmatcuk/doublestar/v4 v4.9.1
 	github.com/danieljoos/wincred v1.2.3
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gofrs/flock v0.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/tyler-smith/go-bip39 v1.1.0
@@ -19,5 +20,3 @@ require (
 	golang.org/x/crypto v0.56.0
 	golang.org/x/sys v0.47.0
 )
-
-require github.com/godbus/dbus/v5 v5.2.2 // indirect

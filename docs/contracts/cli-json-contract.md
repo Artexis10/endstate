@@ -107,8 +107,8 @@ When `success` is `false`, the `error` field contains:
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
 | `CONVERGENCE_UNSUPPORTED` | `apply --prune` was requested on package-driver lanes that cannot safely remove installed-but-undeclared packages, or on a host with no realizer. Nothing is removed. Additive in schema 1.x. |
 | `CONFIRMATION_REQUIRED` | `rebuild` was invoked for a live run (restore on, not `--dry-run`) without `--confirm`. Raised before any mutation, so the refusal has no side effects. Additive in schema 1.x. |
-| `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`, or `import --from <source>` for an unrecognised source). Additive in schema 1.x. |
-| `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
+| `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. schedule registration without a usable native backend), or the input mode is unsupported (e.g. `rebuild --from <URL>`, or `import --from <source>` for an unrecognised source). Additive in schema 1.x. |
+| `TASK_REGISTRATION_FAILED` | Native schedule registration or cleanup failed; detail identifies the stable phase and reason. Additive in schema 1.x. |
 | `BACKUP_SETUP_REQUIRED` | Scheduled backup needs an existing Cloud backup row; save the first version manually before automatic delivery can start. Additive in schema 1.x. |
 | `BACKUP_UPLOAD_UNCERTAIN` | A legacy scheduled create may have reached Cloud but lacks a safe replay key; automatic retry is suppressed. Check Cloud versions, then run `endstate schedule discard-upload --artifact-sha256 <sha> --confirm` to remove that uncertain retry record while retaining its local capture. Additive in schema 1.x. |
 
@@ -1509,7 +1509,7 @@ With no `--to`, rollback finds the newest non-rollback generation and selects ev
 
 ## Command: `schedule`
 
-Manages the Endstate scheduled drift-check feature via Windows Task Scheduler.
+Manages short-lived drift checks through Windows Task Scheduler or a Linux systemd user timer.
 Five subcommands: `enable`, `disable`, `status`, `run`, `discard-upload`. Additive in schema 1.x.
 
 ```powershell
@@ -1522,7 +1522,15 @@ endstate schedule discard-upload --artifact-sha256 <sha> --confirm [--root <path
 
 ### Platform gating
 
-`schedule enable`, `schedule disable`, and `schedule run` are **Windows-only**. On other platforms they return error code `NOT_SUPPORTED`. `schedule status` works on all platforms (returns the persisted config and last-run).
+Windows and Linux support manual `run`, upload replay, and `discard-upload` independently of native registration. Saved `enabled` intent still governs manual runs.
+`status` reads saved intent, queue state, and results even when native inspection is unavailable. Other hosts retain `NOT_SUPPORTED` for manual operations.
+
+`features.schedule.supported` advertises shared manual operations. `features.schedule.registration` contains `supported`, `backend`, and optional `reason` and `detail`.
+Backends are `windows-task-scheduler` and `systemd-user`. Linux registration requires an existing user bus, user manager, and selected directory in `Manager.UnitPath`.
+Availability never launches a bus or user manager. The engine uses no cron fallback, system unit, sudo, or lingering change.
+
+The systemd executable parser rejects quotes, backslashes, and control characters in executable paths. Enable reports `INVALID_INTENT` before changing configuration or native registration.
+Spaces, dollar signs, and percent signs in executable paths remain literal. Root arguments also preserve quotes, backslashes, and newlines through native escaping.
 
 ### `schedule enable` response
 
@@ -1541,7 +1549,18 @@ endstate schedule discard-upload --artifact-sha256 <sha> --confirm [--root <path
 }
 ```
 
-Registration is idempotent (`schtasks /F`): re-running `enable` re-asserts the task with the current executable path and configuration. The task command line bakes `--root` so scheduled runs and GUI-spawned runs share one state directory.
+Registration is idempotent: `enable` reasserts one task or timer with the current executable and configuration.
+The native argument vector is `schedule run --root R --json`. It reads the manifest from saved configuration, so automatic capture can replace the baseline.
+The CLI propagates the explicit root into nested verification, capture, and backup operations.
+
+Linux generates `endstate-drift-check.service` and `endstate-drift-check.timer` under the selected user unit directory.
+The Linux `taskName` is `endstate-drift-check.timer`; Windows retains `Endstate\DriftCheck`.
+The timer uses `Persistent=true`. A shared namespace lock serializes fixed unit names before the existing root run lock.
+One root owns this registration per user manager. Ownership requires recorded root scope and admitted unit hashes; a marker alone grants no overwrite authority.
+Enable persists disabled intent and per-unit recovery evidence before the first native change.
+It checkpoints each phase, publishes units atomically, reloads, checks effective identity, activates the timer, and commits enabled intent after native confirmation.
+A failed initial configuration write preserves the previous registration. Later failures retain evidence for retry or disable.
+Linux runs wait for the root lock, so an immediate persistent catch-up reads committed intent. Windows retains its existing nonblocking run lock.
 
 ### `schedule disable` response
 
@@ -1555,7 +1574,9 @@ Registration is idempotent (`schtasks /F`): re-running `enable` re-asserts the t
 }
 ```
 
-The task is removed (`schtasks /Delete /F`) and `state/schedule/config.json` is updated with `enabled: false` (file is retained).
+Disable removes the Windows task, or stops and disables the owned Linux timer, removes its generated files, and reloads the user manager.
+The recorded unit directory governs Linux cleanup after environment changes. Cleanup retains the shared namespace lock file.
+Disable retains configuration, last-run history, pending uploads, and replay evidence. Modified, foreign, symlinked, shadowed, or other-root units produce an ownership conflict.
 
 ### `schedule status` response
 
@@ -1607,6 +1628,21 @@ schedule lock but has not reached a terminal write; clients MUST treat it as
 non-healthy rather than reusing prior verification truth. Terminal writes use
 `completed` or `failed`.
 
+`registration` reports native observations separately from saved `enabled` intent:
+
+| Field | Meaning |
+|-------|---------|
+| `supported`, `backend`, `reason?`, `detail?` | Native availability and any unavailable reason |
+| `stateReason?`, `stateDetail?` | Inspection failure, ownership conflict, override, or saved/native mismatch |
+| `enabled?`, `active?`, `nextTriggerUtc?` | Observed timer state and next calendar trigger; absent means unknown |
+| `serviceResult?`, `serviceActiveState?`, `serviceExitStatus?` | Native service outcome, independent of the persisted run result |
+| `units` | Unit-name map containing path, optional presence/ownership/integrity, SHA256, fragment path, and drop-in paths |
+
+Unknown or failed reads never become false observations. `lastRunError` with code `LAST_RUN_READ_FAILED` distinguishes unreadable results from a never-run state.
+The `lastRun` field can be absent when no result exists. A saved run error remains separate from native inspection errors and verification drift.
+Status performs no recovery writes. Benign resource, security, environment, and logging drop-ins remain allowed and visible.
+An override to owned execution or cadence fields reports `REGISTRATION_OVERRIDDEN`; the engine preserves the policy files.
+
 ### `schedule run` response
 
 `schedule run` verifies in-process, writes `state/schedule/last-run.json` atomically, and **exits 0 on drift** (drift is data, not error). When `--json` is passed for manual/debug invocation, the last-run document is returned as the envelope `data`:
@@ -1635,8 +1671,8 @@ No NDJSON events are emitted by `schedule run` (headless; event contract v1 is u
 
 | Code | Trigger |
 |------|---------|
-| `NOT_SUPPORTED` | `schedule enable/disable/run` on non-Windows |
-| `TASK_REGISTRATION_FAILED` | `schtasks.exe` failed; config is not marked enabled |
+| `NOT_SUPPORTED` | Registration backend unavailable, or manual operations unsupported on the host |
+| `TASK_REGISTRATION_FAILED` | Native registration failed; detail contains `phase`, `reason`, and `detail` |
 | `SCHEDULE_DISABLED` | `schedule run` was invoked but no schedule is enabled; run `schedule enable` first |
 | `MANIFEST_NOT_FOUND` | `--manifest` missing or path does not exist |
 
@@ -1644,8 +1680,13 @@ No NDJSON events are emitted by `schedule run` (headless; event contract v1 is u
 
 Both files are written atomically (temp+rename):
 
-- `state/schedule/config.json` — `{schemaVersion, enabled, manifest, interval, time, autoPush, taskName, root, registeredAt, pendingUploads?, fallbackManifest?}`. `pendingUploads` is ordered capture history awaiting Cloud delivery; legacy `pendingArtifact` and `pendingSha256` remain mirrored to its first item during the compatibility window.
+- `state/schedule/config.json` — `{schemaVersion, enabled, manifest, interval, time, autoPush, taskName, root, registeredAt, registration?, pendingUploads?, fallbackManifest?}`. `pendingUploads` is ordered capture history awaiting Cloud delivery; legacy `pendingArtifact` and `pendingSha256` remain mirrored to its first item during the compatibility window.
 - `state/schedule/last-run.json` — `{schemaVersion, runId, timestampUtc, status?, verify, autoBackup, error}`. A `running` status is persisted under `run.lock` before verification, capture, or Cloud work; terminal writes replace it with `completed` or `failed`.
+
+Linux `registration` evidence contains `backend`, `ownerRoot`, `unitDir`, `version`, `executable`, `operation`, `phase`, optional `cleanupPhase`, and per-unit `previous`/`desired` hashes.
+A phase records an attempted operation; it does not prove completion. Recovery checks each file independently against admitted hashes and rejects any third state.
+Stable failure reasons include `INVALID_INTENT`, `CONFIG_WRITE_FAILED`, `OWNERSHIP_CONFLICT`, `REGISTRATION_OVERRIDDEN`, `INSPECTION_FAILED`, and `NATIVE_OPERATION_FAILED`.
+Unavailable reasons include `USER_MANAGER_UNAVAILABLE`, `UNIT_NAMESPACE_UNAVAILABLE`, `SCHEDULER_UNAVAILABLE`, and `PLATFORM_UNSUPPORTED`.
 
 If a legacy singular pending artifact was also the configured local baseline and
 is corrupt or absent, the scheduler quarantines it, publishes a fresh local

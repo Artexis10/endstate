@@ -186,7 +186,7 @@ type parsedArgs struct {
 	scheduleInterval string // --interval daily|weekly
 	scheduleTime     string // --time HH:MM
 	autoPush         bool   // --auto-push
-	root             string // --root <path> (ENDSTATE_ROOT override for schedule run)
+	root             string // --root <path> (engine root for schedule and nested operations)
 
 	// Positional args after command (used by profile / backup / account subcommands)
 	positionalArgs []string
@@ -469,7 +469,7 @@ func commandUsage(cmd string) string {
 	case "bootstrap":
 		return "Usage: endstate bootstrap\n\nBootstrap Endstate installation.\n"
 	case "schedule":
-		return "Usage: endstate schedule <subcommand> [flags] [--json]\n\nSubcommands:\n  enable --manifest <path> [--interval daily|weekly] [--time HH:MM] [--auto-push] [--backup-id <id>]\n                              Register the drift-check scheduled task (Windows only)\n  disable                     Remove the drift-check scheduled task\n  status                      Report schedule config and last-run outcome\n  run [--root <path>]         Execute drift-check now; write last-run.json; exit 0 on drift\n  discard-upload --artifact-sha256 <sha> --confirm\n                              Stop retrying one uncertain legacy Cloud upload; the local capture is retained\n"
+		return "Usage: endstate schedule <subcommand> [flags] [--json]\n\nSubcommands:\n  enable --manifest <path> [--interval daily|weekly] [--time HH:MM] [--auto-push] [--backup-id <id>]\n                              Register drift checks through Windows Task Scheduler or a systemd user timer\n  disable                     Remove the drift-check scheduled task\n  status                      Report saved intent, native registration, and last-run outcome\n  run [--root <path>]         Execute drift-check now; write last-run.json; exit 0 on drift\n  discard-upload --artifact-sha256 <sha> --confirm\n                              Stop retrying one uncertain legacy Cloud upload; the local capture is retained\n"
 	default:
 		return usageText
 	}
@@ -573,6 +573,23 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 		}()
 		restoreDefaultEvents := events.ActivateDefaultWriter(runStderr)
 		defer restoreDefaultEvents()
+	}
+
+	// The CLI owns the process environment. Nested verify/capture/backup calls
+	// resolve ENDSTATE_ROOT independently, so propagate the explicit schedule root.
+	if p.command == "schedule" && p.root != "" {
+		previous, existed := os.LookupEnv("ENDSTATE_ROOT")
+		if err := os.Setenv("ENDSTATE_ROOT", p.root); err != nil {
+			return renderCLIResult(p, nil, envelope.NewError(envelope.ErrInternalError, "Invalid schedule root: "+err.Error()), validationContext, stdout, runStderr)
+		}
+		p.root = config.ResolveRepoRoot()
+		defer func() {
+			if existed {
+				_ = os.Setenv("ENDSTATE_ROOT", previous)
+			} else {
+				_ = os.Unsetenv("ENDSTATE_ROOT")
+			}
+		}()
 	}
 
 	p.envelopeRunID = envelope.BuildRunID(p.command, time.Now().UTC())
