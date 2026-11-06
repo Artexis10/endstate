@@ -22,6 +22,15 @@ const MaxPayloadBytes = 1024
 var ErrUnavailable = errors.New("desktop settings boundary is unavailable")
 var ErrConflict = errors.New("desktop settings ownership conflict")
 
+// ErrUnsupported reports stored state outside the contract's value types. It is
+// never absence, so apply and revert refuse it instead of overwriting it.
+var ErrUnsupported = errors.New("desktop settings value is unsupported")
+
+// UserDatabaseCoordinate names the dconf user database that backs every GSettings
+// target. The backend reads it, and collision checks treat it as claimed by any
+// GSettings target.
+const UserDatabaseCoordinate = "${xdg.config}/dconf/user"
+
 // Target is trusted generation metadata. Path is the backing directory; Schema
 // authorizes the typed access but does not distinguish owners of the same key.
 type Target struct {
