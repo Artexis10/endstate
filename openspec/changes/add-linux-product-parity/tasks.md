@@ -463,7 +463,8 @@ artifacts, promoted desktops/systemd, and readiness policy.
 
 - [ ] 12.1 Publish final CLI, event, capabilities, ownership, immutable-input, platform-module, desktop, and schedule contracts from stable producer schemas
 - [ ] 12.2 Correct `docs/COMPATIBILITY.md` to separate substrate support, ordinary-machine readiness, settings breadth, atomicity, and independent scheduling/desktop tiers
-- [ ] 12.3 Move unique durable deferred Linux/macOS roadmap contracts into explicit follow-on OpenSpec changes or non-normative deferred sections, then retire the competing roadmap authority
+- [x] 12.3 Move unique durable deferred Linux/macOS roadmap contracts into explicit follow-on OpenSpec changes or non-normative deferred sections, then retire the competing roadmap authority
+  - The roadmap's platform section no longer claims the arc is complete or calls its deferred list a durable record. It is non-normative history that names this change as the owner of Linux scope, gates, and readiness claims, and a separate change for macOS. Each deferred item becomes a commitment only when an OpenSpec change adopts it.
 - [x] 12.4 Add byte-stable Ubuntu/Debian, Fedora/RPM, and Arch discovery fixtures/jobs
   - Independent acceptance at `2e20534` reuses the full passing run at that head; the 15 relevant source, fixture, and workflow files are unchanged. Committed apt/dpkg, RPM, and pacman fixtures cover explicit intent, native versions, dependency exclusion, stable ordering, fixed read-only arguments, malformed rows, and failed, missing, or cancelled queries. The existing `Go Tests` Ubuntu/macOS job runs them unfiltered on every pull request to `main`. This accepts fixture coverage only; native Ubuntu, Fedora, and Arch execution and the required-check setting stay with tasks 12.8, 12.9, and 13.3.
 - [ ] 12.5 Make no-Nix/no-Endstate-state capture a required job

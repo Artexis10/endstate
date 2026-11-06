@@ -180,9 +180,13 @@ Make installation self-healing and diagnosable.
 
 ---
 
-## 6. Linux / macOS Platform Arc — COMPLETE (2026-06)
+## 6. Linux / macOS Platform Arc — substrate shipped (2026-06); product parity in progress
 
-**Status:** Shipped and closed out. Endstate provisions Linux and macOS through the Nix realizer
+This section is non-normative history. The OpenSpec change `add-linux-product-parity` owns the
+Linux product-parity scope, its acceptance gates, and its readiness claims. macOS product parity
+gets its own OpenSpec change. Nothing here claims ordinary-machine readiness.
+
+**Substrate status:** Endstate provisions Linux and macOS through the Nix realizer
 (packages + home-manager configuration: catalog, capture, verify, rollback, boundary secrets) with a
 per-app Homebrew driver lane on macOS (formulae + Casks, two-lane apply, best-effort rollback, Cask
 auto-routing) and a consent-gated engine-installed backend bootstrap (Nix / Homebrew, official
@@ -192,7 +196,11 @@ real-Homebrew (macOS) integration smokes. Specs: `nix-package-backend`,
 `macos-brew-best-effort-rollback`, `engine-backend-bootstrap`. See `docs/COMPATIBILITY.md` for the
 platform support matrix.
 
-### Deferred scope (consciously not shipped — the durable record)
+### Deferred scope (non-normative)
+
+These items were consciously not shipped with the substrate. An item becomes a commitment only
+when an OpenSpec change adopts it.
+
 
 - **Managed secrets backend** (agenix, later sops-nix on demonstrated need): the typed managed tier
   beyond boundary + env `*_FILE` — ciphertext capture handling (path-only vs bundled safe-at-rest
