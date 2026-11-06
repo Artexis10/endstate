@@ -7,6 +7,7 @@
 package hmharvest
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -36,14 +37,17 @@ const probeHome = "/home/endstate-probe"
 // pinned Home Manager input and returns only home.file targets added above the
 // unconfigured baseline. Runtime capture never supplies or invokes a prober.
 type TargetProber interface {
-	ProbeTargets(program string, values map[string]any) ([]string, error)
+	ProbeTargets(ctx context.Context, program string, values map[string]any) ([]string, error)
 }
 
 // Refresh replaces every harvested fact, evaluated target, and review
 // fingerprint while preserving the human-reviewed disposition, codec, and
 // exclusions. A normal check exposes these replacements as registry drift;
 // only the CLI's explicit review-accepting write mode persists them.
-func Refresh(registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, inputs releaseinputs.Inputs, prober TargetProber) error {
+func Refresh(ctx context.Context, registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, inputs releaseinputs.Inputs, prober TargetProber) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if registry == nil {
 		return fmt.Errorf("Home Manager registry is nil")
 	}
@@ -69,6 +73,9 @@ func Refresh(registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, 
 	registry.Programs = programIndex(rawOptions)
 
 	for entryIndex := range registry.Entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		entry := &registry.Entries[entryIndex]
 		sort.Slice(entry.Options, func(i, j int) bool { return entry.Options[i].Name < entry.Options[j].Name })
 		sort.Slice(entry.Targets, func(i, j int) bool { return entry.Targets[i].Coordinate < entry.Targets[j].Coordinate })
@@ -116,7 +123,7 @@ func Refresh(registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, 
 			if entry.Probe == nil {
 				return fmt.Errorf("Home Manager adapter %q has no reviewed target probe", entry.ID)
 			}
-			observed, err := prober.ProbeTargets(entry.Program, entry.Probe.Values)
+			observed, err := prober.ProbeTargets(ctx, entry.Program, entry.Probe.Values)
 			if err != nil {
 				return fmt.Errorf("probe Home Manager adapter %q targets: %w", entry.ID, err)
 			}
@@ -143,6 +150,9 @@ func Refresh(registry *hmregistry.Registry, docsJSON []byte, sourceRoot string, 
 				}
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := hmregistry.AcceptReviews(registry); err != nil {
 		return err

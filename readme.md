@@ -421,6 +421,14 @@ with the public naming.
 
 ## Testing
 
+The release-only `endstate-hm-registry` tool checks the frozen Home Manager
+registry against pinned source and option metadata. Each pure target evaluation
+has a two-minute deadline. Set `--probe-timeout` to a positive Go duration, such
+as `5m`, for a slower environment. Interrupt or termination cancels the active
+evaluation. A failed or cancelled refresh does not write the registry.
+Runtime capture reads the frozen registry without running this tool or Nix
+evaluation. Registry writes still require `--write --accept-reviews`.
+
 Endstate uses Go's standard `testing` package for deterministic, offline-capable testing.
 
 ```bash

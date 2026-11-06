@@ -4,6 +4,7 @@
 package hmharvest
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,7 +48,7 @@ func TestRefreshBindsDocsDeclarationsSourcesAndReview(t *testing.T) {
 	prober := fakeTargetProber{targets: map[string][]string{
 		"ripgrep": {"/home/endstate-probe/.config/ripgrep/ripgreprc"},
 	}}
-	if err := Refresh(registry, docs, sourceRoot, inputs, prober); err != nil {
+	if err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober); err != nil {
 		t.Fatal(err)
 	}
 	if registry.Inputs.NixpkgsRevision != inputs.Nixpkgs.Revision || registry.DocsJSONSHA256 == "" {
@@ -84,7 +85,7 @@ func TestRefreshRejectsOptionMissingFromPinnedDocs(t *testing.T) {
 		Disposition: hmregistry.Excluded, ExclusionReason: "not portable",
 		Options: []hmregistry.Option{{Name: "programs.missing.enable"}},
 	}}}
-	if err := Refresh(registry, []byte(`{}`), t.TempDir(), inputs, fakeTargetProber{}); err == nil {
+	if err := Refresh(context.Background(), registry, []byte(`{}`), t.TempDir(), inputs, fakeTargetProber{}); err == nil {
 		t.Fatal("missing pinned option was accepted")
 	}
 }
@@ -94,7 +95,7 @@ type fakeTargetProber struct {
 	err     error
 }
 
-func (p fakeTargetProber) ProbeTargets(program string, _ map[string]any) ([]string, error) {
+func (p fakeTargetProber) ProbeTargets(_ context.Context, program string, _ map[string]any) ([]string, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -139,7 +140,7 @@ func TestRefreshDerivesTargetsFromPureProbeOutput(t *testing.T) {
 		},
 	}}
 
-	if err := Refresh(registry, docs, sourceRoot, inputs, prober); err != nil {
+	if err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober); err != nil {
 		t.Fatal(err)
 	}
 	want := []hmregistry.Target{
@@ -199,7 +200,7 @@ func TestRefreshPreservesCuratedAliasesAndFreezesObservedTargets(t *testing.T) {
 		},
 	}}
 
-	if err := Refresh(registry, docs, sourceRoot, inputs, prober); err != nil {
+	if err := Refresh(context.Background(), registry, docs, sourceRoot, inputs, prober); err != nil {
 		t.Fatal(err)
 	}
 	if got := registry.Entries[0].Targets; len(got) != 5 || got[0].Coordinate != "${home}/.gitattributes" {

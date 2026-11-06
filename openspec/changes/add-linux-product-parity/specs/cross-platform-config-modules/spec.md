@@ -218,6 +218,11 @@ Each adapter SHALL declare exactly one reviewed disposition: `typed-roundtrip`, 
 - **THEN** it SHALL offer only the actions jointly authorized by the registry and trusted Linux platform variant using engine-owned path coordinates
 - **AND** it SHALL NOT fetch or evaluate Home Manager during capture
 
+#### Scenario: Release-time target evaluation stalls or is cancelled
+- **WHEN** a pure target probe exceeds its configured positive deadline or its caller cancels the refresh
+- **THEN** the harvester SHALL interrupt the evaluation and return a timeout or cancellation failure
+- **AND** the refresh SHALL NOT publish updated registry bytes or accept a late successful result
+
 #### Scenario: Direct settings mapping has a proven codec
 - **WHEN** a Home Manager program writes a reviewed structured settings option directly to a known target and its source-to-target round-trip suite passes
 - **THEN** the adapter MAY use `typed-roundtrip` to decode live state and re-emit that settings option

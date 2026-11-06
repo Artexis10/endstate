@@ -41,6 +41,19 @@ func TestLinuxCaptureIdenticalDiscoveryPreservesPortableBundle(t *testing.T) {
 	t.Setenv("ENDSTATE_ROOT", repo)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	bin := filepath.Join(root, "bin")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	attempts := filepath.Join(root, "evaluation-attempts")
+	t.Setenv("ENDSTATE_PROBE_ATTEMPTS", attempts)
+	t.Setenv("PATH", bin)
+	// These release/evaluation executables must remain unused by frozen capture.
+	for _, name := range []string{"nix", "home-manager", "endstate-hm-registry"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nprintf '%s\\n' \"$0 $*\" >> \"$ENDSTATE_PROBE_ATTEMPTS\"\nexit 97\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	oldRoot, oldRealizer, oldDiscovery, oldCatalog := resolveRepoRootFn, newRealizerFn, discoverLinuxFn, loadCaptureModuleCatalogFn
 	t.Cleanup(func() {
 		resolveRepoRootFn, newRealizerFn, discoverLinuxFn, loadCaptureModuleCatalogFn = oldRoot, oldRealizer, oldDiscovery, oldCatalog
@@ -88,6 +101,9 @@ func TestLinuxCaptureIdenticalDiscoveryPreservesPortableBundle(t *testing.T) {
 		if (member.Name == "manifest.jsonc" || member.Name == "metadata.json") && bytes.Contains(member.Data, []byte(home)) {
 			t.Fatalf("portable %s leaked the source root", member.Name)
 		}
+	}
+	if data, err := os.ReadFile(attempts); !os.IsNotExist(err) {
+		t.Fatalf("runtime capture attempted release evaluation: %q (%v)", data, err)
 	}
 }
 

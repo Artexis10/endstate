@@ -7,14 +7,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/hmharvest"
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
@@ -26,16 +30,25 @@ func main() {
 	docsPath := flag.String("docs-json", "", "path to the pinned Home Manager options.json")
 	sourceRoot := flag.String("home-manager-source", "", "path to the exact pinned Home Manager source checkout")
 	system := flag.String("system", defaultNixSystem(), "Linux Nix system used for pure managed-target probes")
+	probeTimeout := flag.Duration("probe-timeout", hmharvest.DefaultProbeTimeout, "positive deadline for each pure target evaluation")
 	write := flag.Bool("write", false, "atomically write refreshed canonical registry JSON")
 	acceptReviews := flag.Bool("accept-reviews", false, "explicitly accept refreshed metadata/dispositions (required with --write)")
 	flag.Parse()
-	if err := run(*registryPath, *docsPath, *sourceRoot, *system, *write, *acceptReviews); err != nil {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if err := run(ctx, *registryPath, *docsPath, *sourceRoot, *system, *probeTimeout, *write, *acceptReviews); err != nil {
 		fmt.Fprintln(os.Stderr, "endstate-hm-registry:", err)
 		os.Exit(1)
 	}
 }
 
-func run(registryPath, docsPath, sourceRoot, system string, write, acceptReviews bool) error {
+func run(ctx context.Context, registryPath, docsPath, sourceRoot, system string, probeTimeout time.Duration, write, acceptReviews bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if probeTimeout <= 0 {
+		return fmt.Errorf("--probe-timeout must be positive")
+	}
 	if registryPath == "" || docsPath == "" || sourceRoot == "" {
 		return fmt.Errorf("--registry, --docs-json, and --home-manager-source are required")
 	}
@@ -46,7 +59,7 @@ func run(registryPath, docsPath, sourceRoot, system string, write, acceptReviews
 	if err != nil {
 		return err
 	}
-	revision, err := gitRevision(sourceRoot)
+	revision, err := gitRevision(ctx, sourceRoot)
 	if err != nil {
 		return err
 	}
@@ -69,8 +82,8 @@ func run(registryPath, docsPath, sourceRoot, system string, write, acceptReviews
 	if err != nil {
 		return err
 	}
-	prober := hmharvest.NewNixTargetProber(inputs, system)
-	if err := hmharvest.Refresh(registry, docsJSON, sourceRoot, inputs, prober); err != nil {
+	prober := hmharvest.NewNixTargetProber(inputs, system, probeTimeout)
+	if err := hmharvest.Refresh(ctx, registry, docsJSON, sourceRoot, inputs, prober); err != nil {
 		return err
 	}
 	refreshed, err := json.MarshalIndent(registry, "", "  ")
@@ -78,6 +91,9 @@ func run(registryPath, docsPath, sourceRoot, system string, write, acceptReviews
 		return err
 	}
 	refreshed = append(refreshed, '\n')
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !write {
 		if !bytes.Equal(append(original, '\n'), refreshed) {
 			return fmt.Errorf("registry drift detected; review the pinned diff, then rerun with --write --accept-reviews")
@@ -101,9 +117,13 @@ func defaultNixSystem() string {
 	}
 }
 
-func gitRevision(sourceRoot string) (string, error) {
-	command := exec.Command("git", "-C", sourceRoot, "rev-parse", "HEAD")
+func gitRevision(ctx context.Context, sourceRoot string) (string, error) {
+	command := exec.CommandContext(ctx, "git", "-C", sourceRoot, "rev-parse", "HEAD")
+	command.WaitDelay = time.Second
 	output, err := command.Output()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", ctxErr
+	}
 	if err != nil {
 		return "", fmt.Errorf("read Home Manager source revision: %w", err)
 	}

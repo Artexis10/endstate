@@ -5,6 +5,7 @@ package hmharvest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
@@ -22,6 +24,8 @@ import (
 const (
 	maxProbeOutput  = 1 << 20
 	maxProbeTargets = 1024
+	// Release tooling may override this deadline for cold or slow evaluations.
+	DefaultProbeTimeout = 2 * time.Minute
 )
 
 var (
@@ -30,36 +34,50 @@ var (
 	probeSystemPattern  = regexp.MustCompile(`^[a-zA-Z0-9_+-]+-linux$`)
 )
 
-type commandRunner func(name string, args ...string) (stdout, stderr []byte, err error)
+type commandRunner func(ctx context.Context, name string, args ...string) (stdout, stderr []byte, err error)
 
 // NixTargetProber performs a pure, fixed-argument evaluation of the exact
 // release inputs. It subtracts Home Manager's baseline files in Nix so callers
 // receive only targets owned by the enabled program.
 type NixTargetProber struct {
-	inputs releaseinputs.Inputs
-	system string
-	run    commandRunner
+	inputs  releaseinputs.Inputs
+	system  string
+	run     commandRunner
+	timeout time.Duration
 }
 
-func NewNixTargetProber(inputs releaseinputs.Inputs, system string) *NixTargetProber {
-	return newNixTargetProber(inputs, system, runBoundedCommand)
+func NewNixTargetProber(inputs releaseinputs.Inputs, system string, timeout time.Duration) *NixTargetProber {
+	prober := newNixTargetProber(inputs, system, runBoundedCommand)
+	prober.timeout = timeout
+	return prober
 }
 
 func newNixTargetProber(inputs releaseinputs.Inputs, system string, run commandRunner) *NixTargetProber {
-	return &NixTargetProber{inputs: inputs, system: system, run: run}
+	return &NixTargetProber{inputs: inputs, system: system, run: run, timeout: DefaultProbeTimeout}
 }
 
-func (p *NixTargetProber) ProbeTargets(program string, values map[string]any) ([]string, error) {
+func (p *NixTargetProber) ProbeTargets(ctx context.Context, program string, values map[string]any) ([]string, error) {
 	if p == nil || p.run == nil {
 		return nil, fmt.Errorf("Nix target prober is unavailable")
+	}
+	if p.timeout <= 0 {
+		return nil, fmt.Errorf("Nix target probe timeout must be positive")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	expression, err := renderProbeExpression(p.inputs, p.system, program, values)
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
 	stdout, stderr, runErr := p.run(
-		"nix", "eval", "--json", "--option", "pure-eval", "true", "--expr", expression,
+		ctx, "nix", "eval", "--json", "--option", "pure-eval", "true", "--expr", expression,
 	)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("pure Nix evaluation interrupted: %w", err)
+	}
 	if runErr != nil {
 		detail := strings.TrimSpace(string(stderr))
 		if detail == "" {
@@ -282,13 +300,18 @@ func (w *limitedBuffer) Write(data []byte) (int, error) {
 	return originalLength, nil
 }
 
-func runBoundedCommand(name string, args ...string) ([]byte, []byte, error) {
+func runBoundedCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 	stdout := &limitedBuffer{limit: maxProbeOutput}
 	stderr := &limitedBuffer{limit: maxProbeOutput}
-	command := exec.Command(name, args...)
+	command := exec.CommandContext(ctx, name, args...)
+	// A child retaining an inherited pipe must not defeat the probe deadline.
+	command.WaitDelay = time.Second
 	command.Stdout = stdout
 	command.Stderr = stderr
 	err := command.Run()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return stdout.buffer.Bytes(), stderr.buffer.Bytes(), ctxErr
+	}
 	if stdout.exceeded || stderr.exceeded {
 		return stdout.buffer.Bytes(), stderr.buffer.Bytes(), fmt.Errorf("command output exceeded %d bytes", maxProbeOutput)
 	}
