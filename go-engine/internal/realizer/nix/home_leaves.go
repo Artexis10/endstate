@@ -44,7 +44,7 @@ type ErrHomeFilesTooLarge struct {
 }
 
 func (e *ErrHomeFilesTooLarge) Error() string {
-	return fmt.Sprintf("the Home Manager files tree holds more than %d entries, most of them below %s", e.Limit, e.Root)
+	return fmt.Sprintf("the Home Manager files tree holds more than %d entries; most of those read were below %s", e.Limit, e.Root)
 }
 
 var errHomeFilesFormat = errors.New("unsupported Home Manager activation package layout")

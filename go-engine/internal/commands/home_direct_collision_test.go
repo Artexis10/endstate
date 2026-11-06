@@ -152,6 +152,9 @@ func TestApplyHomeDisjointFromDirectCollisionAndExistingSymlink(t *testing.T) {
 }
 
 func TestApplyHomeOrdinaryCollisionWithoutConfigResultFields(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Home Manager symlink workflow")
+	}
 	for _, parent := range []bool{false, true} {
 		t.Run(fmt.Sprintf("parent=%t", parent), func(t *testing.T) {
 			root := t.TempDir()
