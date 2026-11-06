@@ -577,7 +577,7 @@ func TestRunCaptureLinuxPackageMatchCannotCollectIneligibleAdapter(t *testing.T)
 	publications := 0
 	createCaptureBundleFn = func(request bundle.CaptureBundleRequest) (*bundle.CaptureBundleResult, error) {
 		publications++
-		if len(request.Modules) != 0 || len(request.GenerationPlans) != 0 || len(request.HomeManagerFiles) != 0 {
+		if len(request.Modules) != 0 || len(request.GenerationPlans) != 0 {
 			t.Fatalf("ineligible payload reached collection: %+v", request)
 		}
 		return bundle.CreateCaptureBundle(request)

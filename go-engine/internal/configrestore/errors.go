@@ -17,6 +17,7 @@ type Code string
 const (
 	CodeInvalidRequest          Code = "invalid_request"
 	CodeUnsupportedRestore      Code = "unsupported_restore"
+	CodeTargetStateUnsupported  Code = "target_state_unsupported"
 	CodeUnsafePath              Code = "unsafe_path"
 	CodeSourceMissing           Code = "source_missing"
 	CodeUnsupportedFileType     Code = "unsupported_file_type"

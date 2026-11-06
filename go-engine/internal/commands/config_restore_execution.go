@@ -23,6 +23,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -243,6 +244,13 @@ func (session *configRestoreExecutionSession) Execute(
 	if options.PrepareHomeManager != nil {
 		options.HomeManagerTargets = options.PrepareHomeManager(&result.Plan, prepared)
 	}
+	// The Home Manager consumer emits the one final resolution for each set it accepted.
+	consumerOwned := map[int]bool{}
+	for _, item := range prepared {
+		if item.home && selectedConfigRestorePlanSet(result.Plan.Sets[item.setIndex]) {
+			consumerOwned[item.setIndex] = true
+		}
+	}
 	prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 	collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
 	result.HomeManagerBlocked = collisions.homeManagerBlocked
@@ -378,7 +386,7 @@ func (session *configRestoreExecutionSession) Execute(
 		}
 	}
 	for index, set := range result.Plan.Sets {
-		if !emittedResolutions[index] {
+		if !emittedResolutions[index] && !consumerOwned[index] {
 			emitGenerationConfigResolution(options.Emitter, set)
 		}
 	}
@@ -613,12 +621,11 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 			continue
 		}
 		// The planner pins the current trusted strategy on every resolved set; a missing or unknown one never means direct copying.
-		// The planner pins the current trusted strategy on every resolved set; a missing or unknown one never means direct copying.
-		if set.SettingsStrategy != "endstate-restore" && set.SettingsStrategy != "home-manager" {
+		if set.SettingsStrategy != modules.RealizationEndstateRestore && set.SettingsStrategy != modules.RealizationHomeManager {
 			markConfigRestoreFailure(set, planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
 			continue
 		}
-		if set.SettingsStrategy == "home-manager" && options.PrepareHomeManager == nil {
+		if set.SettingsStrategy == modules.RealizationHomeManager && options.PrepareHomeManager == nil {
 			markConfigRestoreFailure(set, planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
 			continue
 		}
@@ -646,7 +653,7 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 			markConfigRestoreFailure(set, reason, planner.StatusFailed)
 			continue
 		}
-		if set.SettingsStrategy == "home-manager" {
+		if set.SettingsStrategy == modules.RealizationHomeManager {
 			files, resolveErr := configrestore.ResolveHomeFiles(ctx, configrestore.Request{
 				Stage: stage, Plan: *set, ProcessPatterns: session.runtime.processPatterns(set.Source.ModuleID),
 				ProcessObserver: options.ProcessObserver, Boundary: options.HostBoundary,

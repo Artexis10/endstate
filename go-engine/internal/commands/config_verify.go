@@ -13,6 +13,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
@@ -91,7 +92,7 @@ func verifyCapturedConfigSet(ctx context.Context, item VerifyItem, set planner.P
 		return item
 	}
 	defer stage.Close()
-	if set.SettingsStrategy == "home-manager" {
+	if set.SettingsStrategy == modules.RealizationHomeManager {
 		files, err := configrestore.ResolveHomeFiles(ctx, configrestore.Request{Stage: stage, Plan: set, Boundary: boundary, ProcessPatterns: patterns, ProcessObserver: observer})
 		if err != nil {
 			return configVerifyReadFailure(item, err)
@@ -137,7 +138,8 @@ func verifyCapturedConfigSet(ctx context.Context, item VerifyItem, set planner.P
 }
 
 // configVerifyReadFailure maps a failed staged-set resolution to verify's
-// vocabulary for both settings writers: only a real read failure fails.
+// vocabulary for both settings writers: a real read failure or a replaced
+// target fails; an unsupported declaration or a running app is skipped.
 func configVerifyReadFailure(item VerifyItem, err error) VerifyItem {
 	item.Status, item.Reason, item.Message = "fail", "config_read_failed", err.Error()
 	switch configrestore.CodeOf(err) {
@@ -145,6 +147,9 @@ func configVerifyReadFailure(item VerifyItem, err error) VerifyItem {
 		item.Status, item.Reason = "skipped", planner.ReasonAppRunning.String()
 	case configrestore.CodeUnsupportedRestore:
 		item.Status, item.Reason = "skipped", "config_content_unchecked"
+	case configrestore.CodeTargetStateUnsupported:
+		// A target that no longer holds a file has lost the captured content: drift, not an unchecked set.
+		item.Status, item.Reason, item.Message = "fail", driver.ReasonConfigDrift, "Target configuration differs from captured desired content."
 	}
 	return item
 }

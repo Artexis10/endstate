@@ -195,7 +195,7 @@ type preparedHomeManager struct {
 	capturedFiles            map[string]*provision.HomeFileExpectations
 	capturedPreparationError error
 	forceBlocked             bool
-	composed                 bool
+	activationAttempted      bool
 }
 
 func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer) (*preparedHomeManager, *envelope.Error) {
@@ -578,7 +578,14 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			if current, ok := result.(*ApplyResult); ok {
 				current.ConfigResultFields = configFields
 			} else if resultErr != nil && configSession.lastExecution != nil {
-				result = &ApplyResult{Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name}, Actions: actions, Summary: ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount}, ConfigResultFields: configFields}
+				// The summary counts brew and unsupported apps, so the list names them too.
+				lateActions := append(append(append([]ApplyAction{}, actions...), brew.brewActions()...), unsupportedActions...)
+				result = &ApplyResult{
+					Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name}, Actions: lateActions,
+					Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+					ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreScope.modules(),
+					ConfigResultFields: configFields,
+				}
 			}
 		}
 		var persistErr error
@@ -787,6 +794,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		} else {
 			emitter.EmitPhase("config")
 			emitter.EmitItem(flake, driverName, "configuring", "", "Activating home-manager configuration", "home-manager")
+			preparedHome.activationAttempted = true
 			var hmGen int
 			var aerr error
 			if preparer, ok := r.(realizer.HomePreparer); ok && preparedHome.resolution != nil {
@@ -958,9 +966,6 @@ func settingsDigest(settings *manifest.HomeManagerSettings) string {
 }
 
 func homeGenerationReference(flags ApplyFlags, mf *manifest.Manifest, home *preparedHomeManager, generation int) *provision.HomeGenRef {
-	if home.composed {
-		return capturedHomeReference(home, generation)
-	}
 	_, name, _ := strings.Cut(home.flake, "#")
 	result := &provision.HomeGenRef{Flake: home.flake, Generation: generation, Generated: home.generated, Platform: runtime.GOOS, System: nix.System(), ConfigIdentity: name, Resolution: home.resolution, Kind: "flake"}
 	result.FileExpectations = home.fileExpectations
@@ -969,9 +974,12 @@ func homeGenerationReference(flags ApplyFlags, mf *manifest.Manifest, home *prep
 	}
 	if home.generated {
 		result.Kind = "config"
-		result.Config = mf.HomeManager.Config
-		result.Secrets = mf.HomeManager.Secrets
-		if mf.HomeManager.Settings != nil {
+		// Captured placements are disposable: a composed record keeps only the explicit declaration, if any.
+		if mf.HomeManager != nil {
+			result.Config = mf.HomeManager.Config
+			result.Secrets = mf.HomeManager.Secrets
+		}
+		if mf.HomeManager != nil && mf.HomeManager.Settings != nil {
 			result.Kind = "settings"
 			result.SourceManifest, _ = filepath.Abs(flags.Manifest)
 			result.SettingsDigest = settingsDigest(mf.HomeManager.Settings)

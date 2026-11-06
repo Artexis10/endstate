@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,8 +37,10 @@ type capturedHomeBackend struct {
 	activated int
 	built     bool
 	fail      bool
-	active    string
-	outputs   map[string]map[string]string
+	// observeErr makes the ownership observation unreadable.
+	observeErr error
+	active     string
+	outputs    map[string]map[string]string
 	// onFreeze runs when the live combined activation is frozen.
 	onFreeze func()
 	// onRealize runs when the package set is installed.
@@ -123,6 +126,9 @@ func (b *capturedHomeBackend) ActivatePreparedHome(resolution *realizer.InputRes
 	return b.homeObservation.Generation, nil
 }
 func (b *capturedHomeBackend) ObserveHome() (realizer.HomeObservation, error) {
+	if b.observeErr != nil {
+		return realizer.HomeObservation{}, b.observeErr
+	}
 	return realizer.HomeObservation{Present: b.homeObservation.Generation > 0, Generation: b.homeObservation.Generation, ActivationOutput: b.active}, nil
 }
 
@@ -608,4 +614,144 @@ func TestConfigRestoreExecutionNeverTreatsMissingStrategyAsDirectCopy(t *testing
 		t.Fatalf("Execute() error = %+v", envErr)
 	}
 	assertResolution(t, result.Plan.Sets[0].Resolution, planner.StatusSkipped, planner.ReasonSettingsStrategyUnavailable)
+}
+
+func TestCapturedHomeManagerVerifyReportsReplacedTargetAsDrift(t *testing.T) {
+	path, _, home, capture, _ := capturedStrategyFixture(t, capturedFixtureOptions{})
+	if _, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true}); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(home, ".ripgreprc")
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	assertConfigVerify(t, path, capture.CaptureID, "fail", "config_drift")
+}
+
+func TestCapturedHomeManagerComposedRecordKeepsExplicitDeclaration(t *testing.T) {
+	path, _, home, _, backend := capturedStrategyFixture(t, capturedFixtureOptions{})
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "explicit-rc"), []byte("--explicit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	declareInManifest(t, path, map[string]any{"homeManager": map[string]any{"settings": map[string]any{"files": map[string]string{".explicitrc": "./explicit-rc"}}}})
+	backend.targets = append(backend.targets, filepath.Join(home, ".explicitrc"))
+	raw, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertResolution(t, resolutionFor(t, raw.(*ApplyResult).ConfigResultFields, "apps.ripgrep"), planner.StatusRestored, "")
+	recovered, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, backend)
+	if recovered == nil || recovered.Settings == nil || recovered.Settings.Files[".explicitrc"] != "./explicit-rc" || len(warnings) != 0 {
+		t.Fatalf("explicit declaration was not recoverable after composing a captured set: %+v %+v", recovered, warnings)
+	}
+}
+
+func TestCapturedHomeManagerEmitsOneFinalResolutionPerSet(t *testing.T) {
+	path, _, _, capture, backend := capturedStrategyFixture(t, capturedFixtureOptions{})
+	backend.fail = true
+	stream := captureStderr(t, func() {
+		_, _ = RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true, Events: "jsonl"})
+	})
+	reasons := []any{}
+	for _, line := range strings.Split(stream, "\n") {
+		var event map[string]any
+		if json.Unmarshal([]byte(line), &event) == nil && event["event"] == "config-resolution" && event["captureId"] == capture.CaptureID {
+			reasons = append(reasons, event["reason"])
+		}
+	}
+	if len(reasons) != 1 || reasons[0] != planner.ReasonCommitFailed.String() {
+		t.Fatalf("config-resolution events for the captured set = %v, want one final commit_failed", reasons)
+	}
+}
+
+func TestCapturedHomeManagerLateFailureResultListsEveryActionItsSummaryCounts(t *testing.T) {
+	path, _, _, _, backend := capturedStrategyFixture(t, capturedFixtureOptions{})
+	declareRipgrepPackage(t, path, backend)
+	declareInManifest(t, path, map[string]any{"apps": []map[string]any{
+		{"id": "ripgrep", "refs": map[string]string{runtime.GOOS: "nixpkgs#ripgrep"}},
+		{"id": "winonly", "driver": "winget", "refs": map[string]string{"windows": "Example.WinOnly"}},
+	}})
+	backend.fail = true
+	raw, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true})
+	if err == nil {
+		t.Fatal("activation failure was not reported")
+	}
+	result := raw.(*ApplyResult)
+	counted := result.Summary.Success + result.Summary.Skipped + result.Summary.Failed
+	if len(result.Actions) != counted {
+		t.Fatalf("result lists %d actions but its summary counts %d: %+v", len(result.Actions), counted, result.Summary)
+	}
+}
+
+func TestCapturedHomeManagerExternalOwnerFoundBeforeActivationRequiresImport(t *testing.T) {
+	path, _, _, _, backend := capturedStrategyFixture(t, capturedFixtureOptions{})
+	// The owner appears after the first observation, so only the pre-activation check sees it.
+	backend.onFreeze = func() { backend.homeObservation.Generation, backend.active = 7, "/nix/store/external-owner" }
+	raw, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := raw.(*ApplyResult)
+	hm := resolutionFor(t, result.ConfigResultFields, "apps.ripgrep")
+	assertResolution(t, hm, planner.StatusSkipped, planner.ReasonHomeManagerImportRequired)
+	importModuleIn(t, hm.Remediation)
+	if backend.activated != 0 || result.HomeManager == nil || result.HomeManager.OwnershipAction == nil {
+		t.Fatalf("external owner was activated over or lost its action: activated=%d %+v", backend.activated, result.HomeManager)
+	}
+	assertNoFile(t, backend.targets...)
+}
+
+func TestCapturedHomeManagerRowNeverAttemptedStaysPlannedNotFailedCommit(t *testing.T) {
+	path, _, _, _, backend := capturedStrategyFixture(t, capturedFixtureOptions{})
+	// The ownership state becomes unreadable after preparation, so apply stops before activation.
+	backend.onFreeze = func() { backend.observeErr = errors.New("fixture profile unreadable") }
+	raw, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true})
+	if err == nil {
+		t.Fatal("the unreadable ownership state was not reported")
+	}
+	result, ok := raw.(*ApplyResult)
+	if !ok {
+		t.Fatalf("the stop dropped the config result: %T", raw)
+	}
+	assertResolution(t, resolutionFor(t, result.ConfigResultFields, "apps.ripgrep"), planner.StatusPlanned, "")
+	if backend.activated != 0 {
+		t.Fatalf("activation ran without a readable ownership state: %d", backend.activated)
+	}
+	assertNoFile(t, backend.targets...)
+}
+
+func TestCapturedHomeManagerUnreadableOwnershipFailsInsteadOfClaimingNoWriter(t *testing.T) {
+	path, _, home, _, backend := capturedStrategyFixture(t, capturedFixtureOptions{sibling: true})
+	backend.observeErr = errors.New("fixture profile unreadable")
+	raw, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := raw.(*ApplyResult)
+	assertResolution(t, resolutionFor(t, result.ConfigResultFields, "apps.ripgrep"), planner.StatusFailed, planner.ReasonTargetDetectionFailed)
+	assertResolution(t, resolutionFor(t, result.ConfigResultFields, "apps.sibling"), planner.StatusRestored, "")
+	if backend.activated != 0 {
+		t.Fatalf("activation ran without a readable ownership state: %d", backend.activated)
+	}
+	assertNoFile(t, backend.targets...)
+	assertDirectCopy(t, filepath.Join(home, ".siblingrc"), "sibling=1\n")
+}
+
+func TestCapturedHomeManagerUnreadableRegistryFailsInsteadOfClaimingNoWriter(t *testing.T) {
+	path, root, _, _, backend := capturedStrategyFixture(t, capturedFixtureOptions{})
+	if err := os.WriteFile(filepath.Join(root, "catalog", "home-manager", "registry.jsonc"), []byte("{ not a registry"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertResolution(t, resolutionFor(t, raw.(*ApplyResult).ConfigResultFields, "apps.ripgrep"), planner.StatusFailed, planner.ReasonTargetDetectionFailed)
+	if backend.activated != 0 {
+		t.Fatalf("activation ran without a readable registry: %d", backend.activated)
+	}
+	assertNoFile(t, backend.targets...)
 }

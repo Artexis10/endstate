@@ -46,7 +46,7 @@ func ResolveHomeFiles(ctx context.Context, request Request) ([]HomeFile, error) 
 			return nil, newError(CodeUnsupportedRestore, index, entry.target, fmt.Errorf("Home Manager placement requires a regular source file"))
 		}
 		if info, err := os.Lstat(entry.target); err == nil && !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-			return nil, newError(CodeUnsupportedRestore, index, entry.target, fmt.Errorf("Home Manager target is not a regular file or symlink leaf"))
+			return nil, newError(CodeTargetStateUnsupported, index, entry.target, fmt.Errorf("Home Manager target is not a regular file or symlink leaf"))
 		} else if err != nil && !os.IsNotExist(err) {
 			return nil, newError(CodeMaterialization, index, entry.target, err)
 		}

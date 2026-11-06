@@ -14,6 +14,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
@@ -130,7 +131,7 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 				Optional: plan.Optional, ObservedSize: plan.ObservedSize, ObservedSHA256: plan.ObservedSHA256,
 			}
 			switch plan.Realization {
-			case "endstate-restore", "home-manager":
+			case modules.RealizationEndstateRestore, modules.RealizationHomeManager:
 				flags.linuxConfigFiles = append(flags.linuxConfigFiles, file)
 			}
 		}

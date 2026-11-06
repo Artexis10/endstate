@@ -49,6 +49,9 @@ type configCatalogSnapshot struct {
 	resolver        *planner.CompatibilityResolver
 	diagnostics     []modules.CatalogDiagnostic
 	homeAuthorities map[string]hmregistry.Authority
+	// homeAuthorityErr records an unreadable registry or package catalog: the
+	// writer's availability is unknown, which differs from a writer that is absent.
+	homeAuthorityErr error
 }
 
 type configRestoreRuntime struct {
@@ -382,7 +385,7 @@ func (runtime *configRestoreRuntime) processPatterns(moduleID string) []string {
 }
 
 // pinHomeAuthorities reuses the reviewed join against current trusted catalog
-// bytes. A missing registry leaves only the Home Manager consumer unavailable.
+// bytes. An unreadable registry leaves only the Home Manager consumer unusable.
 func (snapshot *configCatalogSnapshot) pinHomeAuthorities(repoRoot string) {
 	if snapshot.homeAuthorities != nil {
 		return
@@ -390,15 +393,17 @@ func (snapshot *configCatalogSnapshot) pinHomeAuthorities(repoRoot string) {
 	snapshot.homeAuthorities = map[string]hmregistry.Authority{}
 	registry, err := hmregistry.Load(filepath.Join(repoRoot, "catalog", "home-manager", "registry.jsonc"))
 	if err != nil {
+		snapshot.homeAuthorityErr = err
 		return
 	}
 	packages, err := packagecatalog.Load(filepath.Join(repoRoot, "catalog", "packages"))
 	if err != nil {
+		snapshot.homeAuthorityErr = err
 		return
 	}
 	authored := map[string]*modules.Module{}
 	for id, mod := range snapshot.modules {
-		if mod.SourceSchemaVersion != 3 || mod.Realization != "home-manager" {
+		if mod.SourceSchemaVersion != 3 || mod.Realization != modules.RealizationHomeManager {
 			continue
 		}
 		current, err := modules.ParseModuleJSON(mod.CanonicalSnapshot())
@@ -419,7 +424,7 @@ func (runtime *configRestoreRuntime) hasHomeManagerSources() bool {
 	}
 	for _, source := range runtime.inputs.generationSources {
 		mod := runtime.catalog.modules[source.source.ModuleID]
-		if source.selected && mod != nil && mod.Realization == "home-manager" {
+		if source.selected && mod != nil && mod.Realization == modules.RealizationHomeManager {
 			return true
 		}
 	}

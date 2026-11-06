@@ -58,7 +58,7 @@ func NewCompatibilityResolver(catalog map[string]*modules.Module, diagnostics []
 		if current.SourceSchemaVersion != 3 {
 			pinned.platform = "windows"
 			// Schema-v1/v2 fixes the legacy Windows writer to direct restore.
-			pinned.settingsStrategy = "endstate-restore"
+			pinned.settingsStrategy = modules.RealizationEndstateRestore
 		}
 		if current.Config != nil {
 			pinned.instanceDetectors = append([]modules.InstanceDetectorDef(nil), current.Config.InstanceDetectors...)

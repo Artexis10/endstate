@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"runtime"
-	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -36,6 +34,10 @@ func prepareApplyHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer
 		return home, nil
 	}
 	if _, ok := r.(realizer.HomeActivator); !ok {
+		return home, nil
+	}
+	if _, ok := r.(realizer.HomeObserver); !ok {
+		// A backend that cannot observe ownership has no Home Manager consumer.
 		return home, nil
 	}
 	if home == nil {
@@ -95,8 +97,13 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 		}
 		home.capturedStages = append(home.capturedStages, item.stage)
 		set := &plan.Sets[item.setIndex]
+		if home.capturedPreparationError != nil || session.runtime.catalog.homeAuthorityErr != nil {
+			// An unreadable ownership state or registry is a failed observation, not a missing writer.
+			markConfigRestoreFailure(set, planner.ReasonTargetDetectionFailed, planner.StatusFailed)
+			continue
+		}
 		authority, supported := session.runtime.catalog.homeAuthorities[set.Source.ModuleID]
-		if !supported || authority.ConfigSetID != planner.TargetConfigSetID(*set) || authority.GenerationID != set.Resolution.TargetGeneration || home.capturedPreparationError != nil {
+		if !supported || authority.ConfigSetID != planner.TargetConfigSetID(*set) || authority.GenerationID != set.Resolution.TargetGeneration {
 			markConfigRestoreFailure(set, planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
 			continue
 		}
@@ -166,9 +173,7 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 	}
 	if advanced || home.ownershipAction != nil {
 		for _, index := range indices {
-			set := &plan.Sets[index]
-			set.ExecutionRemediation = "Import " + generatedHomeModulePath(ref) + " into the owning Home Manager configuration, then activate it."
-			markConfigRestoreFailure(set, planner.ReasonHomeManagerImportRequired, planner.StatusSkipped)
+			markCapturedImportRequired(&plan.Sets[index], ref)
 		}
 		if !advanced {
 			home.flake, home.generated = ref, true
@@ -211,7 +216,7 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 			}
 		}
 	}
-	home.flake, home.generated, home.composed = ref, true, true
+	home.flake, home.generated = ref, true
 	home.resolution, home.flatTargets, home.fileExpectations = prepared.Resolution, prepared.FlatTargets, nativeExpectations
 	home.capturedFiles = expectations
 	return home.flatTargets
@@ -233,6 +238,11 @@ func finalizeCapturedHomeManager(session *configRestoreExecutionSession, home *p
 			switch {
 			case blocked:
 				markConfigRestoreFailure(set, planner.ReasonTargetCollision, planner.StatusFailed)
+			case home.ownershipAction != nil:
+				// An external owner found at the pre-activation check owns the file placement.
+				markCapturedImportRequired(set, home.flake)
+			case !home.activationAttempted:
+				// Never attempted: the row stays planned, as in the restore stage's other early returns, instead of reporting a failed write.
 			case !activated:
 				markConfigRestoreFailure(set, planner.ReasonCommitFailed, planner.StatusFailed)
 			default:
@@ -253,13 +263,7 @@ func finalizeCapturedHomeManager(session *configRestoreExecutionSession, home *p
 	return NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems), envErr
 }
 
-// Captured declarations stay in ConfigCaptures. Frozen output identity supports
-// rollback; disposable source paths cannot become recoverable settings intent.
-func capturedHomeReference(home *preparedHomeManager, generation int) *provision.HomeGenRef {
-	_, name, _ := strings.Cut(home.flake, "#")
-	ref := &provision.HomeGenRef{Kind: "config", Platform: runtime.GOOS, System: nix.System(), Generated: true, Flake: home.flake, Generation: generation, ConfigIdentity: name, Resolution: home.resolution, FileExpectations: home.fileExpectations}
-	if home.resolution != nil && len(home.resolution.Outputs) == 1 {
-		ref.ActivationOutput = home.resolution.OutputPaths[home.resolution.Outputs[0]]
-	}
-	return ref
+func markCapturedImportRequired(set *planner.PlanSet, flake string) {
+	set.ExecutionRemediation = "Import " + generatedHomeModulePath(flake) + " into the owning Home Manager configuration, then activate it."
+	markConfigRestoreFailure(set, planner.ReasonHomeManagerImportRequired, planner.StatusSkipped)
 }
