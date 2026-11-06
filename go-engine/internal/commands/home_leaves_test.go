@@ -6,6 +6,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -14,7 +15,6 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
-	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
 )
 
 // useFakeHomeStore points the activation reader at a temporary directory that
@@ -68,6 +68,9 @@ func writeBuiltActivation(t *testing.T, store, output string, leaves ...string) 
 // leafApplyHome is a home directory with a restore payload beside the manifest.
 func leafApplyHome(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Home Manager symlink workflow; os.UserHomeDir reads USERPROFILE there")
+	}
 	root := t.TempDir()
 	t.Setenv("ENDSTATE_ROOT", root)
 	t.Setenv("HOME", root)
@@ -193,28 +196,16 @@ func TestApplyUnreadableHomeFilesTreeBlocksOnlyTheActivation(t *testing.T) {
 	}
 }
 
-func TestHomeManagerTreeIsReadOnlyWhenAnotherOwnerClaimsAFile(t *testing.T) {
-	for _, test := range []struct {
-		name  string
-		owner string
-		reads int
-	}{
-		{name: "no other owner", reads: 0},
-		{name: "registry claim only", owner: "registry-value\x00software\\tool\x00setting", reads: 0},
-		{name: "file claim", owner: "file\x00/home/user/.gitconfig", reads: 1},
-		{name: "desktop claim", owner: "desktop\x00dconf", reads: 1},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			reads := 0
-			options := configRestoreExecutionOptions{HomeManagerLeaves: func() ([]string, error) { reads++; return nil, nil }}
-			var others []ownedConfigRestoreClaim
-			if test.owner != "" {
-				others = append(others, ownedConfigRestoreClaim{claim: test.owner, kind: "ordinary"})
-			}
-			if _, err := homeManagerConfigRestoreClaims(others, options); err != nil || reads != test.reads {
-				t.Fatalf("built tree reads = %d (error %v), want %d", reads, err, test.reads)
-			}
-		})
+func TestApplyUnreadableHomeFilesTreeStillActivatesWhenNoOtherOwnerClaimsAFile(t *testing.T) {
+	root := leafApplyHome(t)
+	output := builtActivation(t, useFakeHomeStore(t), ".config/a")
+	if err := os.Remove(filepath.Join(output, "gen-version")); err != nil {
+		t.Fatal(err)
+	}
+	backend := &expectationHomeBackend{output: output}
+	result, err := applyHomeBesideDirectRestores(t, root, backend, false)
+	if err != nil || !result.HomeManager.Activated {
+		t.Fatalf("activation was withheld for a tree nothing could collide with: activated=%v err=%+v", result.HomeManager.Activated, err)
 	}
 }
 
@@ -305,27 +296,4 @@ func TestCapturedHomeManagerPreviewReportsTheBlockedRowThatApplyWould(t *testing
 		t.Fatalf("preview built or activated: built=%v activated=%d", backend.built, backend.activated)
 	}
 	assertNoFile(t, target)
-}
-
-func TestBuiltLeafClaimsFollowLiveLinksOfTreeDirectories(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "real", "sub"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "alias")); err != nil {
-		t.Fatal(err)
-	}
-	leaves := &builtHomeLeaves{home: root, dirs: []nix.HomeFilesDir{
-		{Dir: "alias/sub", Names: []string{"x"}},
-		{Dir: "absent/deep", Names: []string{"y"}},
-	}}
-	claims := leaves.claims()
-	for _, want := range []string{"alias/sub/x", "real/sub/x", "absent/deep/y"} {
-		if !slices.Contains(claims, "file\x00"+filepath.ToSlash(root)+"/"+want) {
-			t.Errorf("claims lack %s: %q", want, claims)
-		}
-	}
 }

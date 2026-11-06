@@ -991,7 +991,8 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 func homeManagerConfigRestoreClaims(others []ownedConfigRestoreClaim, options configRestoreExecutionOptions) ([]string, error) {
 	if options.HomeManagerLeaves != nil {
 		for _, other := range others {
-			if strings.HasPrefix(other.claim, "file\x00") || strings.HasPrefix(other.claim, "desktop\x00") {
+			// A registry claim never overlaps a file leaf; every other claim kind may.
+			if !isRegistryConfigRestoreClaim(other.claim) {
 				return options.HomeManagerLeaves()
 			}
 		}
@@ -1031,11 +1032,13 @@ func concreteConfigRestoreClaim(action configrestore.Action) string {
 	return "file\x00" + strings.TrimSuffix(claim, "/")
 }
 
+func isRegistryConfigRestoreClaim(claim string) bool { return strings.HasPrefix(claim, "registry-") }
+
 func concreteConfigRestoreClaimsOverlap(left, right string) bool {
 	if strings.HasPrefix(left, "desktop\x00") || strings.HasPrefix(right, "desktop\x00") {
 		return left == right || desktopClaimCoversDatabase(left, right) || desktopClaimCoversDatabase(right, left)
 	}
-	if strings.HasPrefix(left, "registry-") || strings.HasPrefix(right, "registry-") {
+	if isRegistryConfigRestoreClaim(left) || isRegistryConfigRestoreClaim(right) {
 		return registryConfigRestoreClaimsOverlap(left, right)
 	}
 	left = strings.TrimPrefix(left, "file\x00")

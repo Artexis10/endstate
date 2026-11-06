@@ -6,9 +6,11 @@ package nix
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -16,11 +18,15 @@ import (
 const StoreRoot = "/nix/store"
 
 // MaxHomeEntries bounds only Endstate's own read of a built home-files tree. A
-// wrong refusal withholds a whole activation, so it sits well above any realistic
-// recursive tree. Measured on a generated fixture of 100,000 leaves in 1,000
-// directories: about 0.1 s to read the tree, 0.2 s to map the leaves to claims and
-// 0.3 s to check them against 20 other owners, so the bound costs about 3 s.
+// wrong refusal withholds a whole activation, so it sits about five times above a
+// generated tree of 100,000 leaves in 1,000 directories. Measured outside the
+// repo, the read, the claim mapping and the check against 20 other owners took
+// under one second together for that tree, so the bound costs a few seconds.
 const MaxHomeEntries = 500_000
+
+// readChunk caps what one directory read loads, so the bound also stops a single
+// flat directory of millions of entries before it is loaded whole.
+const readChunk = 4096
 
 // HomeFilesDir lists the leaves that one real directory of a built home-files
 // tree holds. Dir is a slash path below the home directory; "" is home itself.
@@ -30,7 +36,8 @@ type HomeFilesDir struct {
 }
 
 // ErrHomeFilesTooLarge reports a tree that exceeds the entry bound. Root names
-// the home subtree that held the most entries when the bound was crossed.
+// the deepest home subtree that held more than half of the entries counted when
+// the bound was crossed.
 type ErrHomeFilesTooLarge struct {
 	Root  string
 	Limit int
@@ -66,8 +73,7 @@ func ReadHomeFiles(output, storeRoot string, limit int) ([]HomeFilesDir, error) 
 	if err != nil {
 		return nil, fmt.Errorf("read Home Manager files link: %w", err)
 	}
-	slashTarget := filepath.ToSlash(target)
-	if path.Clean(slashTarget) != slashTarget || path.Dir(slashTarget) != filepath.ToSlash(storeRoot) {
+	if !storePathIn(filepath.ToSlash(target), filepath.ToSlash(storeRoot)) {
 		return nil, fmt.Errorf("%w: home-files does not link a store path", errHomeFilesFormat)
 	}
 
@@ -78,46 +84,62 @@ func ReadHomeFiles(output, storeRoot string, limit int) ([]HomeFilesDir, error) 
 	for len(pending) > 0 {
 		dir := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
-		children, err := os.ReadDir(filepath.Join(target, filepath.FromSlash(dir)))
+		handle, err := os.Open(filepath.Join(target, filepath.FromSlash(dir)))
 		if err != nil {
 			return nil, fmt.Errorf("read Home Manager files tree: %w", err)
 		}
-		entries += len(children)
-		counts[declarationRoot(dir)] += len(children)
-		if entries > limit {
-			return nil, &ErrHomeFilesTooLarge{Root: largestRoot(counts), Limit: limit}
-		}
-		names := make([]string, 0, len(children))
-		for _, child := range children {
-			if child.IsDir() {
-				pending = append(pending, path.Join(dir, child.Name()))
-				continue
+		var names []string
+		for done := false; !done; {
+			children, err := handle.ReadDir(readChunk)
+			done = err == io.EOF
+			if err != nil && !done {
+				_ = handle.Close()
+				return nil, fmt.Errorf("read Home Manager files tree: %w", err)
 			}
-			names = append(names, child.Name())
+			entries += len(children)
+			addEntries(counts, dir, len(children))
+			if entries > limit {
+				_ = handle.Close()
+				return nil, &ErrHomeFilesTooLarge{Root: deepestMajorityRoot(counts, entries), Limit: limit}
+			}
+			for _, child := range children {
+				if child.IsDir() {
+					pending = append(pending, path.Join(dir, child.Name()))
+					continue
+				}
+				names = append(names, child.Name())
+			}
 		}
+		_ = handle.Close()
 		if len(names) > 0 {
+			slices.Sort(names)
 			result = append(result, HomeFilesDir{Dir: dir, Names: names})
 		}
 	}
 	return result, nil
 }
 
-// declarationRoot groups a directory by its first two path components. The built
-// tree does not record which declaration created a directory, so this names a
-// place the user can find in their configuration.
-func declarationRoot(dir string) string {
-	parts := strings.SplitN(dir, "/", 3)
-	if len(parts) > 2 {
-		parts = parts[:2]
+// addEntries adds a directory's entries to the count of the directory and of each
+// of its ancestors, so a count is the number of entries below that directory.
+func addEntries(counts map[string]int, dir string, n int) {
+	for {
+		counts[dir] += n
+		if dir == "" {
+			return
+		}
+		dir = dir[:max(strings.LastIndex(dir, "/"), 0)]
 	}
-	return strings.Join(parts, "/")
 }
 
-func largestRoot(counts map[string]int) string {
-	root, most := "", -1
-	for candidate, count := range counts {
-		if count > most || (count == most && candidate < root) {
-			root, most = candidate, count
+// deepestMajorityRoot names the deepest directory that holds more than half of the
+// counted entries. Those directories nest, so the longest path is the deepest. The
+// built tree does not record which declaration created a directory; this names the
+// place where most of a runaway tree sits, which is where the user can look first.
+func deepestMajorityRoot(counts map[string]int, total int) string {
+	root := ""
+	for dir, count := range counts {
+		if count*2 > total && len(dir) > len(root) {
+			root = dir
 		}
 	}
 	if root == "" {

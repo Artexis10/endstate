@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -17,6 +18,9 @@ import (
 // the files tree, and an output that links it with the given format version.
 func builtActivation(t *testing.T, version string, build func(files string)) (output, store string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("a built activation package is a POSIX symlink layout")
+	}
 	root := t.TempDir()
 	store = filepath.Join(root, "store")
 	files := filepath.Join(store, "hash-home-manager-files")
@@ -113,16 +117,19 @@ func TestReadHomeFilesRefusesUnknownLayouts(t *testing.T) {
 	}
 }
 
-func TestReadHomeFilesBoundNamesTheBusiestRoot(t *testing.T) {
+func TestReadHomeFilesBoundNamesTheDirectoryThatHoldsMostEntries(t *testing.T) {
+	// A recursive root splits into variant directories: no single variant holds most
+	// entries, so the message must name the root that holds them all.
 	output, store := builtActivation(t, "1", func(files string) {
-		writeLeaf(t, filepath.Join(files, ".bashrc"))
-		for i := 0; i < 6; i++ {
-			writeLeaf(t, filepath.Join(files, ".config", "bulk", "deep", fmt.Sprintf("f%d", i)))
+		for _, variant := range []string{"a", "b", "c", "d"} {
+			for i := 0; i < 50; i++ {
+				writeLeaf(t, filepath.Join(files, ".vim", variant, fmt.Sprintf("f%d", i)))
+			}
 		}
 	})
-	_, err := ReadHomeFiles(output, store, 5)
+	_, err := ReadHomeFiles(output, store, 120)
 	var tooLarge *ErrHomeFilesTooLarge
-	if !errors.As(err, &tooLarge) || !strings.Contains(err.Error(), "~/.config/bulk") {
-		t.Fatalf("bound error does not name the declaration root: %v", err)
+	if !errors.As(err, &tooLarge) || tooLarge.Root != "~/.vim" {
+		t.Fatalf("bound error does not name the root that holds most entries: %v", err)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
+	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
 const SchemaVersion = 1
@@ -193,7 +194,7 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 		case needsAuthority:
 			row.Status = StatusAdapterRequired
 			// The runtime refuses this variant with the same reason.
-			row.Reason = "settings_strategy_unavailable"
+			row.Reason = planner.ReasonSettingsStrategyUnavailable.String()
 		case hasLinuxVariant:
 			row.Status = StatusAdapterRequired
 			row.Reason = "Linux variant does not cover the Windows capture and restore surface."

@@ -505,7 +505,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			if preparedHome.ownershipAction != nil {
 				emitter.EmitItem(preparedHome.flake, driverName, "action_required", "external_home_manager", preparedHome.ownershipAction.Message, "home-manager")
 			} else if homeBlocked != "" {
-				emitter.EmitItem(preparedHome.flake, driverName, "failed", homeBlocked.String(), homeManagerBlockMessage(homeBlocked, preparedHome.blockDiagnostic()), "home-manager")
+				emitter.EmitItem(preparedHome.flake, driverName, "failed", homeBlocked.String(), homeManagerBlockMessage(homeBlocked), "home-manager")
 			} else {
 				emitter.EmitItem(preparedHome.flake, driverName, "would_configure", "dry_run", "Would activate home-manager configuration", "home-manager")
 			}
@@ -802,7 +802,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			}
 		} else if homeBlocked != "" {
 			emitter.EmitPhase("config")
-			emitter.EmitItem(flake, driverName, "failed", homeBlocked.String(), homeManagerBlockMessage(homeBlocked, preparedHome.blockDiagnostic()), "home-manager")
+			emitter.EmitItem(flake, driverName, "failed", homeBlocked.String(), homeManagerBlockMessage(homeBlocked), "home-manager")
 			emitter.EmitSummary("config", 1, 0, 0, 1)
 			homeResult = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: false}
 		} else {
@@ -883,14 +883,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 
 // homeManagerBlockMessage and homeManagerBlockError report why the selected Home
 // Manager activation did not run: a known overlap, or a built tree that could not
-// be checked. Both name the stable reason; a diagnostic names the unreadable tree.
-func homeManagerBlockMessage(reason planner.ResolutionReason, diagnostic string) string {
+// be checked. Both name the stable reason; the raw read error stays in error.detail.
+func homeManagerBlockMessage(reason planner.ResolutionReason) string {
 	if reason == planner.ReasonTargetDetectionFailed {
-		message := "Home-manager targets could not be checked against another selected settings writer"
-		if diagnostic != "" {
-			message += ": " + diagnostic
-		}
-		return message
+		return "Home-manager targets could not be checked against another selected settings writer"
 	}
 	return "Home-manager targets overlap another selected settings writer"
 }
