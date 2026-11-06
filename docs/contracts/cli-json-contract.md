@@ -1061,9 +1061,17 @@ When the manifest uses `homeManager.config`, the engine generates a wrapper flak
 ```
 
 - **Engine-generated and pinned.** The engine renders a `flake.nix` that pins `nixpkgs` (`ENDSTATE_NIXPKGS_PIN`) and `home-manager` (`ENDSTATE_HOME_MANAGER_PIN`, with `nixpkgs` following), pins `pkgs` to the host system, and injects the machine identity — `home.username`, `home.homeDirectory`, and `home.stateVersion` (the last overridable via `ENDSTATE_HM_STATE_VERSION`) — so the user's `home.nix` never hardcodes machine-specific values.
-- **Inspectable + ejectable.** The generated flake is written in plain, commented form to a stable engine-state location (`state/home-manager/<name>/`, where `<name>` is the current user). The user's `home.nix` is **copied in** beside the generated `flake.nix` and referenced as `./home.nix` (a flake evaluates in pure mode, which forbids an absolute path outside the flake tree), so the directory is a self-contained flake a power user can take over and run by hand (`nix run home-manager -- switch --flake <that dir>`). It persists after the run for inspection; the user's `home.nix` is the source of truth and the flake is regenerated each apply.
+- **Inspectable and importable.** Each generated flake has a distinct persistent directory below `state/home-manager/<name>/`. The engine copies the source configuration into `home.nix`. The shared `default.nix` entry imports that file and any generated secret references. The generated flake and an external owner use that same entry. Later generation preserves earlier modules and staged payloads.
 - **Recorded under the generated flakeref.** A successful activation records the generated `<dir>#<name>` flakeref (and the resulting home-manager generation) in the Provisioning Generation, exactly as a direct `homeManager.flake` is recorded.
 - **`--dry-run` reveals without activating.** On `--dry-run` the engine still generates the inspectable flake and reports it in the apply result (`homeManager.generated: true`, `homeManager.activated: false`), but activates nothing.
+
+Generated directories remain after successful generation, including dry runs and external ownership actions. Retention uses disk space; the engine does not prune imports that an external owner might still use. A failed generation removes only its incomplete directory and returns no import path.
+
+Each fresh directory resolves its own lock. Release defaults use immutable inputs; advanced mutable input overrides resolve again for each artifact. The engine does not copy an earlier lock.
+
+The `modulePath` in an external ownership action identifies `default.nix`. Import that entry to include staged payloads and optional secret references. The owner keeps control of its source graph and activation. Pure owner flakes can declare the generated directory as a non-flake input and import its entry through that input.
+
+The `homeManager.config` wrapper copies one configuration file. It does not relocate that file's relative imports or other source-graph dependencies. This limit does not affect files that `homeManager.settings.files` explicitly stages.
 
 The apply result carries a `homeManager` object when the config stage runs: `{ "flake": "<flakeref>", "generated": <bool>, "activated": <bool> }` — `generated` is `true` for an engine-generated input (`homeManager.settings` or `homeManager.config`) and `false` for a direct `homeManager.flake`; `activated` is `false` on `--dry-run`. (Optional, omitted when no config stage runs; additive in schema 1.x.)
 
