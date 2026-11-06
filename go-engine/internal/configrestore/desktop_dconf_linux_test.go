@@ -5,7 +5,6 @@ package configrestore
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -17,8 +16,9 @@ import (
 const dconfClockKey = "/org/gnome/desktop/interface/clock-show-date"
 
 // A crash after `dconf write` leaves the pinned value behind. Recovery must reset
-// the key to absence, and it must stop, not guess, when the session is gone or
-// another owner has since written a third value.
+// the key to absence through the journaled dconf scope, which the real backend
+// must reproduce after a restart. TestDesktopInterruptedMutationRecovery covers
+// the stops for a missing boundary, a third value, and a changed scope.
 func TestTypedValueTransactionRecoversInterruptedMutation(t *testing.T) {
 	session := dconftest.New(t)
 	ctx := desktopsettings.WithBackend(context.Background(), dconf.New(session.Host()))
@@ -69,23 +69,6 @@ func TestTypedValueTransactionRecoversInterruptedMutation(t *testing.T) {
 	if err := guard.Close(); err != nil {
 		t.Fatal(err)
 	}
-
-	// No session: recovery stops and leaves the value alone.
-	session.NoBus = true
-	if unexpected, err := BeginLive(ctx, state, "no-session", nil); unexpected != nil || !errors.Is(err, ErrRecoveryRequired) {
-		t.Fatalf("recovery without a session bypassed its stop: %v %v", unexpected, err)
-	}
-	session.NoBus = false
-
-	// A third value is another owner's: recovery stops without overwriting it.
-	session.Values[dconfClockKey] = "true"
-	if unexpected, err := BeginLive(ctx, state, "third-value", nil); unexpected != nil || !errors.Is(err, ErrRecoveryRequired) || !errors.Is(err, desktopsettings.ErrConflict) {
-		t.Fatalf("recovery over a third value bypassed its stop: %v %v", unexpected, err)
-	}
-	if session.Values[dconfClockKey] != "true" || session.Writes != 1 {
-		t.Fatalf("recovery overwrote another owner: %v writes=%d", session.Values, session.Writes)
-	}
-	session.Values[dconfClockKey] = "false"
 
 	recovered, err := BeginLive(ctx, state, "recover-clock", nil)
 	if err != nil {
