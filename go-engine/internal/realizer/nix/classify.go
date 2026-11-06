@@ -51,7 +51,7 @@ func classify(exitCode int, p parsedLog, generationAdvanced bool) *realizer.Erro
 	raw := strings.Join(p.errorMsgs, "\n")
 
 	if exitCode < 0 {
-		return &realizer.Error{Code: envelope.ErrRealizerUnavailable, Subcode: "spawn", Stage: "spawn", Raw: raw}
+		return &realizer.Error{Code: envelope.ErrRealizerUnavailable, Subcode: realizer.SubcodeSpawn, Stage: "spawn", Raw: raw}
 	}
 	if exitCode == 0 && generationAdvanced {
 		return nil

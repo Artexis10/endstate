@@ -6,9 +6,13 @@ package discovery
 import (
 	"context"
 	"errors"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	realizernix "github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
 )
 
 type inventoryRealizer struct {
@@ -61,6 +65,24 @@ func TestRealizerInventoryAdapterScopesUnavailableAndReadFailures(t *testing.T) 
 	_, err := (RealizerInventoryAdapter{Realizer: inventoryRealizer{err: want}}).Inventory(context.Background())
 	if !errors.Is(err, want) {
 		t.Fatalf("read error = %v, want wrapped %v", err, want)
+	}
+}
+
+// A missing Nix executable is the machine's state, not a profile read failure.
+func TestRealizerInventoryAdapterReportsMissingNixAsNotAvailable(t *testing.T) {
+	missingNix := &realizernix.Backend{
+		Profile: filepath.Join(t.TempDir(), "profile"),
+		Run: func(...string) ([]byte, []byte, int, error) {
+			return nil, nil, -1, &exec.Error{Name: "nix", Err: exec.ErrNotFound}
+		},
+	}
+	if _, err := (RealizerInventoryAdapter{Realizer: missingNix}).Inventory(context.Background()); !errors.Is(err, ErrNotAvailable) {
+		t.Fatalf("missing nix error = %v, want not available", err)
+	}
+	// Nix was found and reported a different classified failure.
+	denied := &realizer.Error{Code: envelope.ErrPermissionDenied, Subcode: "permission", Stage: "spawn"}
+	if _, err := (RealizerInventoryAdapter{Realizer: inventoryRealizer{err: denied}}).Inventory(context.Background()); err == nil || errors.Is(err, ErrNotAvailable) {
+		t.Fatalf("classified read failure = %v, want a source failure", err)
 	}
 }
 

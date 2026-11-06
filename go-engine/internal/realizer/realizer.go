@@ -189,6 +189,17 @@ func (e *Error) Error() string {
 	return string(e.Code)
 }
 
+// SubcodeSpawn marks a failure to start the backend executable at all.
+const SubcodeSpawn = "spawn"
+
+// IsSpawnFailure reports whether err says the backend executable is missing or
+// unrunnable. A backend that ran and failed is a different failure.
+func IsSpawnFailure(err error) bool {
+	var failure *Error
+	return errors.As(err, &failure) && failure != nil &&
+		failure.Code == envelope.ErrRealizerUnavailable && failure.Subcode == SubcodeSpawn
+}
+
 // Realizer is a whole-set, declarative package backend. It owns PACKAGES ONLY;
 // configuration restore/verify remain separate pipeline stages.
 type Realizer interface {

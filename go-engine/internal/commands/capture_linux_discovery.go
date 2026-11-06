@@ -56,6 +56,18 @@ func (d *discoveryCaptureRealizer) Realize([]realizer.Installable) (realizer.Res
 	return realizer.Result{}, fmt.Errorf("discovery capture realizer cannot realize")
 }
 
+// endstateProfileAbsent reports whether this run found no Endstate-managed
+// profile to read, such as on a machine without a Nix executable. A source this
+// run did not report is not absent, so the compatibility path keeps its meaning.
+func endstateProfileAbsent(sources []discovery.SourceStatus) bool {
+	for _, source := range sources {
+		if source.ID == (discovery.RealizerInventoryAdapter{}).ID() {
+			return source.State == discovery.SourceNotAvailable
+		}
+	}
+	return false
+}
+
 // runCaptureLinux makes ordinary-machine discovery the Linux entry point. The
 // existing Endstate profile remains the compatibility path until its evidence
 // is reconciled into the same discovery result.
@@ -68,7 +80,7 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 	}, r)
 	emitter.EmitDiscoverySources(result.Sources)
 	if err != nil {
-		if r != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		if r != nil && !endstateProfileAbsent(result.Sources) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			fallback := discovery.Result{
 				SchemaVersion: discovery.SchemaVersion,
 				Sources:       result.Sources, Resolved: []discovery.ResolvedIntent{},
@@ -138,8 +150,9 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 	}
 
 	// Preserve the current Nix-profile behavior byte-for-byte when ordinary
-	// discovery has not yet contributed a resolved intent.
-	if len(result.Resolved) == 0 && r != nil {
+	// discovery has not yet contributed a resolved intent and the profile can be
+	// read. Without a profile, the ordinary result below is the whole capture.
+	if len(result.Resolved) == 0 && r != nil && !endstateProfileAbsent(result.Sources) {
 		raw, captureErr := runCaptureRealizerSelected(flags, r, emitter, realizerCaptureSelection{nix: true})
 		if captureErr == nil {
 			raw.(*CaptureResult).Discovery = &result
