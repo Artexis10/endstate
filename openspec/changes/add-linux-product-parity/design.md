@@ -597,7 +597,9 @@ The schema remains authority metadata; two schemas that own the same backing
 key conflict. Bind private transaction snapshots to the resolved user backend
 and profile namespace. Keep ephemeral process and bus identifiers outside that
 stable scope. The first native implementation supports proven fallback
-`user-db:user`. Establish the actual dconf backend and prove that every profile
+`user-db:user`. Treat an activatable `ca.desrt.dconf` writer as the dconf backend; session
+clients on another GSettings backend are outside this proof, and the real-session
+gate covers each supported tier. Prove that every profile
 override candidate for the supported runtime is absent. Bind the user ID and
 GLib-resolved configuration directory's `dconf/user` namespace. Custom or service
 profiles remain unavailable until their resolution has a supported implementation;
@@ -615,43 +617,65 @@ The first packet implements tasks 10.1–10.3 through the concrete preference's
 generation, capture payload, detector boundary, collision checks, and standalone
 verifier with an injected hermetic backend. Production desktop detection remains
 unavailable and capabilities remain dark. This proves transaction integration,
-not native behavior. Leave tasks 10.4, 10.5, and 10.9 open; add no helper or unused
+not native behavior. Leave tasks 10.4, 10.5, and 10.9 open; add no native backend or unused
 KDE fields to this packet.
 
-Use maintained GIO and libdconf APIs through a small packaged native helper.
-The helper performs one-key inspection, typed read/write/reset,
-and synchronization; Go owns authorization and transaction control.
-[GIO user-value reads](https://docs.gtk.org/gio/method.Settings.get_user_value.html)
-distinguish supported overrides from inherited defaults, including locked values.
-GIO filters stored values through the schema and can hide a wrong-type value as
-absence. First use libdconf's raw `DCONF_READ_USER_VALUE` operation and check the
-stored type. Unsupported raw state prevents mutation; it never becomes absence.
-The [dconf command](https://github.com/GNOME/dconf/blob/master/bin/dconf.c)
-offers effective and default reads, which cannot prove that distinction.
-The helper uses typed boolean access and json-glib, with no custom JSON or
-GVariant text parser. Direct maintained C APIs avoid an unsupported DConf
-introspection binding and a custom foreign-function layer.
+Use the maintained `dconf` command for user-value reads, writes, and resets,
+and `gsettings` only for schema introspection. Go owns probes, authorization,
+and transaction control. Add no native helper. Under the proven fallback
+profile, the user database is the only source, so `dconf read` returns exactly
+the user override or nothing. Accept only `true`, `false`, or no output; any
+other output is unsupported raw state and never becomes absence. Write with
+`dconf write` and reset with `dconf reset`; both wait for the writer's reply and
+report its failure. Do not write through `gsettings`, because it reports a
+failed commit only as a warning. Prove with `gsettings range` and
+`list-schemas --print-paths` that the installed schema types the key as boolean
+at the declared path. Confirm the fallback through dconf itself: `dconf read -d`
+for the key and `dconf list-locks` for its directory must print nothing; any
+output reports the profile unsupported. A write that fails on the client side
+can still commit after rollback has read the prior value; a later verify sees
+the committed value. A GIO or libdconf helper would use the same engine, need
+the same probes, and add per-architecture builds without extra supported scope.
+A direct GVDB reader would add a third parser that can disagree with the session.
 
-This adds architecture-specific helper builds and GIO, libdconf, and json-glib
-runtime dependencies for GNOME. Keep the Go engine's CGO-free build. Probe the
-selected runtime explicitly. Missing dependencies or a different backend produce scoped desktop
-unavailability; do not install them or launch a session during discovery.
-Memory/keyfile test backends prove their boundary, never GNOME/dconf promotion.
-The runtime-bundle packet owns helper builds, installation, lookup, and native
-architecture/linkage evidence. This cost supplies exact prior-state reads that
-the command pair and a GIO-only Python helper cannot provide. Load the helper
+dconf's reader and writer share one GVDB implementation, so a fresh read returns
+what session clients load from disk. The writer loads the database once per
+service lifetime and persists that copy on every write, including the entries it
+could read from a damaged table. A database replaced outside that writer,
+including by a writer on another bus, can lose unrelated changes on the next
+write. So a filesystem target at `${xdg.config}/dconf/user` or any parent
+directory conflicts with every GNOME value, as KDE whole-file and parent
+ownership does. A missing user database is absence. An unreadable file, a file
+that is not regular under `Lstat` (a symlink included, because the writer
+replaces links), or a fixed 24-byte header that the dconf writer rejects,
+reports unavailable. Check only that header; do not parse GVDB tables. Damage
+behind an accepted header stays dconf's own risk.
+
+Before each read and write, prove the writer's namespace. Resolve one session
+bus without autolaunch and start `ca.desrt.dconf` by name. Read the owner's user
+ID and process ID from the bus and the process's complete initial environment
+within a fixed bound; a truncated read, or a `/proc` user ID that differs from
+the bus user ID, reports unavailable. Require the same bus owner after reading it. Resolve
+both configuration directories with the existing `${xdg.config}` rule. Require
+the same user and the same directory identity. A relative `XDG_CONFIG_HOME` or
+an unset `HOME` reports unavailable, because GLib and the XDG rule differ there.
+After a write, require the same bus owner. A change fails that mutation and
+reports the writer change; the existing rollback proves the writer again before
+it reads or writes. Never call `Init`. Check every profile candidate for both
+environments; the writer ignores profiles, so its environment stands in for the
+session clients that read through one. Missing commands, bus, or writer give scoped unavailability; do
+not install packages or start a session.  Run `dconf`
+and `gsettings` with the proven `HOME`, `XDG_CONFIG_HOME`, `XDG_RUNTIME_DIR`, and
+bus address, take `XDG_DATA_DIRS` from the writer's environment so a bundled
+schema cannot answer for the session's, and clear `G_MESSAGES_DEBUG`,
+`GSETTINGS_SCHEMA_DIR`, `GSETTINGS_BACKEND`, and `GIO_EXTRA_MODULES`. An unset or relative `XDG_RUNTIME_DIR` reports
+unavailable. Validation mode isolates the
+configuration directory but not the session bus, so this proof is what keeps a
+sandboxed run from writing the user's real database. Load the desktop runtime
 lazily; unrelated reads and old journals need no desktop runtime. An unresolved
-pending desktop mutation retains the existing global mutation stop.
-
-The native boundary is not ready until two read and mutation preconditions are
-resolved. A maintained reader must prove that an existing backing database is
-readable and structurally healthy before raw `NULL` means absence; libdconf
-discards those read errors. A missing database can represent legitimate absence.
-Do not write a GVDB parser. Also prove that the reader and the actual writer
-resolve the same user namespace before mutation. A caller's configuration
-directory can differ from the existing service's directory. Inspect ephemeral
-identities if required, but do not persist them as the stable recovery scope.
-An unreadable database or an unprovable writer scope reports unavailable.
+pending desktop mutation retains the existing global mutation stop. The engine
+stays CGO-free and needs `dconf` and `gsettings` at runtime only. Memory and
+keyfile test backends prove their boundary, never GNOME/dconf promotion.
 
 Build the foundation against that concrete preference's workflow. Prove inherited
 absence, explicit false, content drift, reconciliation, interrupted mutation,

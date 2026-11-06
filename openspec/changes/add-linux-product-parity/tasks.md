@@ -387,10 +387,10 @@ Promotion additionally requires the named real-session script for that desktop.
 Decision 23 binds the first transaction extension to GNOME `clock-show-date`.
 Include generation capture, the desktop detector, collision checks, and standalone
 content verification in its concrete workflow. Preserve version-1 history.
-Keep native helper packaging and real-session promotion as explicit dependent work.
+Keep real-session promotion as explicit dependent work.
 The initial 10.1–10.3 packet uses an injected hermetic backend through that full
-workflow. Production detection stays unavailable; 10.4, 10.5, and 10.9 stay open
-until native database health and reader/writer namespace proof are implemented.
+workflow. Production detection stays unavailable; 10.4 and 10.5 stay open
+until the command boundary, database header check, and writer namespace proof are implemented; 10.9 also requires its real-session runs.
 
 - [x] 10.1 Extend durable configuration transactions with typed target identity, value/absence snapshots, atomic intent/journal state, verification, recovery, and revert
 - [x] 10.2 Define canonical bounded value encodings and stable unavailable/ownership/partial-failure reason codes shared by desktop adapters
@@ -467,7 +467,7 @@ artifacts, promoted desktops/systemd, and readiness policy.
 - [x] 12.3 Move unique durable deferred Linux/macOS roadmap contracts into explicit follow-on OpenSpec changes or non-normative deferred sections, then retire the competing roadmap authority
   - The roadmap's platform section no longer claims the arc is complete or calls its deferred list a durable record. It is non-normative history that names this change as the owner of Linux scope, gates, and readiness claims, and a separate change for macOS. Each deferred item becomes a commitment only when an OpenSpec change adopts it.
 - [x] 12.4 Add byte-stable Ubuntu/Debian, Fedora/RPM, and Arch discovery fixtures/jobs
-  - Independent acceptance at `2e20534` reuses the full passing run at that head; the 15 relevant source, fixture, and workflow files are unchanged. Committed apt/dpkg, RPM, and pacman fixtures cover explicit intent, native versions, dependency exclusion, stable ordering, fixed read-only arguments, malformed rows, and failed, missing, or cancelled queries. The existing `Go Tests` Ubuntu/macOS job runs them unfiltered on every pull request to `main`. This accepts fixture coverage only; native Ubuntu, Fedora, and Arch execution and the required-check setting stay with tasks 12.8, 12.9, and 13.3.
+  - Independent acceptance at `2e20534` reuses the retained local full passing run at that head; the 15 relevant source, fixture, and workflow files are unchanged. Committed apt/dpkg, RPM, and pacman fixtures cover explicit intent, native versions, dependency exclusion, stable ordering, fixed read-only arguments, malformed rows, and failed, missing, or cancelled queries. The existing `Go Tests` Ubuntu/macOS job runs them unfiltered on every pull request to `main`. This accepts fixture coverage only. Tasks 12.8 and 13.3 cover native Ubuntu execution, and task 12.9 gates claims; no task here runs native Fedora or Arch, so this change makes no native Fedora or Arch claim.
 - [ ] 12.5 Make no-Nix/no-Endstate-state capture a required job
 - [ ] 12.6 Ship deterministic Linux runtime bundles containing binary, modules, payload, package catalog, Home Manager registry, and schema identity; make Unix bootstrap install/resolve them
 - [ ] 12.7 Add required shipped-artifact bootstrap/catalog/pin/no-Nix capture smoke on Linux amd64 and arm64

@@ -51,5 +51,5 @@ and all release acceptance requirements remain part of the complete programme.
 - Contract and compatibility documentation must stop presenting substrate support as product parity and must distinguish managed-profile capture from ordinary-machine discovery.
 - CI gains a required parity-readiness gate, distro inventory fixtures, runtime-bundle smoke on Linux amd64/arm64, a required real-Nix/Home Manager Linux smoke, and an end-to-end fresh-machine journey that starts without an Endstate-managed Nix profile.
 - `endstate-gui` requires a separate OpenSpec change for Linux engine bundling, platform-aware onboarding and selection, consent/error presentation, Tauri packaging, updater/signing, and rendered interaction QA.
-- The GNOME value boundary adds a packaged native helper using maintained GIO, libdconf, and json-glib APIs. Architecture builds and runtime dependencies affect GNOME availability; ordinary package capture remains independent.
+- The GNOME value boundary uses the maintained `dconf` and `gsettings` commands with fixed arguments. Their availability affects GNOME availability only; ordinary package capture remains independent.
 - A later `add-macos-product-parity` change will reuse these contracts for Homebrew/Mac App Store discovery, Home Manager/nix-darwin user settings, macOS packaging, and real-Mac validation.
