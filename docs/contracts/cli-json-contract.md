@@ -1478,6 +1478,12 @@ or history (`unreadable`), and conflicting observed identity (`config_drift`).
 An uncertain failed retry can invalidate completion of a previously recorded
 output without claiming that its historical generation is the new native state.
 
+Output identity can establish ownership across native generations. Capture of an
+output-backed declaration requires completion evidence for the observed native
+generation and output. The newest failed record for that output prevents recovery
+of an older success. An uncertain rollback invalidates the known pre-attempt
+completion; its preliminary lookup adds no refusal to explicit rollback.
+
 Apply returns `INPUT_PROVENANCE_UNRESOLVED` before mutation when native evaluation cannot establish an exact target. Committed package state remains recorded when a later configuration stage fails. A provenance write failure returns `PROVENANCE_WRITE_FAILED` with `error.detail.committed: true`; it never reports complete success.
 
 ## Command: `rollback`

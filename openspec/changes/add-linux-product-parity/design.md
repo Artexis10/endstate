@@ -812,6 +812,17 @@ never produce an import instruction. Exact output identity takes precedence;
 generation-only matching remains available only for wholly legacy history.
 Failed activation records invalidate completion, without erasing native ownership.
 
+Ownership and completion use distinct evidence. Output identity may establish
+ownership across native generations. Output-backed declaration recovery requires
+matching native generation and output. The newest failure for that output
+invalidates completion across earlier successful records.
+
+An uncertain rollback invalidates known pre-attempt completion. Cache its
+historical reference before starting rollback, with an exact identity match
+preferred. This preliminary lookup is best-effort; failure adds no refusal to
+explicit rollback. Use the historical target only when no current reference was
+recovered. The record does not assert an unobserved post-attempt identity.
+
 Check ownership before package mutation and again immediately before generated
 activation. A late failure prevents that activation while existing finalization
 retains any committed package work. Use the existing provenance error code with

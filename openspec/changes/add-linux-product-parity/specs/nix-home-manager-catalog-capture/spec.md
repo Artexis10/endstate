@@ -3,6 +3,12 @@
 ### Requirement: Capture records the engine-provisioned home-manager catalog settings
 The engine SHALL recover declared Home Manager catalog settings from matching provisioning provenance. New records SHALL identify the generated configuration and a source manifest with a digest of the declared settings, without embedding the settings payload. For new records, capture SHALL recover settings only when the source declaration matches that digest and the recorded activation still owns the active configuration. Legacy embedded settings SHALL remain readable.
 
+Output-backed declaration recovery SHALL require the observed native generation
+and exact output to match the completion record. The newest failed activation
+record for that output SHALL invalidate its historical completion. Output-only
+ownership across native generations SHALL remain separate from completed
+declaration recovery.
+
 Linux capture SHALL project recovered declarations through selection, sanitization,
 and share boundaries before its first output write. Registry program, package,
 and module associations SHALL identify selected declarations without granting
@@ -41,6 +47,21 @@ selected capture SHALL omit opaque declarations that it cannot scope.
 #### Scenario: Capture then apply re-activates the same settings configuration
 - **WHEN** capture recovers a matching settings declaration and the recipient applies it with configuration enabled
 - **THEN** apply SHALL resolve that declaration through the current immutable-input contract
+
+#### Scenario: A new generation selects an older known output
+- **WHEN** an uncertain failed transition selects an output with an older successful completion record
+- **THEN** capture SHALL NOT treat that older native generation as proof of the selected activation's completion
+- **AND** it SHALL omit the declaration with an unavailable-provenance warning
+
+#### Scenario: Failed completion cannot revive through another generation
+- **WHEN** the newest record for an active output reports a failed activation
+- **THEN** capture SHALL NOT revive an older successful declaration for that output
+- **AND** exact-output provenance MAY still establish native ownership
+
+#### Scenario: Uncertain rollback retains prior completion failure
+- **WHEN** a started rollback has an unreadable result and matching pre-attempt completion provenance is available
+- **THEN** its failure record SHALL invalidate that historical completion without asserting an unobserved post-attempt identity
+- **AND** preliminary lookup failure SHALL NOT add a refusal to an explicitly requested rollback
 
 ### Requirement: Settings capture is best-effort and non-destructive
 Missing, changed, or unreadable source declarations SHALL NOT fabricate settings or export generated machine-local flakes. Capture SHALL report unavailable declaration provenance and continue with independent package and live-settings evidence. Unreadable legacy history SHALL preserve the existing best-effort behavior.
