@@ -101,7 +101,7 @@ func run(ctx context.Context, registryPath, docsPath, sourceRoot, system string,
 		fmt.Println("Home Manager adapter registry matches the pinned docs and source")
 		return nil
 	}
-	if err := writeAtomic(registryPath, refreshed); err != nil {
+	if err := writeAtomic(ctx, registryPath, refreshed); err != nil {
 		return err
 	}
 	fmt.Printf("wrote %s\n", registryPath)
@@ -134,7 +134,7 @@ func gitRevision(ctx context.Context, sourceRoot string) (string, error) {
 	return revision, nil
 }
 
-func writeAtomic(path string, data []byte) (returnErr error) {
+func writeAtomic(ctx context.Context, path string, data []byte) (returnErr error) {
 	directory := filepath.Dir(path)
 	temp, err := os.CreateTemp(directory, ".registry-*.tmp")
 	if err != nil {
@@ -157,6 +157,10 @@ func writeAtomic(path string, data []byte) (returnErr error) {
 		return err
 	}
 	if err := temp.Close(); err != nil {
+		return err
+	}
+	// Staging can outlast cancellation; only a live refresh may commit the file.
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return os.Rename(tempPath, path)
