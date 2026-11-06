@@ -6,9 +6,12 @@ package dconf
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A non-zero exit is data for the caller, and a chatty command must not grow memory or hang.
@@ -37,5 +40,56 @@ func TestReadProcessReportsEffectiveUserAndEnvironment(t *testing.T) {
 	}
 	if _, err := effectiveUID([]byte(strings.Repeat("x\n", 3))); err == nil {
 		t.Fatal("a status without a Uid line was accepted")
+	}
+}
+
+// A stopped bus daemon still accepts connections and never answers. Capture
+// detection has no deadline of its own, so the handshake must end by itself.
+func TestBusConnectorEndsAHandshakeThatNeverAnswers(t *testing.T) {
+	// An abstract socket avoids the filesystem path limit of a long scratch directory.
+	name := fmt.Sprintf("@endstate-dconf-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	listener, err := net.Listen("unix", name)
+	if err != nil {
+		t.Skipf("no abstract unix sockets: %v", err)
+	}
+	defer listener.Close()
+	held := make(chan net.Conn, 1)
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			held <- conn
+		}
+	}()
+	defer func() {
+		select {
+		case conn := <-held:
+			conn.Close()
+		default:
+		}
+	}()
+	done := make(chan error, 1)
+	go func() {
+		conn, err := busConnector(100*time.Millisecond)(context.Background(), "unix:abstract="+name[1:])
+		if err == nil {
+			conn.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a bus that never answered was accepted")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the handshake with a silent bus was not bounded")
+	}
+}
+
+// Profile files are read from XDG_DATA_DIRS, which GLib defaults to these two.
+func TestDataDirProfilesDefaultToTheXDGSystemDirectories(t *testing.T) {
+	ns := namespace{env: map[string]string{}}
+	candidates, err := ns.dataDirProfiles()
+	want := []string{"/usr/local/share/dconf/profile/user", "/usr/share/dconf/profile/user"}
+	if err != nil || strings.Join(candidates, " ") != strings.Join(want, " ") {
+		t.Fatalf("candidates %q, err %v", candidates, err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/configtarget"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
 	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
@@ -237,6 +238,9 @@ func validateGenerationPaths(mod *Module, filePath, setID string, generation *Ge
 			if err := validateModuleHostPath(mod, captureFile.Source); err != nil {
 				return validationError(mod, filePath, DiagnosticCodeForPathError(err), "config set %q generation %q capture.files[%d].source: %v", setID, generation.ID, index, err)
 			}
+			if err := validateNotDconfDatabase(mod, captureFile.Source); err != nil {
+				return validationError(mod, filePath, DiagnosticUnsafePath, "config set %q generation %q capture.files[%d].source: %v", setID, generation.ID, index, err)
+			}
 			if err := validatePortablePath(captureFile.Dest); err != nil {
 				return validationError(mod, filePath, DiagnosticCodeForPathError(err), "config set %q generation %q capture.files[%d].dest: %v", setID, generation.ID, index, err)
 			}
@@ -256,6 +260,9 @@ func validateGenerationPaths(mod *Module, filePath, setID string, generation *Ge
 		if restore.Target != "" {
 			if err := validateModuleHostPath(mod, restore.Target); err != nil {
 				return validationError(mod, filePath, DiagnosticCodeForPathError(err), "config set %q generation %q restore[%d].target: %v", setID, generation.ID, index, err)
+			}
+			if err := validateNotDconfDatabase(mod, restore.Target); err != nil {
+				return validationError(mod, filePath, DiagnosticUnsafePath, "config set %q generation %q restore[%d].target: %v", setID, generation.ID, index, err)
 			}
 		}
 	}
@@ -583,6 +590,25 @@ func validateTemplatePlaceholders(value string) error {
 	withoutMatches := placeholderPattern.ReplaceAllString(value, "")
 	if strings.Contains(withoutMatches, "${") {
 		return &pathValidationError{code: DiagnosticInvalidPlaceholder, detail: "placeholder syntax is malformed"}
+	}
+	return nil
+}
+
+// validateNotDconfDatabase refuses a Linux capture source or restore target that
+// is the dconf user database or a directory above it. The session's dconf writer
+// undoes such a restore, so GNOME settings travel as values, never as whole
+// databases. It judges the authored path in a fixed Linux environment, so a
+// module is valid or not whatever host loads it. A Linux variant authors only
+// engine coordinates (${instance.root} is rejected before this check), so every
+// path resolves. A custom XDG_CONFIG_HOME moves the host's real database, so a
+// path that covers only that one passes here. Plan time still collides a restore
+// target with a planned desktop value there; a capture source gets no such check.
+func validateNotDconfDatabase(mod *Module, authored string) error {
+	if mod.Platform != "linux" {
+		return nil
+	}
+	if configtarget.AuthoredPathCoversDesktopDatabase(authored) {
+		return fmt.Errorf("%q covers the dconf user database; capture and restore GNOME settings as desktop values", authored)
 	}
 	return nil
 }

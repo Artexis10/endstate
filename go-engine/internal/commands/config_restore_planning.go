@@ -80,6 +80,7 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 	moduleIDs := selectedConfigRestoreModuleIDs(sources)
 	targetsByModule := make(map[string][]planner.TargetInstance, len(moduleIDs))
 	failedModules := make(map[string]struct{}, len(evidence.FailedModules))
+	failureDetails := map[string]string{}
 	for moduleID := range evidence.FailedModules {
 		failedModules[moduleID] = struct{}{}
 	}
@@ -108,6 +109,7 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 		if err != nil {
 			targetsByModule[moduleID] = []planner.TargetInstance{}
 			failedModules[moduleID] = struct{}{}
+			failureDetails[moduleID] = sanitizeConfigRestoreDetectionDetail(err.Error())
 			continue
 		}
 		targetsByModule[moduleID] = targets
@@ -118,7 +120,7 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 		targetsByModule,
 		session.runtime.inputs.targetMappings,
 	)
-	applyTargetDetectionFailures(&plan, failedModules)
+	applyTargetDetectionFailures(&plan, failedModules, failureDetails)
 	mergeFilteredConfigRestoreSources(&plan, session.runtime.inputs.generationSources)
 	return plan
 }
@@ -146,7 +148,7 @@ func selectedConfigRestoreModuleIDs(sources []planner.SourceCapture) []string {
 	return moduleIDs
 }
 
-func applyTargetDetectionFailures(plan *planner.ConfigPlan, failedModules map[string]struct{}) {
+func applyTargetDetectionFailures(plan *planner.ConfigPlan, failedModules map[string]struct{}, details map[string]string) {
 	if plan == nil || len(failedModules) == 0 {
 		return
 	}
@@ -166,6 +168,7 @@ func applyTargetDetectionFailures(plan *planner.ConfigPlan, failedModules map[st
 			}
 		}
 		reason := planner.ReasonTargetDetectionFailed
+		set.DetectionDetail = details[set.Source.ModuleID]
 		set.TargetInstances = []planner.TargetInstance{}
 		set.TargetGenerationDef = nil
 		set.MigrationEdges = nil
