@@ -3,6 +3,27 @@
 ### Requirement: Capture records the engine-provisioned home-manager catalog settings
 The engine SHALL recover declared Home Manager catalog settings from matching provisioning provenance. New records SHALL identify the generated configuration and a source manifest with a digest of the declared settings, without embedding the settings payload. For new records, capture SHALL recover settings only when the source declaration matches that digest and the recorded activation still owns the active configuration. Legacy embedded settings SHALL remain readable.
 
+Linux capture SHALL project recovered declarations through selection, sanitization,
+and share boundaries before its first output write. Registry program, package,
+and module associations SHALL identify selected declarations without granting
+live collection authority. Historical file source paths SHALL NOT become private
+collection plans. Portable file references SHALL identify staged, authorized
+payloads. Retained program declarations SHALL withhold competing live file plans.
+Unrestricted private capture MAY retain opaque config or flake compatibility;
+selected capture SHALL omit opaque declarations that it cannot scope.
+
+#### Scenario: Selected history retains its program without unrelated paths
+- **WHEN** matching history contains selected and unrelated program declarations, arbitrary file sources, and secret references
+- **THEN** Linux capture SHALL preserve only the selected associated program declarations
+- **AND** update SHALL NOT use retained unrelated apps to enlarge that scope
+- **AND** capture SHALL NOT read historical file sources as payload authority
+
+#### Scenario: Sanitized and shared history obey output boundaries
+- **WHEN** Linux capture sanitizes or shares matching historical settings
+- **THEN** sanitized capture SHALL omit the complete historical Home Manager block
+- **AND** share capture SHALL omit historical inline material outside the existing payload redaction pipeline
+- **AND** independent selected package and authorized payload capture SHALL remain available
+
 #### Scenario: Captured manifest carries the declared settings
 - **WHEN** a matching active generated configuration has an unchanged source declaration
 - **THEN** capture SHALL include its declared `homeManager.settings`

@@ -35,10 +35,12 @@ var discoverLinuxFn = func(ctx context.Context, request discovery.Request, r rea
 // the established package-scoped capture finalizer. It never invokes Nix: the
 // immutable installables were established by the reviewed package catalog.
 type discoveryCaptureRealizer struct {
-	current realizer.Set
+	current          realizer.Set
+	activeHomeOutput string
 }
 
-func (d *discoveryCaptureRealizer) Name() string { return "nix" }
+func (d *discoveryCaptureRealizer) Name() string             { return "nix" }
+func (d *discoveryCaptureRealizer) ActiveHomeOutput() string { return d.activeHomeOutput }
 func (d *discoveryCaptureRealizer) Current() (realizer.Set, error) {
 	return d.current, nil
 }
@@ -155,9 +157,13 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 		}
 		elements[intent.ID] = element
 	}
+	activeHomeOutput := ""
+	if reader, ok := r.(interface{ ActiveHomeOutput() string }); ok {
+		activeHomeOutput = reader.ActiveHomeOutput()
+	}
 	raw, captureErr := runCaptureRealizerSelected(
 		flags,
-		&discoveryCaptureRealizer{current: realizer.Set{Elements: elements}},
+		&discoveryCaptureRealizer{current: realizer.Set{Elements: elements}, activeHomeOutput: activeHomeOutput},
 		emitter,
 		realizerCaptureSelection{nix: true},
 	)

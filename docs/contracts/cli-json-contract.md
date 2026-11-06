@@ -834,6 +834,23 @@ Linux capture retains the complete `data.discovery` inventory when `--only`
 selects a subset. Selection scopes captured packages and private file plans;
 it does not remove unselected public inventory or change raw source counts.
 
+Linux capture scopes recovered Home Manager declarations before writing its
+intermediate manifest. `--only` keeps typed or raw program declarations through
+the registry's exact program, package, and module associations. Retained update
+apps do not enlarge this scope. Unassociated settings and secret references
+are omitted from selected capture. Sanitized capture omits the entire Home
+Manager block. Share capture omits historical inline declarations because its
+redaction pipeline processes captured files only.
+
+Historical file source paths never authorize collection. Portable file entries
+come from selected, authorized payload staging. A retained program declaration
+withholds competing live file plans for that program. Unrestricted private
+capture preserves opaque config or flake references and withholds new settings
+beside them. Selected capture omits opaque references that it cannot scope.
+Omissions report `historical_settings_omitted`; preserved opaque ownership may
+report `home_manager_ownership_preserved`. Windows and Darwin retain their
+existing declaration recovery behavior.
+
 Each `sources[].discovered` counts that source's normalized observations. These
 observations can overlap. Top-level `counts` uses unique candidates instead:
 

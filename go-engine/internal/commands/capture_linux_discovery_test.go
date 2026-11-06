@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
@@ -132,8 +133,36 @@ func TestCapturePlatformRegressionMatrix(t *testing.T) {
 			t.Errorf("unselected app captured: %s", app.ID)
 		}
 	}
-	if mf.HomeManager == nil || mf.HomeManager.Flake != ownerFlake {
-		t.Fatalf("Home Manager history lost during ordinary discovery: %+v", mf.HomeManager)
+	if mf.HomeManager != nil {
+		t.Fatalf("selected capture retained an opaque settings graph that cannot be scoped: %+v", mf.HomeManager)
+	}
+}
+
+func TestLinuxCaptureSanitizeOmitsHistoricalHomeManagerSettings(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "sanitized.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+	oldGOOS := captureGOOSFn
+	captureGOOSFn = func() string { return "linux" }
+	t.Cleanup(func() { captureGOOSFn = oldGOOS })
+	history := hmGenSettingsSecrets(&manifest.HomeManagerSettings{
+		Files: map[string]string{"${home}/.unselected": filepath.Join(root, "private-source")},
+	}, []manifest.HomeManagerSecret{{Name: "~/.credential", Path: filepath.Join(root, "credential-reference")}}, "generated-flake", 3)
+	withFakeRealizer(fr, func() {
+		withFakeGenerations([]*provision.Generation{history}, nil, func() {
+			emptyCatalog(func() {
+				if _, err := RunCapture(CaptureFlags{Out: out, Sanitize: true}); err != nil {
+					t.Fatalf("sanitized capture: %+v", err)
+				}
+			})
+		})
+	})
+	mf := readCapturedManifest(t, out)
+	if len(mf.Apps) != 1 || mf.Apps[0].ID != "ripgrep" {
+		t.Fatalf("sanitization lost selected package state: %+v", mf.Apps)
+	}
+	if mf.HomeManager != nil {
+		t.Fatal("sanitized capture retained historical settings or secret references")
 	}
 }
 

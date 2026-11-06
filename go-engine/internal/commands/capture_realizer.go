@@ -332,6 +332,8 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 
 	homeConfig, homeWarnings := recoverHomeManagerWithWarnings(flags, r)
 	provenanceWarnings = append(provenanceWarnings, homeWarnings...)
+	homeConfig, homeWarnings = projectCaptureHomeManager(homeConfig, &flags, appSelection)
+	provenanceWarnings = append(provenanceWarnings, homeWarnings...)
 	outManifest := captureManifestOutput{
 		Version:     1,
 		Name:        manifestName,
@@ -477,6 +479,9 @@ func recoverHomeManager(flags CaptureFlags) *manifest.HomeManagerConfig {
 }
 
 func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*manifest.HomeManagerConfig, []CommandWarning) {
+	if flags.Sanitize {
+		return nil, nil
+	}
 	unavailable := func() (*manifest.HomeManagerConfig, []CommandWarning) {
 		return nil, []CommandWarning{{Code: "home_manager_provenance_unavailable", Message: "The active Home Manager declaration could not be recovered from matching source provenance."}}
 	}
