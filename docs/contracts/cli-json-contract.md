@@ -159,6 +159,7 @@ The defined warning codes are:
 - `store_source_unavailable`: Store enumeration failed while another selected source produced usable inventory.
 - `winget_source_unavailable`: community-source enumeration failed while Store produced usable inventory.
 - `store_version_unpinned`: `capture --pin` omitted unreliable exact Store versions; one aggregate warning reports the affected count.
+- `home_manager_collision_check_incomplete` (`apply --dry-run`): the selected Home Manager input has a recursive declaration or no parent configuration metadata, so preview compared other owners only with the evaluated Home Manager targets. Apply builds the activation and checks its exact files before any settings writer runs. The warning never blocks the preview or changes a row's status. Additive in schema `1.0`.
 - `config_secret_scope_conflict` (`capture`): a module's registry capture entry overlaps the module's own secret declaration, so capture skipped that entry and captured the module's other settings. One warning per affected module; `moduleId` names the module, and the same message appears in that module's `configModules[].warnings`. Additive in schema `1.0`.
 
 For `plan`, `apply`, and `verify`, `possible_duplicate` is an advisory ownership warning based only on routed, non-manual per-package entries. Two entries qualify when their resolved driver names differ and their non-empty explicit manifest `displayName` values are equal after trimming outer whitespace and case-insensitive comparison. Refs, IDs, versions, inferred or backend-detected labels, substrings, punctuation normalization, and fuzzy similarity are not duplicate evidence. Whole-set realizer and manual entries do not participate.
@@ -1098,6 +1099,20 @@ Manager ownership state or settings registry fails the captured set with
 `status: "failed"` and `reason: "target_detection_failed"`; independent direct
 and package results still complete. When a run stops with a top-level error
 before a captured set is attempted, that row stays `status: "planned"`.
+
+In apply, the engine lists the files of the built activation before any settings
+writer runs, when another selected owner claims a file or desktop target. These
+files replace the evaluated targets for the collision check and for captured
+placement confirmation, so recursive declarations and activation-only flakes are
+covered. A direct restore or captured placement on one of these files reports
+`target_collision`, and the activation does not run. An unreadable built tree, or
+one above the engine's entry bound, fails the Home Manager item and its captured
+sets with `status: "failed"` and `reason: "target_detection_failed"`. The command
+then returns `RESTORE_FAILED` with `detail.reason` set to that reason and
+`detail.diagnostic` holding the engine's explanation. `detail.diagnostic` is
+diagnostic text, not a stable machine reason. Direct restores and package results
+still complete. Preview reports a blocked captured set with the same status and
+reason as apply, without building or activating.
 
 #### Generated flake (the `homeManager.config` wrapper)
 
