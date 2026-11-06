@@ -9,7 +9,9 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
@@ -43,9 +45,10 @@ var loadConfigRestoreCatalogFn configRestoreCatalogLoader = func(repoRoot string
 // module declarations are never exposed directly: command consumers receive
 // defensive copies while compatibility resolution uses the same pinned facts.
 type configCatalogSnapshot struct {
-	modules     map[string]*modules.Module
-	resolver    *planner.CompatibilityResolver
-	diagnostics []modules.CatalogDiagnostic
+	modules         map[string]*modules.Module
+	resolver        *planner.CompatibilityResolver
+	diagnostics     []modules.CatalogDiagnostic
+	homeAuthorities map[string]hmregistry.Authority
 }
 
 type configRestoreRuntime struct {
@@ -82,7 +85,9 @@ func newConfigRestoreRuntimeWithCatalogSource(
 			WithDetail(map[string]string{"reason": err.Error()}).
 			WithRemediation("Verify the Endstate repository root and module catalog, then retry.")
 	}
-	return newConfigRestoreRuntimeFromInputs(inputs, newConfigCatalogSnapshot(catalog, diagnostics)), nil
+	snapshot := newConfigCatalogSnapshot(catalog, diagnostics)
+	snapshot.pinHomeAuthorities(request.RepoRoot)
+	return newConfigRestoreRuntimeFromInputs(inputs, snapshot), nil
 }
 
 // newConfigRestoreRuntimeWithCatalogSnapshot prepares config planning from a
@@ -101,6 +106,7 @@ func newConfigRestoreRuntimeWithCatalogSnapshot(
 		return nil, envelope.NewError(envelope.ErrInternalError, "Configuration module catalog is not prepared.").
 			WithRemediation("Prepare one trusted catalog snapshot before configuration planning.")
 	}
+	catalog.pinHomeAuthorities(request.RepoRoot)
 	return newConfigRestoreRuntimeFromInputs(inputs, catalog), nil
 }
 
@@ -373,4 +379,49 @@ func (runtime *configRestoreRuntime) processPatterns(moduleID string) []string {
 		return []string{}
 	}
 	return runtime.catalog.resolver.ProcessPatterns(moduleID)
+}
+
+// pinHomeAuthorities reuses the reviewed join against current trusted catalog
+// bytes. A missing registry leaves only the Home Manager consumer unavailable.
+func (snapshot *configCatalogSnapshot) pinHomeAuthorities(repoRoot string) {
+	if snapshot.homeAuthorities != nil {
+		return
+	}
+	snapshot.homeAuthorities = map[string]hmregistry.Authority{}
+	registry, err := hmregistry.Load(filepath.Join(repoRoot, "catalog", "home-manager", "registry.jsonc"))
+	if err != nil {
+		return
+	}
+	packages, err := packagecatalog.Load(filepath.Join(repoRoot, "catalog", "packages"))
+	if err != nil {
+		return
+	}
+	authored := map[string]*modules.Module{}
+	for id, mod := range snapshot.modules {
+		if mod.SourceSchemaVersion != 3 || mod.Realization != "home-manager" {
+			continue
+		}
+		current, err := modules.ParseModuleJSON(mod.CanonicalSnapshot())
+		if err == nil {
+			authored[id] = current
+		}
+	}
+	for _, authority := range hmregistry.Join(registry, authored, packages.Entries()) {
+		if authority.Supports(hmregistry.Restore) {
+			snapshot.homeAuthorities[authority.ModuleID] = authority
+		}
+	}
+}
+
+func (runtime *configRestoreRuntime) hasHomeManagerSources() bool {
+	if runtime == nil {
+		return false
+	}
+	for _, source := range runtime.inputs.generationSources {
+		mod := runtime.catalog.modules[source.source.ModuleID]
+		if source.selected && mod != nil && mod.Realization == "home-manager" {
+			return true
+		}
+	}
+	return false
 }

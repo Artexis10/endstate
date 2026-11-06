@@ -168,7 +168,7 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 		authority.Reason = "settings_content_policy_unavailable"
 		return authority
 	}
-	if projected.Realization != "endstate-restore" {
+	if projected.Realization != "endstate-restore" && projected.Realization != "home-manager" {
 		authority.Reason = "settings_strategy_unavailable"
 		return authority
 	}

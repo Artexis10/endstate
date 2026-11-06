@@ -360,7 +360,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 			return nil, err
 		}
 	}
-	if flags.linuxDiscoveryCounts != nil && !flags.Update && len(captured) == 0 && len(flags.linuxHomeManagerFiles) == 0 && len(flags.linuxConfigFiles) == 0 && (preparedCapture == nil || len(preparedCapture.Planning.GenerationPlans) == 0) {
+	if flags.linuxDiscoveryCounts != nil && !flags.Update && len(captured) == 0 && len(flags.linuxConfigFiles) == 0 && (preparedCapture == nil || len(preparedCapture.Planning.GenerationPlans) == 0) {
 		counts := *flags.linuxDiscoveryCounts
 		return nil, envelope.NewError(
 			envelope.ErrCaptureFailed,

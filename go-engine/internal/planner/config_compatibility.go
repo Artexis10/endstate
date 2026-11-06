@@ -20,6 +20,7 @@ type pinnedCompatibilityModule struct {
 	schemaVersion       int
 	sourceSchemaVersion int
 	platform            string
+	settingsStrategy    string
 	revision            string
 	sets                map[string]modules.ConfigSetDef
 	instanceDetectors   []modules.InstanceDetectorDef
@@ -43,14 +44,21 @@ func NewCompatibilityResolver(catalog map[string]*modules.Module, diagnostics []
 			schemaVersion:       current.EffectiveSchemaVersion(),
 			sourceSchemaVersion: current.SourceSchemaVersion,
 			platform:            current.Platform,
+			settingsStrategy:    current.Realization,
 			revision:            current.Revision,
 			sets:                make(map[string]modules.ConfigSetDef),
 			mappings:            modules.ClonePlatformMappings(current.Mappings),
 			secrets:             cloneSecretsDef(current.Secrets),
 			processPatterns:     sortedUniqueStrings(current.Matches.Exe),
 		}
+		if current.SourceSchemaVersion == 3 && pinned.settingsStrategy == "" {
+			// A missing schema-v3 strategy cannot inherit the legacy writer.
+			pinned.settingsStrategy = "unavailable"
+		}
 		if current.SourceSchemaVersion != 3 {
 			pinned.platform = "windows"
+			// Schema-v1/v2 fixes the legacy Windows writer to direct restore.
+			pinned.settingsStrategy = "endstate-restore"
 		}
 		if current.Config != nil {
 			pinned.instanceDetectors = append([]modules.InstanceDetectorDef(nil), current.Config.InstanceDetectors...)
@@ -196,6 +204,7 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 		}
 		return finishCompatibility(plan, ResolutionUnknown, ReasonCatalogModuleMissing, StatusSkipped)
 	}
+	plan.SettingsStrategy = current.settingsStrategy
 	plan.Resolution.TargetPlatform = current.platform
 	// Matching local generations never authorize writes across host platforms.
 	if r.platformMismatch(source) {

@@ -493,3 +493,31 @@ func TestPlatformGuardPrecedesMissingTargetSelectionAndScopesLegacySources(t *te
 		})
 	}
 }
+
+// A resolved set carries the writer its current trusted module declares, so a
+// missing declaration can never fall through to direct copying.
+func TestCompatibilityResolverPinsTheCurrentTrustedSettingsStrategy(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		schema      int
+		realization string
+		want        string
+	}{
+		{"legacy schema writes directly", 2, "", "endstate-restore"},
+		{"declared Home Manager writer", 3, "home-manager", "home-manager"},
+		{"schema 3 without a declared writer", 3, "", "unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			current := compatibilityTestModule(compatibilityTestGeneration("g1", 1, "<2", "fingerprint-g1"))
+			current.SourceSchemaVersion, current.Realization = test.schema, test.realization
+			if test.schema == 3 {
+				current.Platform = "windows"
+			}
+			resolver := NewCompatibilityResolver(map[string]*modules.Module{current.ID: current}, nil)
+			plan := resolver.ResolveCandidate(compatibilityTestSource("g1", "fingerprint-g1"), compatibilityTestTarget("1.5"))
+			if plan.SettingsStrategy != test.want || plan.Resolution.Resolution != ResolutionDirect {
+				t.Fatalf("strategy=%q resolution=%q, want %q and direct", plan.SettingsStrategy, plan.Resolution.Resolution, test.want)
+			}
+		})
+	}
+}

@@ -56,6 +56,9 @@ func ProjectConfigResolution(set PlanSet) ConfigResolution {
 
 	projected.Label = resolutionLabel(projected.Resolution)
 	projected.Message, projected.Remediation = resolutionPresentation(projected)
+	if set.ExecutionRemediation != "" {
+		projected.Remediation = presentationRemediation(set.ExecutionRemediation)
+	}
 	return projected
 }
 
@@ -196,6 +199,12 @@ func reasonPresentation(reason ResolutionReason) (string, *string, bool) {
 	case ReasonJournalCompletionFailed:
 		message = "The restore journal could not record transaction completion."
 		remediation = "Review the journal storage failure before retrying."
+	case ReasonSettingsStrategyUnavailable:
+		message = "The declared settings writer is unavailable for this config set."
+		remediation = "Use apply or rebuild with a supported Home Manager backend and file placement."
+	case ReasonHomeManagerImportRequired:
+		message = "These captured settings require an import into the declared Home Manager configuration."
+		remediation = "Import the generated module into that configuration, then activate it."
 	case ReasonAlreadyUpToDate:
 		return "The target already has the desired settings.", nil, true
 	default:

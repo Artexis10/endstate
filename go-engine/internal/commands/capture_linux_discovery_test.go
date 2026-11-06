@@ -262,17 +262,12 @@ func TestRunCaptureLinux_NoNixCapturesNativeIntentAndLiveSettings(t *testing.T) 
 	if got := mf.Apps[0].Refs["linux"]; got != wantRef {
 		t.Fatalf("linux ref = %q, want immutable reviewed intent %q", got, wantRef)
 	}
-	var homeSettings struct {
-		Files map[string]string `json:"files"`
+	// A Home Manager file is captured once, as a generation payload; it is never copied into inline settings.
+	if mf.HomeManager != nil {
+		t.Fatalf("captured Home Manager file was also serialized inline: %+v", mf.HomeManager)
 	}
-	if mf.HomeManager == nil || len(mf.HomeManager.Settings) == 0 {
-		t.Fatalf("captured manifest has no Home Manager settings: %+v", mf.HomeManager)
-	}
-	if err := json.Unmarshal(mf.HomeManager.Settings, &homeSettings); err != nil {
-		t.Fatal(err)
-	}
-	if ref := homeSettings.Files["${xdg.config}/ripgrep/ripgreprc"]; !strings.HasPrefix(ref, "./configs/home-manager/ripgrep/") {
-		t.Fatalf("captured Home Manager file ref = %q", ref)
+	if len(mf.ConfigCaptures) != 1 || mf.ConfigCaptures[0].ModuleID != "apps.ripgrep" {
+		t.Fatalf("configCaptures = %+v, want the ripgrep generation capture", mf.ConfigCaptures)
 	}
 }
 
@@ -290,20 +285,20 @@ func TestRunCaptureLinux_NoNixAllowsSelectedSettingsOnlyArtifact(t *testing.T) {
 	captureGOOSFn = func() string { return "linux" }
 	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
 	discoverLinuxFn = func(_ context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
-		if len(request.Only) != 1 || request.Only[0] != "atuin" {
+		if len(request.Only) != 1 || request.Only[0] != "apps.atuin" {
 			t.Fatalf("discovery selection = %v", request.Only)
 		}
 		return discovery.Result{
 			SchemaVersion: discovery.SchemaVersion,
 			Sources:       []discovery.SourceStatus{{ID: discovery.HomeManagerSettingsSource, State: discovery.SourceSucceeded, Discovered: 1}},
 			Settings: []discovery.SettingsCandidate{{
-				ID: "home-manager.atuin", DisplayName: "Atuin settings", PackageID: "atuin",
+				ID: "apps.atuin", ModuleID: "apps.atuin", DisplayName: "Atuin settings", PackageID: "atuin",
 				Portability: discovery.PortabilityConfigOnly,
 				Actions:     []discovery.SettingsAction{discovery.SettingsCapture, discovery.SettingsRestore},
 			}},
 			SettingsFiles: []discovery.SettingsFilePlan{{
 				Realization: "home-manager",
-				CandidateID: "home-manager.atuin", AdapterID: discovery.HomeManagerSettingsSource,
+				CandidateID: "apps.atuin", AdapterID: discovery.HomeManagerSettingsSource,
 				Codec: "bounded-regular-file-v1", Target: "${xdg.config}/atuin/config.toml", Source: liveConfig,
 				ObservedSize: int64(len("sync_address = 'https://sync.example'\n")),
 			}},
@@ -316,9 +311,15 @@ func TestRunCaptureLinux_NoNixAllowsSelectedSettingsOnlyArtifact(t *testing.T) {
 		discoverLinuxFn = originalDiscovery
 	})
 
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	module, err := modules.ParseModuleJSON([]byte(`{"moduleSchemaVersion":3,"id":"apps.atuin","displayName":"Atuin","sensitivity":"low","platforms":{"linux":{"realization":"home-manager","matches":{"pathExists":["${home}/config.toml"]},"capture":{"files":[{"source":"${home}/config.toml","dest":"apps/atuin/config.toml"}]}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	withFakeGenerations(nil, errors.New("no Endstate history"), func() {
-		withMockCatalog(map[string]*modules.Module{}, nil, func() {
-			raw, captureErr := RunCapture(CaptureFlags{Out: out, Only: "atuin"})
+		withMockCatalog(map[string]*modules.Module{module.ID: module}, nil, func() {
+			raw, captureErr := RunCapture(CaptureFlags{Out: out, Only: "apps.atuin"})
 			if captureErr != nil {
 				t.Fatalf("RunCapture: %+v", captureErr)
 			}
@@ -330,7 +331,7 @@ func TestRunCaptureLinux_NoNixAllowsSelectedSettingsOnlyArtifact(t *testing.T) {
 	})
 
 	mf := readCapturedManifest(t, out)
-	if len(mf.Apps) != 0 || mf.HomeManager == nil || mf.HomeManager.Settings == nil {
+	if len(mf.Apps) != 0 || mf.HomeManager != nil || len(mf.ConfigCaptures) != 1 || mf.ConfigCaptures[0].ModuleID != "apps.atuin" {
 		t.Fatalf("settings-only manifest = %+v", mf)
 	}
 }
@@ -350,14 +351,17 @@ func TestLinuxCaptureSelectionPreservesInventoryAndScopesPayload(t *testing.T) {
 			if err := os.WriteFile(live, []byte(`{"theme":"dark"}`), 0600); err != nil {
 				t.Fatal(err)
 			}
+			t.Setenv("HOME", dir)
+			t.Setenv("USERPROFILE", dir)
 			inventory := discovery.AdapterInventory{}
+			catalog := map[string]*modules.Module{}
 			for _, id := range []string{"selected", "unselected"} {
 				inventory.Resolved = append(inventory.Resolved, discovery.ResolvedIntent{
 					ID: id, DisplayName: id, Attribute: id, Input: "github:example/packages/revision",
 					Installable: "github:example/packages/revision#" + id,
 				})
 				inventory.Settings = append(inventory.Settings, discovery.SettingsCandidate{
-					ID: "settings." + id, PackageID: id, Actions: []discovery.SettingsAction{discovery.SettingsCapture},
+					ID: "apps." + id, ModuleID: "apps." + id, PackageID: id, Actions: []discovery.SettingsAction{discovery.SettingsCapture},
 				})
 				source := live
 				if id == "unselected" {
@@ -366,9 +370,14 @@ func TestLinuxCaptureSelectionPreservesInventoryAndScopesPayload(t *testing.T) {
 				}
 				inventory.SettingsFiles = append(inventory.SettingsFiles, discovery.SettingsFilePlan{
 					Realization: "home-manager",
-					CandidateID: "settings." + id, Codec: "bounded-regular-file-v1",
+					CandidateID: "apps." + id, Codec: "bounded-regular-file-v1",
 					Target: "${xdg.config}/" + id + "/settings.json", Source: source,
 				})
+				module, err := modules.ParseModuleJSON([]byte(`{"moduleSchemaVersion":3,"id":"apps.` + id + `","displayName":"` + id + `","sensitivity":"low","platforms":{"linux":{"realization":"home-manager","matches":{"pathExists":["${home}/` + filepath.Base(source) + `"]},"capture":{"files":[{"source":"${home}/` + filepath.Base(source) + `","dest":"apps/` + id + `/settings.json"}]}}}}`))
+				if err != nil {
+					t.Fatal(err)
+				}
+				catalog[module.ID] = module
 			}
 			oldGOOS, oldRealizer, oldDiscovery := captureGOOSFn, newRealizerFn, discoverLinuxFn
 			t.Cleanup(func() { captureGOOSFn, newRealizerFn, discoverLinuxFn = oldGOOS, oldRealizer, oldDiscovery })
@@ -377,7 +386,7 @@ func TestLinuxCaptureSelectionPreservesInventoryAndScopesPayload(t *testing.T) {
 			discoverLinuxFn = func(ctx context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
 				return (discovery.Orchestrator{Adapters: []discovery.Adapter{captureDiscoveryAdapter{inventory: inventory}}}).Discover(ctx, request)
 			}
-			flags := CaptureFlags{Out: filepath.Join(dir, "selection.endstate"), Only: "selected", Share: mode == "share", Sanitize: mode == "sanitize"}
+			flags := CaptureFlags{Out: filepath.Join(dir, "selection.endstate"), Only: "selected,apps.selected", Share: mode == "share", Sanitize: mode == "sanitize"}
 			if flags.Sanitize {
 				flags.Out = filepath.Join(dir, "selection.jsonc")
 			}
@@ -389,7 +398,7 @@ func TestLinuxCaptureSelectionPreservesInventoryAndScopesPayload(t *testing.T) {
 				}
 			}
 			withFakeGenerations(nil, errors.New("no history"), func() {
-				withMockCatalog(map[string]*modules.Module{}, nil, func() {
+				withMockCatalog(catalog, nil, func() {
 					raw, err := RunCapture(flags)
 					if err != nil {
 						t.Fatalf("selected capture read an unselected source or failed: %+v", err)
@@ -414,17 +423,8 @@ func TestLinuxCaptureSelectionPreservesInventoryAndScopesPayload(t *testing.T) {
 				}
 				return
 			}
-			var settings struct {
-				Files map[string]string `json:"files"`
-			}
-			if mf.HomeManager == nil {
-				t.Fatal("selected configuration was not captured")
-			}
-			if err := json.Unmarshal(mf.HomeManager.Settings, &settings); err != nil {
-				t.Fatal(err)
-			}
-			if len(settings.Files) != 1 || settings.Files["${xdg.config}/selected/settings.json"] == "" {
-				t.Fatalf("capture staged unselected settings: %+v", settings.Files)
+			if mf.HomeManager != nil || len(mf.ConfigCaptures) != 1 || mf.ConfigCaptures[0].ModuleID != "apps.selected" {
+				t.Fatalf("capture did not scope settings to the selected generation: %+v %+v", mf.HomeManager, mf.ConfigCaptures)
 			}
 		})
 	}

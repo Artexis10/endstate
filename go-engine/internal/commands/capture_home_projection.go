@@ -30,8 +30,8 @@ func projectCaptureHomeManager(home *manifest.HomeManagerConfig, flags *CaptureF
 		if selection.active() {
 			return nil, omission
 		}
-		if len(flags.linuxConfigFiles)+len(flags.linuxHomeManagerFiles) > 0 {
-			flags.linuxConfigFiles, flags.linuxHomeManagerFiles = nil, nil
+		if len(flags.linuxConfigFiles) > 0 {
+			flags.linuxConfigFiles = nil
 			return home, []CommandWarning{{Code: "home_manager_ownership_preserved", Message: "The previously recorded settings configuration was kept; independently detected settings were not added beside it."}}
 		}
 		return home, nil
@@ -124,7 +124,6 @@ func projectCaptureHomeManager(home *manifest.HomeManagerConfig, flags *CaptureF
 		return kept
 	}
 	flags.linuxConfigFiles = filterPlans(flags.linuxConfigFiles)
-	flags.linuxHomeManagerFiles = filterPlans(flags.linuxHomeManagerFiles)
 	if len(fields) == 0 && len(projected.Secrets) == 0 {
 		projected = nil
 	}

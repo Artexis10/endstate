@@ -72,6 +72,8 @@ const (
 	ReasonCommitFailed                      ResolutionReason = "commit_failed"
 	ReasonTargetValidationFailed            ResolutionReason = "target_validation_failed"
 	ReasonJournalCompletionFailed           ResolutionReason = "journal_completion_failed"
+	ReasonSettingsStrategyUnavailable       ResolutionReason = "settings_strategy_unavailable"
+	ReasonHomeManagerImportRequired         ResolutionReason = "home_manager_import_required"
 	ReasonAlreadyUpToDate                   ResolutionReason = "already_up_to_date"
 )
 
@@ -239,9 +241,11 @@ func SummarizeConfigResolutions(resolutions []ConfigResolution) ConfigResolution
 // PlanSet is one independently planned captured config set and its current
 // target candidates.
 type PlanSet struct {
-	Source          SourceCapture    `json:"source"`
-	TargetInstances []TargetInstance `json:"targetInstances"`
-	Resolution      ConfigResolution `json:"resolution"`
+	SettingsStrategy     string           `json:"-"`
+	ExecutionRemediation string           `json:"-"`
+	Source               SourceCapture    `json:"source"`
+	TargetInstances      []TargetInstance `json:"targetInstances"`
+	Resolution           ConfigResolution `json:"resolution"`
 
 	// TargetGenerationDef and MigrationEdges are pinned declarative data for
 	// later staging. They are internal because modules remain data, not output.

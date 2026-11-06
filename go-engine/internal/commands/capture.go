@@ -63,13 +63,13 @@ type CaptureFlags struct {
 	// config, which is the opposite of handing over a curated setup.
 	Share bool
 
-	// linuxHomeManagerFiles is private execution state populated by the Linux
-	// discovery lane. Absolute host sources must never enter an envelope.
-	linuxHomeManagerFiles []bundle.HomeManagerFileCapturePlan
-	linuxConfigFiles      []bundle.SettingsFileCapturePlan
+	// linuxConfigFiles is private execution state populated by the Linux
+	// discovery lane for both settings writers. Absolute host sources must never
+	// enter an envelope.
+	linuxConfigFiles []bundle.SettingsFileCapturePlan
 	// linuxSettingsApps/linuxSettingsModules allow a Linux --only selection to
 	// name detected settings even when no portable package was resolved. They
-	// contain identifiers only; live paths remain in linuxHomeManagerFiles.
+	// contain identifiers only; live paths remain in linuxConfigFiles.
 	linuxSettingsApps    map[string]bool
 	linuxSettingsModules map[string]bool
 	// linuxDiscoveryCounts marks an ordinary-machine Linux capture. It lets the

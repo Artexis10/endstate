@@ -59,7 +59,7 @@ func Materialize(ctx context.Context, request Request) (*MaterializedSet, error)
 	instance := targetConfigInstance(target)
 	resolved := make([]resolvedRestore, 0, len(generation.Restore))
 	for index, definition := range generation.Restore {
-		entry, err := resolveDefinition(request.Stage.Root, definition, instance, request.Boundary, index)
+		entry, err := resolveDefinition(request.Stage.Root, definition, instance, request.Boundary, index, false)
 		if err != nil {
 			return nil, err
 		}
@@ -199,6 +199,7 @@ func resolveDefinition(
 	instance modules.ConfigInstance,
 	boundary HostBoundary,
 	index int,
+	allowHomeManagerLeaf bool,
 ) (resolvedRestore, error) {
 	entry := resolvedRestore{definition: definition, boundary: boundary}
 	switch definition.Type {
@@ -227,11 +228,15 @@ func resolveDefinition(
 		if err := validateConcreteHostPath(target); err != nil {
 			return entry, newError(CodeUnsafePath, index, target, err)
 		}
-		if err := rejectExistingTargetLinks(target); err != nil {
+		validatedTarget := target
+		if allowHomeManagerLeaf {
+			validatedTarget = filepath.Dir(target)
+		}
+		if err := rejectExistingTargetLinks(validatedTarget); err != nil {
 			return entry, newError(CodeUnsafePath, index, target, err)
 		}
 		if boundary != nil {
-			if err := boundary.ValidateFilesystemTarget(target); err != nil {
+			if err := boundary.ValidateFilesystemTarget(validatedTarget); err != nil {
 				return entry, newError(CodeUnsafePath, index, definition.Target, err)
 			}
 		}
