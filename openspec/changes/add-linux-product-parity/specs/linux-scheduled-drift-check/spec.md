@@ -60,6 +60,36 @@ Repeated `schedule enable` calls with the same desired configuration SHALL conve
 - **THEN** enable SHALL report a modified-unit ownership conflict instead of silently overwriting it
 - **AND** an explicit future conflict-resolution action SHALL be required to replace it
 
+#### Scenario: Different roots target the same user timer
+- **WHEN** two engine roots concurrently enable the fixed user timer
+- **THEN** registration SHALL serialize in the shared user-unit namespace and recheck ownership
+- **AND** one root SHALL NOT overwrite the other root's committed or staged registration
+
+#### Scenario: Persistent timer fires during enable
+- **WHEN** timer activation immediately triggers a missed run while enable holds the root state lock
+- **THEN** the short-lived run SHALL wait until registration commits or fails
+- **AND** it SHALL NOT consume the catch-up as a lock-contention failure
+
+#### Scenario: Process stops before enabled configuration commits
+- **WHEN** the process stops after a native change but before the final configuration commit
+- **THEN** persisted pending intent SHALL retain the scope and expected unit contents
+- **AND** retry or disable SHALL reconcile that state without accepting unrelated unit contents
+
+#### Scenario: Selected unit directory is not used by the manager
+- **WHEN** the caller resolves a user unit directory outside the actual manager's load path
+- **THEN** registration SHALL report an unavailable namespace before writing generated units
+- **AND** it SHALL NOT claim success from configuration files the manager cannot load
+
+#### Scenario: Another unit overrides generated contents
+- **WHEN** a different fragment or drop-in changes the owned execution or cadence fields
+- **THEN** registration SHALL report an ownership conflict before activation
+- **AND** it SHALL preserve the overriding files
+
+#### Scenario: Inherited policy preserves the schedule
+- **WHEN** resource, security, environment, or logging drop-ins preserve the owned execution and cadence fields
+- **THEN** registration SHALL allow that policy and expose the drop-in paths
+- **AND** it SHALL NOT require the user to remove benign manager policy
+
 ### Requirement: Disable and cleanup affect only Endstate-owned user units
 `schedule disable` SHALL disable the Endstate timer, remove only the generated Endstate service/timer files it owns, reload the user manager, and preserve the schedule configuration needed for status/history unless the shared command contract explicitly requests deletion. It SHALL NOT remove similarly named user-authored or system units.
 

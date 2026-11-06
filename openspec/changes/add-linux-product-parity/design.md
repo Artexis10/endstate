@@ -662,6 +662,90 @@ Keep both desktop capabilities dark until their separate native session gates
 pass. No new CLI command, manifest version, combined profile, or permission is
 introduced by this technical refinement.
 
+### 24. Reuse schedule state for recoverable user-timer registration
+
+The prerequisite schedule change is archived and its capability is synced.
+Section 6 now supplies the stable capture and result contract. Section 11 uses
+this change's `scheduled-drift-check` modification before adding the Linux
+backend. Keep one command family, result schema, upload queue, and owner.
+
+Replace the pre-quoted Windows registrar with structured intent and backend
+availability, enable, disable, and inspection operations. The intent carries
+the resolved executable, argument vector, root, manifest, and cadence. Native
+arguments remain `schedule run --root <root> --json`. Do not pin a manifest
+argument: successful capture can replace the saved baseline between runs.
+Preserve the current Windows task name, interactive-user scope, first-write
+failure behavior, and rollback of prior configuration after registration failure.
+Report native fields that cannot be inspected as unknown.
+
+Use fixed-argument `systemctl --user` operations for native job waiting. Reuse
+the existing maintained godbus dependency for typed manager and unit properties;
+promote that import to a direct dependency rather than add another client.
+The [systemd interface](https://www.freedesktop.org/software/systemd/man/255/org.freedesktop.systemd1.html)
+exposes the manager load path and effective unit properties. Connect to an
+existing user session only; availability never launches a bus or user manager.
+Freeze the same resolved session environment for both interfaces. Confirm that
+the selected user unit directory belongs to the actual manager's load path.
+After reload, inspect effective fragment paths and the native fields that the
+backend owns before activation. Compare service executable, arguments, extra
+execution hooks, type, exit behavior, and restart policy. Compare timer service,
+calendar cadence, and persistence. Use typed properties, not a unit-file parser.
+Expose drop-in paths. Allow inherited resource, security, environment, and
+logging policy when it preserves those execution and cadence fields.
+A concrete override reports `REGISTRATION_OVERRIDDEN` with property and path
+evidence; preserve the overriding files. Later runtime failures remain observed
+outcomes rather than reasons to reject all user-manager policy.
+
+Reuse `config.json` and the existing root `run.lock`. Add bounded Linux
+registration evidence to that configuration: backend, root scope, unit directory,
+format version, executable, pending operation, stable phase, and expected prior
+and desired unit hashes. Hold a second, narrow lock in the common user-unit
+namespace during registration. The root lock alone cannot serialize two roots
+that target the same fixed timer names. Acquire the namespace lock before the
+root lock and recheck ownership after acquisition. Keep the shared lock file
+across cleanup so another process cannot acquire a different inode.
+
+For Linux, preflight ownership, then atomically persist disabled desired
+configuration and recovery evidence before changing native registration.
+A failed initial write leaves the prior task and configuration untouched.
+Checkpoint each phase before its native operation. A phase records an attempt,
+not proof of completion. Stop only the owned timer, atomically replace owned
+service and timer files, reload, validate the loaded identity, and enable/start
+the timer. Commit enabled configuration only after observed registration success.
+Preserve all pending upload and replay fields. Do not create a second
+transaction store or generic recovery framework. Use the existing durable
+atomic-write seam before claiming power-loss durability.
+
+On failure, report the exact phase and attempt to disable only the owned timer.
+Retain pending evidence when cleanup or persistence is uncertain, including
+after a failed final commit. Retry and disable accept only recorded prior or
+desired contents independently for each unit in the recorded scope. A third
+state, modified unit, foreign unit, symlink, or another root stays a conflict.
+Status reports saved intent and observed native state separately, including
+unknown observations after a failed read. Status performs no recovery writes.
+
+Ownership checks prevent registration from replacing another root's schedule
+or a user's edits. A false conflict leaves registration unavailable until the
+user resolves it and reasserts the schedule. The configuring user pays that
+cost; the check does not block manual verification, queue replay, or unrelated
+capture. Benign inherited policy does not require user intervention.
+
+Handle the persistent timer's immediate catch-up without consuming it during
+registration. Linux runs wait on the existing root lock until enable commits
+or fails; Windows retains its current nonblocking run behavior. Timer activation
+must not wait for the triggered service to finish while enable holds that lock.
+Use a waiting command path that respects this distinction; do not add delays.
+
+Prove the command-facing enable, inspect, run, drift, reassert, and disable
+workflow with an isolated manager boundary. Cover partial writes, reload,
+activation, final persistence, interruption, modified units, cross-root races,
+literal hostile paths, and the existing upload replay/discard guarantees.
+Reuse unchanged regression evidence where its code and conditions still match.
+Run native unit parsing on isolated generated files when it closes a syntax
+gap. Native user-session lifecycle and Windows acceptance remain separate;
+hermetic proof never promotes either runtime. Fixed names support one engine
+root per user manager; concurrent schedules require a later identity migration.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.

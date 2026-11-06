@@ -397,6 +397,12 @@ archived with its spec synced into `openspec/specs` through task 1.5; and
 stable section-6 capabilities/result fields. Shared
 interface extraction and systemd implementation are serialized.
 
+Decision 24 uses the existing schedule store and one structured registrar.
+The shared namespace lock prevents cross-root unit races. Pending intent and
+per-unit hashes retain interruption evidence. Linux runs wait for registration's
+configuration commit; Windows keeps its existing lock and rollback behavior.
+Native lifecycle acceptance remains separate from the injected manager proof.
+
 **Red-first tests:** `TestSchedulerBackendSelectionPreservesWindows`,
 `TestSystemdExecStartEscapesHostilePathsWithoutShell`,
 `TestSystemdOwnershipConflictRefusesOverwrite`,
