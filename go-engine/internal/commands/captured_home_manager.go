@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -73,15 +74,27 @@ func homeFilesExpectations(files []configrestore.HomeFile) (*provision.HomeFileE
 	return result, nil
 }
 
+// homeTargetClaims returns the file claims of one concrete target, with the
+// aliases of its live ancestors.
+func homeTargetClaims(target string) []string {
+	identities, err := restore.FilesystemTargetIdentities(target)
+	if err != nil {
+		// Unavailable filesystem identity supplies no known overlapping claim.
+		return nil
+	}
+	claims := make([]string, 0, len(identities))
+	for _, identity := range identities {
+		// File claims use the existing checker's closed filesystem protocol.
+		claims = append(claims, "file\x00"+strings.TrimSuffix(filepath.ToSlash(identity), "/"))
+	}
+	return claims
+}
+
 func homeTargetsOverlap(left, right string) bool {
-	leftIDs, _ := restore.FilesystemTargetIdentities(left)
-	rightIDs, _ := restore.FilesystemTargetIdentities(right)
-	for _, l := range leftIDs {
-		for _, r := range rightIDs {
-			// File claims use the existing checker's closed filesystem protocol.
-			if concreteConfigRestoreClaimsOverlap("file\x00"+filepath.ToSlash(l), "file\x00"+filepath.ToSlash(r)) {
-				return true
-			}
+	rightClaims := homeTargetClaims(right)
+	for _, claim := range homeTargetClaims(left) {
+		if anyClaimOverlaps(rightClaims, claim) {
+			return true
 		}
 	}
 	return false
@@ -137,6 +150,25 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 		}
 	}
 	advanced := mf.HomeManager != nil && mf.HomeManager.Flake != ""
+	// Captured placements compose with an explicit configuration into one activation.
+	composes := !advanced && home.ownershipAction == nil
+	var explicitClaims []string
+	if composes {
+		if flags.DryRun || home.resolution == nil {
+			for _, explicit := range home.flatTargets {
+				explicitClaims = append(explicitClaims, homeTargetClaims(explicit)...)
+			}
+		} else {
+			// Home Manager's overlap rule can drop a placement inside an explicit
+			// recursive root, so compare with the built leaves before composing.
+			var err error
+			if explicitClaims, err = home.builtLeafClaims(); err != nil {
+				home.forceBlock = planner.ReasonTargetDetectionFailed
+				mark(planner.ReasonTargetDetectionFailed, planner.StatusFailed)
+				return home.flatTargets
+			}
+		}
+	}
 	collision := false
 	for left := range files {
 		for right := left + 1; right < len(files); right++ {
@@ -144,14 +176,16 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 				collision = true
 			}
 		}
-		for _, explicit := range home.flatTargets {
-			if !advanced && home.ownershipAction == nil && homeTargetsOverlap(files[left].Target, explicit) {
+		for _, claim := range homeTargetClaims(files[left].Target) {
+			if anyClaimOverlaps(explicitClaims, claim) {
 				collision = true
 			}
 		}
 	}
 	if collision {
-		home.forceBlocked = !advanced && home.ownershipAction == nil
+		if composes {
+			home.forceBlock = planner.ReasonTargetCollision
+		}
 		mark(planner.ReasonTargetCollision, planner.StatusFailed)
 		return home.flatTargets
 	}
@@ -164,7 +198,7 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 	ref, err := nix.GenerateHomeFlakeWithPlacements(state.StateDir(), settings, filepath.Dir(flags.Manifest), files, configPath, secrets)
 	if err != nil {
 		if errors.Is(err, nix.ErrHomeFileCollision) {
-			home.forceBlocked = true
+			home.forceBlock = planner.ReasonTargetCollision
 			mark(planner.ReasonTargetCollision, planner.StatusFailed)
 		} else {
 			mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
@@ -186,12 +220,30 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 		mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
 		return home.flatTargets
 	}
-	known := map[string]bool{}
-	for _, target := range prepared.FlatTargets {
-		known[filepath.Clean(filepath.FromSlash(target))] = true
-	}
+	targets := make([]string, 0, len(files))
 	for _, file := range files {
-		if !known[filepath.Clean(file.Target)] {
+		targets = append(targets, file.Target)
+	}
+	if flags.DryRun {
+		known := map[string]bool{}
+		for _, target := range prepared.FlatTargets {
+			known[filepath.Clean(filepath.FromSlash(target))] = true
+		}
+		for _, target := range targets {
+			if !known[filepath.Clean(target)] {
+				mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
+				return home.flatTargets
+			}
+		}
+	} else {
+		// The built leaves replace the evaluated targets, which omit recursive declarations.
+		leaves, err := home.builtLeaves(prepared.Resolution)
+		if err != nil {
+			home.forceBlock = planner.ReasonTargetDetectionFailed
+			mark(planner.ReasonTargetDetectionFailed, planner.StatusFailed)
+			return home.flatTargets
+		}
+		if len(leaves.missingTargets(targets)) > 0 {
 			mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
 			return home.flatTargets
 		}
@@ -216,13 +268,13 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 			}
 		}
 	}
-	home.flake, home.generated = ref, true
-	home.resolution, home.flatTargets, home.fileExpectations = prepared.Resolution, prepared.FlatTargets, nativeExpectations
+	home.flake, home.generated, home.fileExpectations = ref, true, nativeExpectations
+	home.adoptPreparation(prepared)
 	home.capturedFiles = expectations
 	return home.flatTargets
 }
 
-func finalizeCapturedHomeManager(session *configRestoreExecutionSession, home *preparedHomeManager, activated, blocked bool, emitter *events.Emitter) (*ConfigResultFields, *envelope.Error) {
+func finalizeCapturedHomeManager(session *configRestoreExecutionSession, home *preparedHomeManager, activated bool, blocked planner.ResolutionReason, emitter *events.Emitter) (*ConfigResultFields, *envelope.Error) {
 	if session == nil || session.lastExecution == nil {
 		return nil, nil
 	}
@@ -236,8 +288,8 @@ func finalizeCapturedHomeManager(session *configRestoreExecutionSession, home *p
 				continue
 			}
 			switch {
-			case blocked:
-				markConfigRestoreFailure(set, planner.ReasonTargetCollision, planner.StatusFailed)
+			case blocked != "":
+				markConfigRestoreFailure(set, blocked, planner.StatusFailed)
 			case home.ownershipAction != nil:
 				// An external owner found at the pre-activation check owns the file placement.
 				markCapturedImportRequired(set, home.flake)

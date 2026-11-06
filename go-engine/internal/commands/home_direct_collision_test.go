@@ -52,9 +52,7 @@ func TestApplyHomeDirectCollisionPreservesIndependentOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			outputRoot := filepath.Join(root, "frozen-home")
-			if err := os.Mkdir(outputRoot, 0700); err != nil {
-				t.Fatal(err)
-			}
+			writeBuiltActivation(t, useFakeHomeStore(t), outputRoot, ".ripgreprc")
 			if err := os.WriteFile(filepath.Join(outputRoot, "endstate-home-files.json"), []byte(`{"files":[]}`), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -137,7 +135,8 @@ func TestApplyHomeDisjointFromDirectCollisionAndExistingSymlink(t *testing.T) {
 		{Type: "copy", Source: "first", Target: shared},
 		{Type: "copy", Source: "second", Target: shared},
 	}
-	backend := &expectationHomeBackend{output: "/nix/store/frozen-home", targets: []string{managed}}
+	t.Setenv("HOME", root)
+	backend := &expectationHomeBackend{output: builtActivation(t, useFakeHomeStore(t), "managed"), targets: []string{managed}}
 	flags := ApplyFlags{Manifest: filepath.Join(root, "manifest.json"), EnableRestore: true,
 		configRestoreRepoRoot: root, configRestoreRuntime: newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot())}
 	raw, err := runApplyRealizer(flags, &manifest.Manifest{HomeManager: &manifest.HomeManagerConfig{Flake: "path:/fixture#profile"}}, backend, noopEmitter(), "disjoint", nil, nil, nil, nil, nil)
@@ -153,6 +152,9 @@ func TestApplyHomeDisjointFromDirectCollisionAndExistingSymlink(t *testing.T) {
 }
 
 func TestApplyHomeOrdinaryCollisionWithoutConfigResultFields(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Home Manager symlink workflow")
+	}
 	for _, parent := range []bool{false, true} {
 		t.Run(fmt.Sprintf("parent=%t", parent), func(t *testing.T) {
 			root := t.TempDir()
@@ -170,7 +172,9 @@ func TestApplyHomeOrdinaryCollisionWithoutConfigResultFields(t *testing.T) {
 			}
 			inputs := emptyConfigRestoreInputs()
 			inputs.ordinaryRestores = []manifest.RestoreEntry{{Type: "copy", Source: "settings-source", Target: target}}
-			backend := &expectationHomeBackend{output: "/nix/store/frozen-home", targets: []string{homeTarget}}
+			t.Setenv("HOME", root)
+			leaf, _ := filepath.Rel(root, homeTarget)
+			backend := &expectationHomeBackend{output: builtActivation(t, useFakeHomeStore(t), filepath.ToSlash(leaf)), targets: []string{homeTarget}}
 			flags := ApplyFlags{Manifest: filepath.Join(root, "manifest.json"), EnableRestore: true,
 				configRestoreRepoRoot: root, configRestoreRuntime: newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot())}
 			raw, err := runApplyRealizer(flags, &manifest.Manifest{HomeManager: &manifest.HomeManagerConfig{Flake: "path:/fixture#profile"}}, backend, noopEmitter(), "ordinary-collision", nil, nil, nil, nil, nil)
@@ -240,7 +244,8 @@ func TestApplyHomeAncestorAliasCollision(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			backend := &expectationHomeBackend{output: "/nix/store/frozen-home", targets: []string{hmTarget}}
+			t.Setenv("HOME", root)
+			backend := &expectationHomeBackend{output: builtActivation(t, useFakeHomeStore(t), "alias/settings"), targets: []string{hmTarget}}
 			directObserved := false
 			backend.activate = func(string) {
 				data, err := os.ReadFile(target)

@@ -72,9 +72,12 @@ type PreparationFinalizer interface{ FinalizePreparation(committed bool) }
 // HomePreparation keeps ephemeral flat targets beside frozen activation provenance.
 // FlatTargets is nil when optional parent configuration metadata is unavailable.
 // A non-nil empty slice means evaluation found no enabled nonrecursive targets.
+// RecursiveDeclarations reports an enabled recursive declaration: its leaves are
+// not in FlatTargets, so evaluation alone cannot list every target.
 type HomePreparation struct {
-	Resolution  *InputResolution
-	FlatTargets []string
+	Resolution            *InputResolution
+	FlatTargets           []string
+	RecursiveDeclarations bool
 }
 
 // HomePreparer freezes and optionally builds activation before package mutation.

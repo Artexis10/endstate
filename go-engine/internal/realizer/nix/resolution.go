@@ -235,9 +235,12 @@ func (b *Backend) observeOutputs(r *realizer.InputResolution) error {
 }
 
 // Store paths and output names are closed native formats, never human meaning.
-func storePath(value string) bool {
-	// Nix store paths use POSIX separators, including during Windows inspection.
-	return strings.HasPrefix(value, "/nix/store/") && path.Clean(value) == value && path.Dir(value) == "/nix/store" && !strings.ContainsAny(value, "\x00\n\r\\")
+func storePath(value string) bool { return storePathIn(value, StoreRoot) }
+
+// storePathIn is the one store-path rule; ReadHomeFiles applies it to a fake store
+// root in tests. Nix store paths use POSIX separators, including during Windows inspection.
+func storePathIn(value, root string) bool {
+	return strings.HasPrefix(value, root+"/") && path.Clean(value) == value && path.Dir(value) == root && !strings.ContainsAny(value, "\x00\n\r\\")
 }
 func storeDerivation(path string) bool { return storePath(path) && strings.HasSuffix(path, ".drv") }
 func outputName(name string) bool {

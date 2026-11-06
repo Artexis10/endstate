@@ -55,7 +55,9 @@ type expectationHomeBackend struct {
 	prepare      func(string)
 	activate     func(string)
 	targets      []string
-	built        bool
+	// recursive reports that an enabled declaration expands to leaves that targets omits.
+	recursive bool
+	built     bool
 }
 
 func (b *expectationHomeBackend) PrepareHome(flake string, build bool) (*realizer.HomePreparation, error) {
@@ -63,7 +65,7 @@ func (b *expectationHomeBackend) PrepareHome(flake string, build bool) (*realize
 	if build && b.prepare != nil {
 		b.prepare(flake)
 	}
-	return &realizer.HomePreparation{Resolution: &realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": b.output}}, FlatTargets: b.targets}, nil
+	return &realizer.HomePreparation{Resolution: &realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": b.output}}, FlatTargets: b.targets, RecursiveDeclarations: b.recursive}, nil
 }
 
 func (b *expectationHomeBackend) ActivatePreparedHome(resolution *realizer.InputResolution) (int, error) {

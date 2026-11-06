@@ -207,3 +207,20 @@ func TestBuildDoesNotCountStructuralBindingAsExecutableSupport(t *testing.T) {
 		t.Fatalf("structural evidence became support: %+v", matrix)
 	}
 }
+
+func TestBuildDoesNotSupportHomeManagerVariantWithoutBoundAuthority(t *testing.T) {
+	variant := parityVariant(true)
+	variant.Realization = modules.RealizationHomeManager
+	catalog := map[string]*modules.Module{"apps.hm-only": {
+		Tier: modules.AppsTier, ID: "apps.hm-only", DisplayName: "HM only", ModuleSchemaVersion: 3,
+		Platforms: map[string]modules.PlatformVariant{"windows": parityVariant(true), "linux": variant},
+	}}
+	matrix, err := Build(catalog, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := matrix.Rows[0]
+	if row.Status != StatusAdapterRequired || row.Reason != "settings_strategy_unavailable" || matrix.Ready {
+		t.Fatalf("unbound home-manager variant reported ready: row=%+v ready=%v", row, matrix.Ready)
+	}
+}

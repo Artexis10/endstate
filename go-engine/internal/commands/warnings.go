@@ -56,3 +56,14 @@ func possibleDuplicatePackageWarnings(routes []*routedDriverApp) []CommandWarnin
 	}
 	return warnings
 }
+
+// homeManagerCheckIncompleteWarning tells a preview reader that the collision
+// check saw only part of the Home Manager targets. Apply builds the activation and
+// lists every target it places, so apply is the complete check.
+func homeManagerCheckIncompleteWarning() CommandWarning {
+	return CommandWarning{
+		Code: "home_manager_collision_check_incomplete",
+		Message: "Preview checked only the Home Manager targets it can evaluate. This input has recursive declarations or no parent configuration, " +
+			"so some targets are unknown until the activation is built. Run apply for the complete collision check.",
+	}
+}

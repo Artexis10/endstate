@@ -13,6 +13,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
+	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
 const SchemaVersion = 1
@@ -145,7 +146,10 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 		row.LinuxCapture = hasLinuxVariant && moduleCaptures(module, "linux")
 		row.LinuxRestore = hasLinuxVariant && moduleRestores(module, "linux")
 		authority, registryLinked := authorityByModule[moduleID]
-		linuxVariantSupportsParity := hasLinuxVariant && (!registryLinked || (authority.Supports(hmregistry.Capture) && authority.Supports(hmregistry.Restore) && authority.Supports(hmregistry.Verify) && authority.Supports(hmregistry.Revert))) &&
+		// The runtime runs a home-manager variant only through a joined authority, so
+		// without one the variant is unbound whether or not the registry names it.
+		needsAuthority := registryLinked || module.Platforms["linux"].Realization == modules.RealizationHomeManager
+		linuxVariantSupportsParity := hasLinuxVariant && (!needsAuthority || (authority.Supports(hmregistry.Capture) && authority.Supports(hmregistry.Restore) && authority.Supports(hmregistry.Verify) && authority.Supports(hmregistry.Revert))) &&
 			(!row.WindowsCapture || row.LinuxCapture) &&
 			(!row.WindowsRestore || row.LinuxRestore)
 		adapter, hasAdapter := adapterByModule[moduleID]
@@ -187,6 +191,10 @@ func Build(moduleCatalog map[string]*modules.Module, packages []*packagecatalog.
 			if adapter.ExclusionReason != "" {
 				row.Reason = adapter.ExclusionReason
 			}
+		case needsAuthority:
+			row.Status = StatusAdapterRequired
+			// The runtime refuses this variant with the same reason.
+			row.Reason = planner.ReasonSettingsStrategyUnavailable.String()
 		case hasLinuxVariant:
 			row.Status = StatusAdapterRequired
 			row.Reason = "Linux variant does not cover the Windows capture and restore surface."
