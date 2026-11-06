@@ -65,6 +65,11 @@ type configRestoreDetectionFailureProvider interface {
 	DetectionFailures() []configRestoreDetectionFailure
 }
 
+// configRestoreExecutionOptions carries two Home Manager claim sources. Preview
+// claims HomeManagerTargets, the evaluated flat targets. A real apply sets
+// HomeManagerLeaves, which takes precedence: it returns the file claims of the
+// built activation and the check calls it only when another selected owner has
+// a file or desktop claim.
 type configRestoreExecutionOptions struct {
 	RestoreEnabled     bool
 	DryRun             bool
@@ -81,16 +86,19 @@ type configRestoreExecutionOptions struct {
 	ValidationContext  *validationmode.Context
 	HostBoundary       configrestore.HostBoundary
 	HomeManagerTargets []string
+	HomeManagerLeaves  func() ([]string, error)
 	PrepareHomeManager func(*planner.ConfigPlan, []preparedConfigRestoreExecution) []string
 }
 
+// HomeManagerBlock is the reason the selected Home Manager activation must not
+// run; it is empty when the activation is not blocked.
 type configRestoreExecutionResult struct {
-	Plan               planner.ConfigPlan
-	RestoreItems       []restore.RestoreResult
-	Results            []restore.RestoreResult
-	EventResults       []restore.RestoreResult
-	JournalPath        string
-	HomeManagerBlocked bool
+	Plan             planner.ConfigPlan
+	RestoreItems     []restore.RestoreResult
+	Results          []restore.RestoreResult
+	EventResults     []restore.RestoreResult
+	JournalPath      string
+	HomeManagerBlock planner.ResolutionReason
 }
 
 type preparedConfigRestoreExecution struct {
@@ -167,9 +175,16 @@ func (session *configRestoreExecutionSession) Execute(
 		if options.PrepareHomeManager != nil {
 			options.HomeManagerTargets = options.PrepareHomeManager(&result.Plan, prepared)
 		}
+		consumerOwned := homeManagerConsumerSets(result.Plan, prepared)
 		prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 		collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
-		result.HomeManagerBlocked = collisions.homeManagerBlocked
+		result.HomeManagerBlock = collisions.homeManagerBlock
+		if collisions.homeManagerBlock != "" {
+			// Preview reports the row outcome that apply would, before it emits the resolutions.
+			for index := range consumerOwned {
+				markConfigRestoreFailure(&result.Plan.Sets[index], collisions.homeManagerBlock, planner.StatusFailed)
+			}
+		}
 		applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
 		prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 		dryRunOutcomes := make(map[int]configRestoreSetOutcome, len(prepared))
@@ -246,15 +261,10 @@ func (session *configRestoreExecutionSession) Execute(
 		options.HomeManagerTargets = options.PrepareHomeManager(&result.Plan, prepared)
 	}
 	// The Home Manager consumer emits the one final resolution for each set it accepted.
-	consumerOwned := map[int]bool{}
-	for _, item := range prepared {
-		if item.home && selectedConfigRestorePlanSet(result.Plan.Sets[item.setIndex]) {
-			consumerOwned[item.setIndex] = true
-		}
-	}
+	consumerOwned := homeManagerConsumerSets(result.Plan, prepared)
 	prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 	collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
-	result.HomeManagerBlocked = collisions.homeManagerBlocked
+	result.HomeManagerBlock = collisions.homeManagerBlock
 	applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
 	earlyItems := make(map[int][]restore.RestoreResult, len(prepared))
 	for index := range prepared {
@@ -714,6 +724,17 @@ func executablePreparedConfigRestoreSets(
 	return result
 }
 
+// homeManagerConsumerSets lists the sets that the Home Manager consumer accepted.
+func homeManagerConsumerSets(plan planner.ConfigPlan, prepared []preparedConfigRestoreExecution) map[int]bool {
+	owned := map[int]bool{}
+	for _, item := range prepared {
+		if item.home && selectedConfigRestorePlanSet(plan.Sets[item.setIndex]) {
+			owned[item.setIndex] = true
+		}
+	}
+	return owned
+}
+
 func inspectDryRunConfigRestoreSet(
 	ctx context.Context,
 	set *configrestore.MaterializedSet,
@@ -840,10 +861,11 @@ func configRestoreResultsForSet(
 	return results
 }
 
+// homeManagerBlock is empty unless the selected Home Manager activation must not run.
 type configRestoreCollisionState struct {
-	legacyCaptures     map[string]planner.ResolutionReason
-	ordinaryActions    map[int]planner.ResolutionReason
-	homeManagerBlocked bool
+	legacyCaptures   map[string]planner.ResolutionReason
+	ordinaryActions  map[int]planner.ResolutionReason
+	homeManagerBlock planner.ResolutionReason
 }
 
 type ownedConfigRestoreClaim struct {
@@ -860,8 +882,6 @@ func (claim ownedConfigRestoreClaim) ownerKey() string {
 		return fmt.Sprintf("generation:%d", claim.setIndex)
 	case "legacy":
 		return "legacy:" + claim.captureID
-	case "home-manager":
-		return "home-manager"
 	default:
 		return fmt.Sprintf("ordinary:%d", claim.actionIndex)
 	}
@@ -918,19 +938,23 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 			claims = append(claims, ownedConfigRestoreClaim{claim: claim, kind: "ordinary", actionIndex: index})
 		}
 	}
-	for _, target := range options.HomeManagerTargets {
-		identities, err := restore.FilesystemTargetIdentities(target)
-		if err != nil {
-			// Unavailable filesystem identity supplies no known overlapping claim.
-			continue
-		}
-		for _, identity := range identities {
-			claims = append(claims, ownedConfigRestoreClaim{
-				claim: "file\x00" + strings.TrimSuffix(filepath.ToSlash(identity), "/"), kind: "home-manager",
-			})
-		}
+	homeClaims, homeErr := homeManagerConfigRestoreClaims(claims, options)
+	if homeErr != nil {
+		// Without the built leaves no overlap is known, but the activation must not
+		// run unchecked; every other owner proceeds because nothing proves a conflict.
+		state.homeManagerBlock = planner.ReasonTargetDetectionFailed
 	}
 	blockedGeneration := make(map[int]bool)
+	blockOwner := func(owner ownedConfigRestoreClaim) {
+		switch owner.kind {
+		case "generation":
+			blockedGeneration[owner.setIndex] = true
+		case "legacy":
+			state.legacyCaptures[owner.captureID] = planner.ReasonTargetCollision
+		case "ordinary":
+			state.ordinaryActions[owner.actionIndex] = planner.ReasonTargetCollision
+		}
+	}
 	for left := 0; left < len(claims); left++ {
 		for right := left + 1; right < len(claims); right++ {
 			if !concreteConfigRestoreClaimsOverlap(claims[left].claim, claims[right].claim) {
@@ -940,22 +964,19 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 			// reversible state chain. Parent/child overlaps are not: changing a
 			// child also changes the parent's captured tree state, so reject those
 			// before any forward mutation.
-			// Home Manager handles overlaps within its own atomic activation.
-			if claims[left].ownerKey() == claims[right].ownerKey() && (claims[left].kind == "home-manager" || claims[left].claim == claims[right].claim) {
+			if claims[left].ownerKey() == claims[right].ownerKey() && claims[left].claim == claims[right].claim {
 				continue
 			}
-			for _, owner := range []ownedConfigRestoreClaim{claims[left], claims[right]} {
-				switch owner.kind {
-				case "generation":
-					blockedGeneration[owner.setIndex] = true
-				case "legacy":
-					state.legacyCaptures[owner.captureID] = planner.ReasonTargetCollision
-				case "ordinary":
-					state.ordinaryActions[owner.actionIndex] = planner.ReasonTargetCollision
-				case "home-manager":
-					state.homeManagerBlocked = true
-				}
-			}
+			blockOwner(claims[left])
+			blockOwner(claims[right])
+		}
+	}
+	// Home Manager handles overlaps within its own atomic activation, so its
+	// claims meet only the other owners' claims and never each other.
+	for _, owner := range claims {
+		if anyClaimOverlaps(homeClaims, owner.claim) {
+			blockOwner(owner)
+			state.homeManagerBlock = planner.ReasonTargetCollision
 		}
 	}
 	for index := range blockedGeneration {
@@ -963,6 +984,24 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 	}
 	recomputeConfigPlanSummary(plan)
 	return state
+}
+
+// homeManagerConfigRestoreClaims returns the Home Manager file claims that the
+// collision check compares with the other owners.
+func homeManagerConfigRestoreClaims(others []ownedConfigRestoreClaim, options configRestoreExecutionOptions) ([]string, error) {
+	if options.HomeManagerLeaves != nil {
+		for _, other := range others {
+			if strings.HasPrefix(other.claim, "file\x00") || strings.HasPrefix(other.claim, "desktop\x00") {
+				return options.HomeManagerLeaves()
+			}
+		}
+		return nil, nil
+	}
+	var claims []string
+	for _, target := range options.HomeManagerTargets {
+		claims = append(claims, homeTargetClaims(target)...)
+	}
+	return claims, nil
 }
 
 func applyLegacyConcreteConfigRestoreCollisions(plan *planner.ConfigPlan, state configRestoreCollisionState) {

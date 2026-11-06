@@ -45,6 +45,11 @@ type capturedHomeBackend struct {
 	onFreeze func()
 	// onRealize runs when the package set is installed.
 	onRealize func()
+	// store is the fake store that holds each built activation's files tree.
+	store string
+	// hiddenLeaves are built leaves that a recursive declaration expands to; evaluation
+	// reports no flat target for them.
+	hiddenLeaves []string
 }
 
 func (b *capturedHomeBackend) Realize(toAdd []realizer.Installable) (realizer.Result, error) {
@@ -68,6 +73,7 @@ func (b *capturedHomeBackend) PrepareHome(flake string, build bool) (*realizer.H
 	files := map[string]string{}
 	expectations := provision.HomeFileExpectations{Files: []provision.HomeFileExpectation{}}
 	targets := []string{}
+	leaves := append([]string{}, b.hiddenLeaves...)
 	for index, target := range b.targets {
 		relative, err := filepath.Rel(os.Getenv("HOME"), target)
 		if err != nil {
@@ -87,6 +93,7 @@ func (b *capturedHomeBackend) PrepareHome(flake string, build bool) (*realizer.H
 		}
 		files[target] = source
 		targets = append(targets, target)
+		leaves = append(leaves, filepath.ToSlash(relative))
 		sum := sha256.Sum256(data)
 		expectations.Files = append(expectations.Files, provision.HomeFileExpectation{Target: filepath.ToSlash(target), SHA256: fmt.Sprintf("%x", sum)})
 	}
@@ -98,6 +105,9 @@ func (b *capturedHomeBackend) PrepareHome(flake string, build bool) (*realizer.H
 		b.outputs = map[string]map[string]string{}
 	}
 	b.outputs[output] = files
+	if b.store != "" {
+		writeBuiltActivation(b.t, b.store, output, leaves...)
+	}
 	return &realizer.HomePreparation{Resolution: &realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": output}}, FlatTargets: targets}, nil
 }
 func (b *capturedHomeBackend) ActivatePreparedHome(resolution *realizer.InputResolution) (int, error) {
@@ -204,7 +214,7 @@ func capturedStrategyFixture(t *testing.T, options capturedFixtureOptions) (stri
 	if _, ok := snapshot.homeAuthorities["apps.ripgrep"]; !ok {
 		t.Fatalf("fixture has no reviewed current Home Manager authority: %+v", snapshot.homeAuthorities)
 	}
-	backend := &capturedHomeBackend{t: t, root: root, targets: []string{filepath.Join(home, ".ripgreprc"), filepath.Join(home, ".config", "ripgrep", "config")}}
+	backend := &capturedHomeBackend{t: t, root: root, store: useFakeHomeStore(t), targets: []string{filepath.Join(home, ".ripgreprc"), filepath.Join(home, ".config", "ripgrep", "config")}}
 	old := newRealizerFn
 	newRealizerFn = func() (realizer.Realizer, error) { return backend, nil }
 	t.Cleanup(func() { newRealizerFn = old })

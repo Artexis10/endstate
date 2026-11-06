@@ -19,9 +19,11 @@ func TestPrepareHomeProjectsNativeFlatTargetsWithoutBuilding(t *testing.T) {
 	for _, test := range []struct {
 		name, projection string
 		want             []string
+		recursive        bool
 		code             envelope.ErrorCode
 	}{
 		{name: "evaluated placements", projection: `{"drvPath":"/nix/store/package.drv","targets":["/declared-home/xdg-config/tool/config","/declared-home//outside-name"]}`, want: []string{"/declared-home/xdg-config/tool/config", "/declared-home/outside-name"}},
+		{name: "recursive declaration reported apart", projection: `{"drvPath":"/nix/store/package.drv","targets":["/declared-home/flat"],"recursive":true}`, want: []string{"/declared-home/flat"}, recursive: true},
 		{name: "known empty", projection: `{"drvPath":"/nix/store/package.drv","targets":[]}`, want: []string{}},
 		{name: "activation only", projection: `{"drvPath":"/nix/store/package.drv","targets":null}`},
 		{name: "changed derivation", projection: `{"drvPath":"/nix/store/changed.drv","targets":[]}`, code: realizer.ErrInputProvenanceUnresolved},
@@ -85,7 +87,7 @@ func TestPrepareHomeProjectsNativeFlatTargetsWithoutBuilding(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || preparation == nil || preparation.Resolution.Derivation != "/nix/store/package.drv" || !reflect.DeepEqual(preparation.FlatTargets, test.want) {
+			if err != nil || preparation == nil || preparation.Resolution.Derivation != "/nix/store/package.drv" || !reflect.DeepEqual(preparation.FlatTargets, test.want) || preparation.RecursiveDeclarations != test.recursive {
 				t.Fatalf("incorrect flat target evidence: %+v %v", preparation, err)
 			}
 		})
