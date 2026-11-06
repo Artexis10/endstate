@@ -85,10 +85,10 @@ func TestBusConnectorEndsAHandshakeThatNeverAnswers(t *testing.T) {
 }
 
 // Profile files are read from XDG_DATA_DIRS, which GLib defaults to these two.
-func TestProfileCandidatesDefaultToTheXDGSystemDirectories(t *testing.T) {
-	ns := namespace{runtimeDir: "/run/user/1", env: map[string]string{}}
-	candidates, err := ns.profileCandidates()
-	want := []string{"/run/user/1/dconf/profile", "/usr/local/share/dconf/profile/user", "/usr/share/dconf/profile/user"}
+func TestDataDirProfilesDefaultToTheXDGSystemDirectories(t *testing.T) {
+	ns := namespace{env: map[string]string{}}
+	candidates, err := ns.dataDirProfiles()
+	want := []string{"/usr/local/share/dconf/profile/user", "/usr/share/dconf/profile/user"}
 	if err != nil || strings.Join(candidates, " ") != strings.Join(want, " ") {
 		t.Fatalf("candidates %q, err %v", candidates, err)
 	}

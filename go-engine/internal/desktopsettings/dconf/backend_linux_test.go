@@ -294,7 +294,6 @@ func TestDconfRefusesEveryProfileSource(t *testing.T) {
 		{"relative data directory", func(s *dconftest.Session) { s.Writer["XDG_DATA_DIRS"] = "share:" + s.DataDir }, dconf.ReasonScopeUnproven},
 		// GLib keeps the empty entry from a stray colon, and dconf then reads ./dconf/profile/user.
 		{"empty data directory entry", func(s *dconftest.Session) { s.Writer["XDG_DATA_DIRS"] = s.DataDir + ":" }, dconf.ReasonScopeUnproven},
-		{"empty data directory entry for this process", func(s *dconftest.Session) { s.Reader["XDG_DATA_DIRS"] = ":" + s.DataDir }, dconf.ReasonScopeUnproven},
 		{"default value reported by dconf", func(s *dconftest.Session) { s.Defaults[clockKey] = "true" }, dconf.ReasonProfileUnsupported},
 		{"locks reported by dconf", func(s *dconftest.Session) {
 			s.Locks["/org/gnome/desktop/interface/"] = "/org/gnome/desktop/interface/clock-show-date\n"
@@ -353,7 +352,8 @@ func TestDconfPinsChildEnvironmentToTheSessionsView(t *testing.T) {
 	s := dconftest.New(t)
 	sessionDirs := s.DataDir
 	s.SchemaDataDirs = &sessionDirs
-	s.Reader["XDG_DATA_DIRS"] = "/tmp/.mount_endstate/usr/share:" + s.DataDir
+	// An empty and a relative entry are harmless here: the commands never see this value.
+	s.Reader["XDG_DATA_DIRS"] = "/tmp/.mount_endstate/usr/share::share:" + s.DataDir
 	s.Reader["G_MESSAGES_DEBUG"] = "all"
 	s.Reader["GSETTINGS_SCHEMA_DIR"] = "/tmp/.mount_endstate/schemas"
 	s.Values[clockKey] = "true"

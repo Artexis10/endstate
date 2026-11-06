@@ -177,19 +177,21 @@ func (s *session) prove(ctx context.Context) error {
 
 // proveProfileAbsent requires that no dconf profile override exists for the
 // reader or the writer. The writer ignores profiles; its environment stands in
-// for the session clients that read through one.
+// for the session clients that read through one. Every command runs with the
+// writer's XDG_DATA_DIRS, so only the writer's data directories can hold one.
 func (s *session) proveProfileAbsent() error {
 	candidates := []string{filepath.Join(s.host.RuntimeProfileDir, strconv.Itoa(s.host.UID)), s.host.SystemProfile}
 	for _, ns := range []namespace{s.reader, s.writer} {
 		if _, set := ns.env["DCONF_PROFILE"]; set {
 			return refuse(ReasonProfileUnsupported, "DCONF_PROFILE is set for "+ns.who)
 		}
-		more, err := ns.profileCandidates()
-		if err != nil {
-			return err
-		}
-		candidates = append(candidates, more...)
+		candidates = append(candidates, filepath.Join(ns.runtimeDir, "dconf", "profile"))
 	}
+	dataDirProfiles, err := s.writer.dataDirProfiles()
+	if err != nil {
+		return err
+	}
+	candidates = append(candidates, dataDirProfiles...)
 	for _, candidate := range candidates {
 		_, err := os.Lstat(candidate)
 		if err == nil {
@@ -348,9 +350,9 @@ func resolveNamespace(env map[string]string, who string) (namespace, error) {
 	return ns, nil
 }
 
-// profileCandidates lists the profile files dconf may read in this environment.
-func (ns namespace) profileCandidates() ([]string, error) {
-	candidates := []string{filepath.Join(ns.runtimeDir, "dconf", "profile")}
+// dataDirProfiles lists the profile files dconf may read from the data directories.
+func (ns namespace) dataDirProfiles() ([]string, error) {
+	var candidates []string
 	dataDirs := ns.env["XDG_DATA_DIRS"]
 	if dataDirs == "" {
 		dataDirs = "/usr/local/share:/usr/share"
