@@ -304,7 +304,8 @@ their shared files are exclusive.
 ./internal/realizer/nix ./internal/commands`.
 
 - [x] 8.1 Implement the deterministic release-time pinned Home Manager harvester, fixed-argv pure probes, and separate registry-refresh CLI
-- [ ] 8.2 Add probe timeout/cancellation plus automated proof that harvester/Nix evaluation is absent from runtime capture dependencies
+- [x] 8.2 Add probe timeout/cancellation plus automated proof that harvester/Nix evaluation is absent from runtime capture dependencies
+  - Independent review accepts `8ab59d4`, including a correction that preserves the registry when cancellation arrives during publication staging. Real subprocess, signal, deadline, output-bound, and explicit-write checks pass. The runtime dependency check excludes the release harvester; actual frozen-registry capture passes with evaluation canaries. Native release and final integrated acceptance remain separate.
 - [x] 8.3 Implement strict frozen registry parsing for exact inputs, hashes, reviewed dispositions, target coordinates, ownership uniqueness, and fail-closed codec dispatch
 - [ ] 8.4 Bind every non-excluded adapter to an explicit schema-v3 Linux platform variant, package/module identity, targets, strategy, actions, and secret/content policy
   - Decision 22 starts with one shared registry/module/generation authority join. Discovery, private collection, and the matrix use its result. Missing bindings remain review-only; stale bindings withhold only their adapter. Complete all remaining bindings before closing this task.
