@@ -250,8 +250,8 @@ For every advertised restorable adapter, verification SHALL compare the expected
 
 #### Scenario: Registry and module claim different targets or strategies
 - **WHEN** the registry target/placement conflicts with the schema-v3 Linux variant target or realization strategy
-- **THEN** catalog/registry validation SHALL fail before capture or release
-- **AND** neither declaration SHALL win by load order
+- **THEN** validation SHALL withhold that adapter's execution and fail its release-readiness check
+- **AND** neither declaration SHALL win by load order or prevent independent valid runtime discovery and capture
 
 #### Scenario: Managed target drifts within the same Home Manager generation
 - **WHEN** the active Home Manager generation still matches Endstate history but a managed target's live content differs from the expected portable content
@@ -262,6 +262,37 @@ For every advertised restorable adapter, verification SHALL compare the expected
 - **WHEN** a Home Manager program has no Windows module but is proposed as additive Linux coverage
 - **THEN** it SHALL receive the same explicit schema-v3 Linux settings authority and lifecycle proof as a parity module
 - **AND** additive status SHALL NOT weaken its safety or verification gates
+
+#### Scenario: Reviewed registry entry has no explicit module binding
+- **WHEN** discovery observes a registry target without a matching Linux variant binding
+- **THEN** it SHALL retain the candidate evidence without capture, restore, verify, or revert actions
+- **AND** it SHALL NOT create a private collection plan or count the entry as release-supported
+- **AND** presence observation SHALL NOT open, hash, transform, or collect its payload
+
+#### Scenario: One adapter binding becomes stale
+- **WHEN** a binding's reviewed fingerprint or named generation no longer matches current authority
+- **THEN** the engine SHALL report a bounded diagnostic and withhold that adapter's execution
+- **AND** independent valid adapters SHALL remain usable
+
+#### Scenario: Native restore variant supplies captured files
+- **WHEN** a bound Linux variant declares `endstate-restore` and the user selects its observed settings
+- **THEN** capture SHALL preserve the selected source-generation provenance through `ConfigCaptures`
+- **AND** it SHALL NOT also assign those targets to `homeManager.settings.files`
+
+#### Scenario: Captured ripgrep arguments exceed the reviewed portable subset
+- **WHEN** a ripgrep configuration contains an unsupported, positional, command-capable, or path-bearing argument
+- **THEN** automatic capture and restore SHALL withhold that file and report its unsupported content
+- **AND** the engine SHALL NOT silently remove the argument and report equivalent configuration
+
+#### Scenario: Generated Home Manager file source changes after activation
+- **WHEN** a source file changes after Endstate stages and activates a generated Home Manager configuration
+- **THEN** verification SHALL compare live targets with expectations from the bytes used for activation
+- **AND** it SHALL NOT treat the changed source file or generation identity alone as expected content
+
+#### Scenario: A semantic content policy replaces an earlier byte-copy generation
+- **WHEN** a Linux adapter introduces a narrower semantic policy with a new generation identity
+- **THEN** old capture history SHALL remain readable without gaining automatic execution authority
+- **AND** restore SHALL require reviewed migration or semantic revalidation before accepting the old payload
 
 ### Requirement: Desktop values use the durable configuration transaction model
 GNOME and KDE value operations SHALL extend a shared durable configuration transaction model before either desktop adapter is advertised. The model SHALL assign stable typed target identities, snapshot the prior value or absence before mutation, persist intent and journal state atomically, verify commit, classify partial failures, recover interrupted work, and support explicit revert. A standalone desktop command wrapper SHALL NOT bypass this transaction model.

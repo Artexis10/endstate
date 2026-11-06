@@ -303,6 +303,7 @@ their shared files are exclusive.
 - [ ] 8.2 Add probe timeout/cancellation plus automated proof that harvester/Nix evaluation is absent from runtime capture dependencies
 - [x] 8.3 Implement strict frozen registry parsing for exact inputs, hashes, reviewed dispositions, target coordinates, ownership uniqueness, and fail-closed codec dispatch
 - [ ] 8.4 Bind every non-excluded adapter to an explicit schema-v3 Linux platform variant, package/module identity, targets, strategy, actions, and secret/content policy
+  - Decision 22 starts with one shared registry/module/generation authority join. Discovery, private collection, and the matrix use its result. Missing bindings remain review-only; stale bindings withhold only their adapter. Complete all remaining bindings before closing this task.
 - [x] 8.5 Generate a deterministic matrix that accounts for all 359 existing application modules and reports supported/adapter/review counters
 - [ ] 8.6 Add persistent reviewed applicability/exclusion authority and make the zero-blocker readiness predicate mandatory in release validation
 - [ ] 8.7 Emit bounded deterministic declaration/option/type/target/source-hash diffs that invalidate prior review

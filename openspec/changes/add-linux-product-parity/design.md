@@ -475,6 +475,93 @@ held. Cross-platform execution and delivery of unreviewed changes still wait
 for their exact review. This rule grants no permission to retry or bypass a
 blocked review tool, waive a release gate, or overwrite another lane's work.
 
+### 22. Bind reviewed adapters to the generation that owns their lifecycle
+
+Reuse the existing module catalogue, frozen registry, settings codecs, and
+configuration transaction. Registry metadata describes possible adapters;
+the Linux variant supplies executable authority. No new adapter framework or
+second authored target/action list is required.
+
+A Linux `PlatformVariant` may declare `homeManagerAdapter` with `id`,
+`reviewFingerprint`, `configSetId`, and `generationId`. Preserve that binding
+in executable projection and include it in existing variant fingerprints.
+The binding identifies one registry entry and one existing generation,
+including `default/g1` for the established flat shorthand.
+
+One pure authority join consumes the validated registry, authored module
+catalogue, and package catalogue. Discovery, capture planning, and the parity
+matrix consume its result. The join requires explicit schema-v3 Linux
+authority, exact reviewed fingerprint, matching module/package association,
+and agreement between registry targets, generation capture sources, and
+restore targets. It checks secret exclusions and the implemented content
+policy before granting actions. Mechanical codec availability alone is
+insufficient. A bounded byte-preserving codec does not establish semantic safety.
+Keep structural binding distinct from executable capability in that one result.
+A structurally valid binding may have no actions while its strategy lacks
+semantic policy, target-content verification, or recovery. Existing generic
+byte-copy and Git denylist codecs do not supply that missing proof.
+Unbound or policy-blocked observation uses metadata inspection only. It must
+not open, hash, transform, or collect payload bytes to establish presence.
+
+Derive actions from the bound generation, declared realization strategy,
+implemented content policy, verifier, and recovery path. Do not add an authored
+action list that can drift from those mechanisms. A missing binding leaves
+candidate evidence visible without actions or private collection plans.
+A contradictory binding produces a bounded entry-specific diagnostic and
+prevents that adapter's execution. Independent valid adapters remain usable;
+release readiness requires every advertised adapter's authority to agree.
+This control prevents unsupported file capture and misleading support claims.
+A false rejection withholds one adapter while preserving its evidence and
+independent work; it must not abort unrelated discovery.
+
+Keep the first ripgrep variant on `endstate-restore`. Reconcile its reviewed
+targets to `${home}/.ripgreprc`, `${xdg.config}/ripgrep/config`, and
+`${xdg.config}/ripgrep/ripgreprc`. Use a versioned semantic codec for a reviewed
+portable subset of ripgrep arguments. Upstream configuration treats each
+trimmed non-comment line as one argument; it does not use shell parsing.
+The upstream [configuration reader](https://github.com/BurntSushi/ripgrep/blob/master/crates/core/flags/config.rs)
+supplies the grammar; a small argument scanner and closed reviewed flag schema
+avoid duplicating ripgrep's full command-line parser.
+Unknown, positional, command-capable, or path-bearing arguments leave that file
+unavailable for automatic capture/restore. Do not silently drop an argument
+and claim equivalent settings. Preserve the order of accepted arguments.
+Canonical output may omit comments. Application behavior proof supplies
+`RIPGREP_CONFIG_PATH`; this change does not manage the user's shell environment.
+
+The harvester remains the producer of pinned metadata and observed probe
+targets. Curated runtime aliases remain reviewed registry data. Refresh does
+not manufacture module bindings; changed metadata invalidates the old binding.
+
+Binding and content-policy changes alter Linux generation fingerprints.
+Introduce the reviewed ripgrep policy as explicit Linux generation `g2` and
+retain the earlier `g1` history. Do not automatically accept old byte-copy
+fingerprints under the new policy. Old captures remain readable; restore needs
+a reviewed migration or semantic revalidation before they become executable.
+Do not weaken repository history validation to reuse the old generation ID.
+
+Collection consumes the selected observed target/hash set. Selecting a module
+does not authorize a second unconstrained read of its other sources.
+Carry that fence as private execution data while retaining the complete pinned
+generation declaration and fingerprint. Do not filter the declaration to
+implement selection or change the meaning of its source provenance.
+`endstate-restore` captures use existing `ConfigCaptures`, staged validation,
+journals, content verification, and revert. They must not also populate
+`homeManager.settings.files`. Home Manager placement uses its declared strategy
+and must not execute the native restore lane for the same target.
+
+For generated Home Manager files, record bounded target/hash expectations
+beside activation identity from the exact staged bytes used for activation.
+Verification proves activation ownership and expected target contents.
+Rollback verifies the prior activation's recorded expectations. Legacy history
+remains readable, but absent content evidence is visibly unverified. Typed
+settings retain their separate semantic comparison requirement.
+
+Implement the shared authority join first, then the reviewed native ripgrep
+lifecycle, then Home Manager content expectations and remaining adapter bindings.
+The first join does not complete task 8.4 for the whole registry. Reuse current
+file drift verification; retain native runtime, mapping review, full catalogue,
+GUI, and delivery obligations. Existing Windows contracts remain unchanged.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.
