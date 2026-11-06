@@ -379,9 +379,10 @@ The initial 10.1–10.3 packet uses an injected hermetic backend through that fu
 workflow. Production detection stays unavailable; 10.4, 10.5, and 10.9 stay open
 until native database health and reader/writer namespace proof are implemented.
 
-- [ ] 10.1 Extend durable configuration transactions with typed target identity, value/absence snapshots, atomic intent/journal state, verification, recovery, and revert
-- [ ] 10.2 Define canonical bounded value encodings and stable unavailable/ownership/partial-failure reason codes shared by desktop adapters
-- [ ] 10.3 Integrate typed-value operations with module authority, backup/recovery inspection, verifier dispatch, and collision detection
+- [x] 10.1 Extend durable configuration transactions with typed target identity, value/absence snapshots, atomic intent/journal state, verification, recovery, and revert
+- [x] 10.2 Define canonical bounded value encodings and stable unavailable/ownership/partial-failure reason codes shared by desktop adapters
+- [x] 10.3 Integrate typed-value operations with module authority, backup/recovery inspection, verifier dispatch, and collision detection
+  - Independent review accepts `b9fa172`, integrated as `69a6dde`, and the GUI contract mirror. The injected boolean workflow proves capture through content verification, reconciliation, recovery, and revert for absence and explicit false. The integrated full suite passes with 5,524 named tests, 41 skips, and no failures. Native GNOME, KDE, helper packaging, and real-session promotion remain separate tasks; production desktop detection stays unavailable.
 - [ ] 10.4 Implement injectable GSettings user-value/read/write/reset/session boundaries that distinguish overrides from inherited defaults
 - [ ] 10.5 Curate the initial GNOME schema/key/type allowlist and complete capture/apply/verify/revert while rejecting whole dconf and forbidden state
 - [ ] 10.6 Implement an injectable Plasma/KConfig-version-aware file/group/key boundary with absence/empty distinction, safe locking, and merge semantics
