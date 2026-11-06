@@ -6,6 +6,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
+	"github.com/Artexis10/endstate/go-engine/internal/discovery"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -82,7 +84,7 @@ func TestVerifyCapturedContentReportsUnavailableOrUnsafeEvidence(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			manifestPath, root, home, capture := configVerifyCaptureFixture(t)
-			if err := os.WriteFile(filepath.Join(home, ".ripgreprc"), []byte("--hidden\n--glob=!vendor\n"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(home, ".ripgreprc"), []byte("--hidden\n--line-number\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			test.change(t, manifestPath, home, capture)
@@ -252,7 +254,7 @@ func TestVerifyCapturedContentDetectsDriftAndRepairRevertRestoresDrift(t *testin
 				return nil, ErrNoRealizer
 			}
 			t.Cleanup(func() { newDriverFn, newRealizerFn = oldDriver, oldRealizer })
-			desired := []byte("--hidden\n--glob=!vendor\n")
+			desired := []byte("--hidden\n--line-number\n")
 			target := filepath.Join(targetHome, ".ripgreprc")
 			if err := os.WriteFile(target, desired, 0600); err != nil {
 				t.Fatal(err)
@@ -274,7 +276,7 @@ func TestVerifyCapturedContentDetectsDriftAndRepairRevertRestoresDrift(t *testin
 			}
 			originalHistory := configVerifyFileBytes(t, filepath.Join(root, "state"))
 			assertConfigVerify(t, manifestPath, capture.CaptureID, "pass", "")
-			drifted := []byte("--no-hidden\n--glob=!vendor\n")
+			drifted := []byte("--no-hidden\n--line-number\n")
 			if err := os.WriteFile(target, drifted, 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -316,7 +318,7 @@ func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.
 	}
 	t.Setenv("HOME", sourceHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sourceHome, ".config"))
-	if err := os.WriteFile(filepath.Join(sourceHome, ".ripgreprc"), []byte("--hidden\n--glob=!vendor\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(sourceHome, ".ripgreprc"), []byte("--hidden\n--line-number\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile("../../../modules/apps/ripgrep/module.jsonc")
@@ -328,15 +330,32 @@ func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.
 		t.Fatal(err)
 	}
 	catalog := modules.FilterCatalogForPlatform(map[string]*modules.Module{mod.ID: mod}, "linux")
-	planning := planCaptureConfig(catalog, nil, nil)
-	manifestPath := filepath.Join(root, "capture.jsonc")
-	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"Content fixture","apps":[]}`), 0600); err != nil {
+	repo, err := filepath.Abs("../../..")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bundle.CreateCaptureBundle(bundle.CaptureBundleRequest{ManifestPath: manifestPath, OutputPath: filepath.Join(root, "capture.zip"), Modules: planning.Modules, GenerationPlans: planning.GenerationPlans}); err != nil {
-		t.Fatal(err)
-	}
-	extracted, err := bundle.ExtractBundle(filepath.Join(root, "capture.zip"))
+	t.Setenv("ENDSTATE_ROOT", repo)
+	outputPath := filepath.Join(root, "capture.endstate")
+	func() {
+		oldRoot, oldRealizer, oldDiscovery, oldCatalog := resolveRepoRootFn, newRealizerFn, discoverLinuxFn, loadCaptureModuleCatalogFn
+		defer func() {
+			resolveRepoRootFn, newRealizerFn, discoverLinuxFn = oldRoot, oldRealizer, oldDiscovery
+			loadCaptureModuleCatalogFn = oldCatalog
+		}()
+		resolveRepoRootFn = func() string { return repo }
+		loadCaptureModuleCatalogFn = modules.GetCatalogWithDiagnostics
+		newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+		discoverLinuxFn = func(ctx context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
+			request.SelectedSources = []string{discovery.HomeManagerSettingsSource}
+			return discovery.Discover(ctx, request)
+		}
+		withFakeGenerations(nil, errors.New("no managed profile"), func() {
+			if _, err := RunCapture(CaptureFlags{Out: outputPath, Only: "apps.ripgrep"}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}()
+	extracted, err := bundle.ExtractBundle(outputPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,6 +363,9 @@ func configVerifyCaptureFixture(t *testing.T) (string, string, string, manifest.
 	loaded, err := manifest.LoadManifest(extracted)
 	if err != nil || len(loaded.ConfigCaptures) != 1 {
 		t.Fatalf("capture manifest: %+v, %v", loaded, err)
+	}
+	if loaded.HomeManager != nil || loaded.ConfigCaptures[0].SourceGeneration != "g2" {
+		t.Fatal("reviewed native settings lost generation authority or received duplicate Home Manager placement")
 	}
 	targetHome := filepath.Join(root, "target-home")
 	if err := os.MkdirAll(targetHome, 0700); err != nil {

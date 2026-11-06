@@ -66,6 +66,7 @@ type CaptureFlags struct {
 	// linuxHomeManagerFiles is private execution state populated by the Linux
 	// discovery lane. Absolute host sources must never enter an envelope.
 	linuxHomeManagerFiles []bundle.HomeManagerFileCapturePlan
+	linuxConfigFiles      []bundle.SettingsFileCapturePlan
 	// linuxSettingsApps/linuxSettingsModules allow a Linux --only selection to
 	// name detected settings even when no portable package was resolved. They
 	// contain identifiers only; live paths remain in linuxHomeManagerFiles.

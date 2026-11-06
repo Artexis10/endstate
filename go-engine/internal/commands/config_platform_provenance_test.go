@@ -17,8 +17,8 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
-// This proof uses the production flat module and real collection/restore bytes.
-func TestLinuxFlatConfigCaptureRestoreRetainsPlatformProvenance(t *testing.T) {
+// This proof uses the production versioned module and real collection/restore bytes.
+func TestLinuxVersionedConfigCaptureRestoreRetainsPlatformProvenance(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux host-coordinate workflow")
 	}
@@ -26,7 +26,7 @@ func TestLinuxFlatConfigCaptureRestoreRetainsPlatformProvenance(t *testing.T) {
 	sourceHome := filepath.Join(root, "source[home]")
 	t.Setenv("HOME", sourceHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sourceHome, ".config"))
-	contents := map[string][]byte{".ripgreprc": []byte("--hidden\n--glob=!vendor\n"), ".config/ripgrep/config": []byte("--smart-case\n--line-number\n")}
+	contents := map[string][]byte{".ripgreprc": []byte("--hidden\n--line-number\n"), ".config/ripgrep/config": []byte("--smart-case\n--line-number\n")}
 	for name, data := range contents {
 		target := filepath.Join(sourceHome, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
@@ -73,7 +73,7 @@ func TestLinuxFlatConfigCaptureRestoreRetainsPlatformProvenance(t *testing.T) {
 		t.Fatalf("flat settings fabricated app or legacy authority: %+v", loaded)
 	}
 	capture := loaded.ConfigCaptures[0]
-	if capture.CaptureModule.SchemaVersion != 3 || capture.SourcePlatform != "linux" || capture.ConfigSetID != "default" || capture.SourceGeneration != "g1" {
+	if capture.CaptureModule.SchemaVersion != 3 || capture.SourcePlatform != "linux" || capture.ConfigSetID != "default" || capture.SourceGeneration != "g2" {
 		t.Fatalf("authored provenance was lost: %+v", capture)
 	}
 	targetHome := filepath.Join(root, "target{home}")

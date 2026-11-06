@@ -116,11 +116,18 @@ func runCaptureLinux(flags CaptureFlags, r realizer.Realizer, emitter *events.Em
 	}
 	if !flags.Sanitize {
 		flags.linuxHomeManagerFiles = make([]bundle.HomeManagerFileCapturePlan, 0, len(result.SettingsFiles))
+		flags.linuxConfigFiles = make([]bundle.SettingsFileCapturePlan, 0, len(result.SettingsFiles))
 		for _, plan := range result.SettingsFiles {
-			flags.linuxHomeManagerFiles = append(flags.linuxHomeManagerFiles, bundle.HomeManagerFileCapturePlan{
+			file := bundle.SettingsFileCapturePlan{
 				CandidateID: plan.CandidateID, Codec: plan.Codec, Target: plan.Target, Source: plan.Source,
 				Optional: plan.Optional, ObservedSize: plan.ObservedSize, ObservedSHA256: plan.ObservedSHA256,
-			})
+			}
+			switch plan.Realization {
+			case "endstate-restore":
+				flags.linuxConfigFiles = append(flags.linuxConfigFiles, file)
+			case "home-manager":
+				flags.linuxHomeManagerFiles = append(flags.linuxHomeManagerFiles, file)
+			}
 		}
 	}
 

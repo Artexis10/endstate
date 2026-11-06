@@ -179,6 +179,7 @@ func TestRunCaptureLinux_NoNixCapturesNativeIntentAndLiveSettings(t *testing.T) 
 				Actions: []discovery.SettingsAction{discovery.SettingsCapture, discovery.SettingsRestore},
 			}},
 			SettingsFiles: []discovery.SettingsFilePlan{{
+				Realization: "home-manager",
 				CandidateID: "apps.ripgrep", AdapterID: discovery.HomeManagerSettingsSource,
 				Codec: "bounded-regular-file-v1", Target: "${xdg.config}/ripgrep/ripgreprc",
 				Source: liveConfig, ObservedSize: int64(len("--hidden\n")),
@@ -271,6 +272,7 @@ func TestRunCaptureLinux_NoNixAllowsSelectedSettingsOnlyArtifact(t *testing.T) {
 				Actions:     []discovery.SettingsAction{discovery.SettingsCapture, discovery.SettingsRestore},
 			}},
 			SettingsFiles: []discovery.SettingsFilePlan{{
+				Realization: "home-manager",
 				CandidateID: "home-manager.atuin", AdapterID: discovery.HomeManagerSettingsSource,
 				Codec: "bounded-regular-file-v1", Target: "${xdg.config}/atuin/config.toml", Source: liveConfig,
 				ObservedSize: int64(len("sync_address = 'https://sync.example'\n")),
@@ -333,6 +335,7 @@ func TestLinuxCaptureSelectionPreservesInventoryAndScopesPayload(t *testing.T) {
 					source = filepath.Join(dir, "missing-unselected.json")
 				}
 				inventory.SettingsFiles = append(inventory.SettingsFiles, discovery.SettingsFilePlan{
+					Realization: "home-manager",
 					CandidateID: "settings." + id, Codec: "bounded-regular-file-v1",
 					Target: "${xdg.config}/" + id + "/settings.json", Source: source,
 				})

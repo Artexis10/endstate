@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "moduleId": "apps.ripgrep",
-  "moduleRevision": "b69f463308a03a984939200855ff0d92ca237314a10ba78a5f50525c6dc0112d",
+  "moduleRevision": "00f2194944a5d90e3fc163907279356ca7823d4233f373027390d95e780340d0",
   "synthetic": {
     "scenarios": [
       {
@@ -17,7 +17,7 @@
           "reasonCode": "capture-provenance-only",
           "reviewer": "endstate-maintainers",
           "reviewedOn": "2026-11-05",
-          "evidence": "Flat platform settings use default/g1 provenance without authored validators. This scenario proves capture integrity and optional absence. An independent engine regression proves same-platform restore and cross-platform refusal."
+          "evidence": "Windows flat settings retain default/g1 provenance without authored validators. This scenario covers Windows capture integrity and optional absence. Linux generation g2 requires separate semantic-policy lifecycle validation."
         }
       }
     ]

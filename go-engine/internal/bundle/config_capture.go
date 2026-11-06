@@ -450,6 +450,9 @@ func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Co
 			continue
 		}
 		if observation != nil {
+			if err := ensureNoLinksInExistingPath(source); err != nil {
+				return nil, captureError(ConfigCaptureUnsafePath, "selected settings source is linked or unavailable")
+			}
 			if observation.CandidateID != plan.Module.ID || filepath.Clean(observation.Source) != filepath.Clean(source) || observation.ObservedSHA256 == "" {
 				return nil, captureError(ConfigCaptureInvalidPlan, "selected observation does not match its pinned source")
 			}

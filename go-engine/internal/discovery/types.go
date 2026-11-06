@@ -136,6 +136,7 @@ type SettingsCandidate struct {
 // target to the live host file that supplied it. Source is intentionally
 // excluded from every public capture/discovery schema.
 type SettingsFilePlan struct {
+	Realization  string `json:"-"`
 	CandidateID  string `json:"-"`
 	AdapterID    string `json:"-"`
 	Codec        string `json:"-"`

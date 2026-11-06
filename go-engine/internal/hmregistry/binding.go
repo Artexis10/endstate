@@ -163,8 +163,29 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 		authority.Reason = "settings_codec_unavailable"
 		return authority
 	}
-	// Current byte and Git denylist codecs have no portable semantic lifecycle proof.
-	authority.Reason = "settings_content_policy_unavailable"
+	if !settingscodec.Validates(entry.Codec) {
+		// Byte preservation and Git sanitization do not prove portable semantics.
+		authority.Reason = "settings_content_policy_unavailable"
+		return authority
+	}
+	if projected.Realization != "endstate-restore" {
+		authority.Reason = "settings_strategy_unavailable"
+		return authority
+	}
+	for _, restore := range generation.Restore {
+		covered := 0
+		for _, validation := range generation.Validate {
+			if validation.Type == "settings-codec" && validation.Codec == entry.Codec && path.Clean(validation.Path) == path.Clean(restore.Source) && validation.Optional == restore.Optional {
+				covered++
+			}
+		}
+		if restore.Type != "copy" || covered != 1 {
+			authority.Reason = "settings_content_policy_unavailable"
+			return authority
+		}
+	}
+	authority.Reason = ""
+	authority.Actions = []Action{Capture, Restore, Verify, Revert}
 	return authority
 }
 

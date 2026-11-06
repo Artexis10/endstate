@@ -169,6 +169,16 @@ func TestHomeManagerBoundByteCodecRetainsMetadataWithoutOpeningPayload(t *testin
 			entry = candidate
 		}
 	}
+	entry.Disposition = hmregistry.FileRoundTrip
+	entry.Codec = "bounded-regular-file-v1"
+	entry.Probe.Targets = nil
+	for _, target := range entry.Targets {
+		entry.Probe.Targets = append(entry.Probe.Targets, target.Coordinate)
+	}
+	entry.ReviewFingerprint, err = hmregistry.ReviewFingerprint(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
 	home := t.TempDir()
 	environment := config.PathEnvironment{GOOS: "linux", Home: home, Env: map[string]string{}}
 	variant := modules.PlatformVariant{Realization: "endstate-restore", Matches: modules.MatchCriteria{}, HomeManagerAdapter: &modules.HomeManagerAdapterBinding{ID: entry.ID, ReviewFingerprint: entry.ReviewFingerprint, ConfigSetID: "default", GenerationID: "g1"}, Capture: &modules.CaptureDef{}}
@@ -227,5 +237,50 @@ func TestHomeManagerExcludedTargetRemainsVisibleWithoutPayloadAuthority(t *testi
 	}
 	if len(inventory.Settings) != 1 || len(inventory.Settings[0].Evidence) != 1 || len(inventory.Settings[0].Actions) != 0 || len(inventory.SettingsFiles) != 0 || filesystem.opens != 0 || len(inventory.Warnings) != 1 || inventory.Warnings[0].Code != "settings_adapter_excluded" {
 		t.Fatalf("excluded candidate lost evidence or gained payload authority: inventory=%+v opens=%d", inventory, filesystem.opens)
+	}
+}
+
+func TestReviewedRipgrepObservationHonorsContentAndMetadataOnly(t *testing.T) {
+	registry, err := hmregistry.Load(filepath.Join("..", "..", "..", "catalog", "home-manager", "registry.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "modules", "apps", "ripgrep", "module.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modules.ParseAndValidateModuleJSON(raw, "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, content         string
+		metadataOnly          bool
+		opens, actions, plans int
+	}{
+		{"portable preferences", "--hidden\n", false, 1, 4, 1},
+		{"unsupported complete file", "--pre=external-command\n", false, 1, 0, 0},
+		{"metadata only", "--hidden\n", true, 0, 4, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.WriteFile(filepath.Join(home, ".ripgreprc"), []byte(test.content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			filesystem := &authorityObservationFS{}
+			inventory, err := (HomeManagerAdapter{Registry: registry, Modules: map[string]*modules.Module{mod.ID: mod}, Packages: testPackageCatalog(t).Entries(), Environment: config.PathEnvironment{GOOS: "linux", Home: home, Env: map[string]string{}}, FS: filesystem, MetadataOnly: test.metadataOnly}).Inventory(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(inventory.Settings) != 1 || len(inventory.Settings[0].Evidence) != 1 || len(inventory.Settings[0].Actions) != test.actions || len(inventory.SettingsFiles) != test.plans || filesystem.opens != test.opens {
+				t.Fatalf("unexpected observation capability: settings=%+v plans=%+v opens=%d", inventory.Settings, inventory.SettingsFiles, filesystem.opens)
+			}
+			if test.plans > 0 && inventory.SettingsFiles[0].Realization != "endstate-restore" {
+				t.Fatal("native settings received Home Manager placement")
+			}
+			if test.actions == 0 && (len(inventory.Warnings) != 1 || inventory.Warnings[0].Code != "settings_content_unsupported") {
+				t.Fatalf("unsupported content was not visible: %+v", inventory.Warnings)
+			}
+		})
 	}
 }

@@ -76,3 +76,21 @@ func TestObservedConfigCaptureRejectsChangedAndUnsupportedContent(t *testing.T) 
 		})
 	}
 }
+
+func TestObservedConfigCaptureRejectsLinkedParent(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
+	source := filepath.Join(root, ".config", "ripgrep", "config")
+	data := []byte("--hidden\n")
+	writeCaptureFile(t, filepath.Join(outside, "ripgrep", "config"), data)
+	if err := os.Symlink(outside, filepath.Join(root, ".config")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	plan := testConfigSetCapturePlan(root, &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "${xdg.config}/ripgrep/config", Dest: "config"}}})
+	sum := sha256.Sum256(data)
+	plan.ObservedFiles = []SettingsFileCapturePlan{{CandidateID: plan.Module.ID, Codec: settingscodec.RipgrepPortableArgumentsV1, Target: "${xdg.config}/ripgrep/config", Source: source, ObservedSize: int64(len(data)), ObservedSHA256: hex.EncodeToString(sum[:])}}
+	if _, err := CollectConfigSet(plan, t.TempDir()); ConfigCaptureDiagnosticCode(err) != ConfigCaptureUnsafePath {
+		t.Fatalf("linked parent bypassed source authority: %v", err)
+	}
+}

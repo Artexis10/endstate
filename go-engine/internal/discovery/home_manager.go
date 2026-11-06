@@ -11,28 +11,34 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/packagecatalog"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
 const (
-	HomeManagerSettingsSource            = "home-manager-live-settings"
-	maxHomeManagerSettingsFileSize int64 = 1 << 20
+	HomeManagerSettingsSource      = "home-manager-live-settings"
+	maxHomeManagerSettingsFileSize = settingscodec.MaxContentSize
 )
+
+var errSettingsContentPolicy = errors.New("settings content is outside the reviewed portable policy")
 
 // HomeManagerAdapter observes reviewed registry targets and collects only
 // settings authorized by the bound Linux generation. It never calls
 // Nix, Home Manager, a shell, or the user configuration graph.
 type HomeManagerAdapter struct {
-	Registry    *hmregistry.Registry
-	Modules     map[string]*modules.Module
-	Packages    []*packagecatalog.Entry
-	Environment config.PathEnvironment
-	FS          homeManagerFilesystem
+	Registry     *hmregistry.Registry
+	Modules      map[string]*modules.Module
+	Packages     []*packagecatalog.Entry
+	Environment  config.PathEnvironment
+	FS           homeManagerFilesystem
+	MetadataOnly bool
 }
 
 type homeManagerFile interface {
@@ -110,21 +116,27 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 				continue
 			}
 			evidence = append(evidence, Evidence{Source: HomeManagerSettingsSource, Kind: EvidenceConfig, Ref: target.Coordinate})
-			if !authority.Supports(hmregistry.Capture) {
+			if adapter.MetadataOnly || !authority.Supports(hmregistry.Capture) {
 				continue
 			}
-			observedHash, err := observeHomeManagerSettingsFile(filesystem, source, info)
+			observedHash, err := observeHomeManagerSettingsFile(filesystem, source, info, entry.Codec)
 			if err != nil {
 				result.Ignored++
+				code := "settings_path_unreadable"
+				message := "A reviewed settings path exists but could not be read consistently."
+				if errors.Is(err, errSettingsContentPolicy) {
+					code = "settings_content_unsupported"
+					message = "This settings file contains arguments outside its reviewed portable policy."
+				}
 				result.Warnings = append(result.Warnings, Warning{
-					Code: "settings_path_unreadable", Source: HomeManagerSettingsSource, ItemID: entry.ID,
-					Message: "A reviewed settings path exists but could not be read consistently.",
+					Code: code, Source: HomeManagerSettingsSource, ItemID: entry.ID, Message: message,
 				})
 				continue
 			}
 			plans = append(plans, SettingsFilePlan{
 				CandidateID: candidateID, AdapterID: HomeManagerSettingsSource,
-				Codec: entry.Codec, Target: target.Coordinate, Source: source, Optional: target.Optional,
+				Realization: authority.Realization,
+				Codec:       entry.Codec, Target: target.Coordinate, Source: source, Optional: target.Optional,
 				ObservedSize: info.Size(), ObservedSHA256: observedHash,
 			})
 		}
@@ -132,8 +144,10 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 			continue
 		}
 		actions := make([]SettingsAction, 0, len(authority.Actions))
-		for _, action := range authority.Actions {
-			actions = append(actions, SettingsAction(action))
+		if len(plans) > 0 || adapter.MetadataOnly {
+			for _, action := range authority.Actions {
+				actions = append(actions, SettingsAction(action))
+			}
 		}
 		if authority.Reason != "" {
 			result.Warnings = append(result.Warnings, Warning{Code: authority.Reason, Source: HomeManagerSettingsSource, ItemID: entry.ID, Message: "This settings candidate is unavailable for automatic capture and restore under the current adapter authority."})
@@ -156,7 +170,10 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 	return result, nil
 }
 
-func observeHomeManagerSettingsFile(filesystem homeManagerFilesystem, source string, before os.FileInfo) (string, error) {
+func observeHomeManagerSettingsFile(filesystem homeManagerFilesystem, source string, before os.FileInfo, codec string) (string, error) {
+	if _, err := safepath.Resolve(filepath.Dir(source), filepath.Base(source)); err != nil {
+		return "", err
+	}
 	file, err := filesystem.Open(source)
 	if err != nil {
 		return "", err
@@ -172,6 +189,9 @@ func observeHomeManagerSettingsFile(filesystem homeManagerFilesystem, source str
 	}
 	if int64(len(data)) > maxHomeManagerSettingsFileSize || int64(len(data)) != opened.Size() {
 		return "", fmt.Errorf("settings source changed or exceeded the read bound")
+	}
+	if err := settingscodec.Validate(codec, data); err != nil {
+		return "", errSettingsContentPolicy
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil

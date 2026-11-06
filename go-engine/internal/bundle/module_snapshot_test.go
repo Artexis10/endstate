@@ -233,7 +233,7 @@ func TestSchemaV3SnapshotBindsCaptureToExactAuthoredSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	capture := manifest.ConfigCapture{ModuleID: source.ID, ConfigSetID: "default", SourcePlatform: "linux", SourceGeneration: "g1", SourceGenerationFingerprint: source.Config.Sets[0].Generations[0].Fingerprint, CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 3, ContentHash: snapshot.ContentHash, SnapshotPath: snapshot.Path}}
+	capture := manifest.ConfigCapture{ModuleID: source.ID, ConfigSetID: "default", SourcePlatform: "linux", SourceGeneration: "g2", SourceGenerationFingerprint: source.Config.Sets[0].Generations[0].Fingerprint, CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 3, ContentHash: snapshot.ContentHash, SnapshotPath: snapshot.Path}}
 	if err := VerifyModuleSnapshot(root, capture); err != nil {
 		t.Fatalf("exact authored source: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestSchemaV3SnapshotBindsCaptureToExactAuthoredSource(t *testing.T) {
 			c.SourceInstance.Evidence = &manifest.ConfigSourceInstanceEvidence{Type: "path", Platform: "windows"}
 		}},
 		{"set", func(c *manifest.ConfigCapture) { c.ConfigSetID = "foreign" }},
-		{"generation", func(c *manifest.ConfigCapture) { c.SourceGeneration = "g2" }},
+		{"generation", func(c *manifest.ConfigCapture) { c.SourceGeneration = "g1" }},
 		{"fingerprint", func(c *manifest.ConfigCapture) { c.SourceGenerationFingerprint = strings.Repeat("a", 64) }},
 		{"downgraded schema", func(c *manifest.ConfigCapture) { c.CaptureModule.SchemaVersion = 2; c.SourcePlatform = "" }},
 	}

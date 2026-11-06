@@ -28,6 +28,15 @@
     },
     {
       "moduleId": "apps.ripgrep",
+      "platform": "linux",
+      "configSetId": "default",
+      "generationId": "g2",
+      "fingerprints": [
+        "57322ef13d2162dd00557f1836ee628c7327e4b68456a05648830ecb8bd34c4b"
+      ]
+    },
+    {
+      "moduleId": "apps.ripgrep",
       "platform": "windows",
       "configSetId": "default",
       "generationId": "g1",

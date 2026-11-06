@@ -289,6 +289,12 @@ For every advertised restorable adapter, verification SHALL compare the expected
 - **THEN** verification SHALL compare live targets with expectations from the bytes used for activation
 - **AND** it SHALL NOT treat the changed source file or generation identity alone as expected content
 
+#### Scenario: Incoming settings violate the trusted generation policy
+- **WHEN** a trusted generation declares a rejecting settings codec for a transferred file
+- **THEN** restore SHALL validate the staged bytes before host mutation and retain that codec in committed validation
+- **AND** a missing optional source SHALL NOT adopt or validate an unrelated pre-existing host file
+- **AND** every transferred file SHALL require committed validation
+
 #### Scenario: A semantic content policy replaces an earlier byte-copy generation
 - **WHEN** a Linux adapter introduces a narrower semantic policy with a new generation identity
 - **THEN** old capture history SHALL remain readable without gaining automatic execution authority

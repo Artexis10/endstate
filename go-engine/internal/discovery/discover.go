@@ -80,7 +80,8 @@ func DiscoverWithAdapters(ctx context.Context, request Request, extraAdapters ..
 		}
 		adapters = append(adapters, HomeManagerAdapter{
 			Registry: registry, Modules: moduleCatalog, Packages: catalog.Entries(),
-			Environment: environment,
+			Environment:  environment,
+			MetadataOnly: request.SkipSettingsCapture,
 		})
 	}
 	adapters = append(adapters, extraAdapters...)

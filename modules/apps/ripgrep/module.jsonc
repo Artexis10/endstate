@@ -1,7 +1,7 @@
 {
   // Config Module: ripgrep
   // ripgrep reads only the file named by RIPGREP_CONFIG_PATH. Endstate captures
-  // the two established user-config conventions on each supported platform.
+  // reviewed user-config conventions on each supported platform.
 
   "moduleSchemaVersion": 3,
   "id": "apps.ripgrep",
@@ -49,37 +49,109 @@
       "matches": {
         "pathExists": [
           "${home}/.ripgreprc",
-          "${xdg.config}/ripgrep/config"
+          "${xdg.config}/ripgrep/config",
+          "${xdg.config}/ripgrep/ripgreprc"
         ]
       },
       "verify": [
-        { "type": "command-exists", "command": "rg" }
-      ],
-      "restore": [
         {
-          "type": "copy",
-          "source": "./payload/apps/ripgrep/.ripgreprc",
-          "target": "${home}/.ripgreprc",
-          "backup": true,
-          "optional": true
-        },
-        {
-          "type": "copy",
-          "source": "./payload/apps/ripgrep/config",
-          "target": "${xdg.config}/ripgrep/config",
-          "backup": true,
-          "optional": true
+          "type": "command-exists",
+          "command": "rg"
         }
       ],
-      "capture": {
-        "files": [
-          { "source": "${home}/.ripgreprc", "dest": "apps/ripgrep/.ripgreprc", "optional": true },
-          { "source": "${xdg.config}/ripgrep/config", "dest": "apps/ripgrep/config", "optional": true }
+      "homeManagerAdapter": {
+        "id": "ripgrep",
+        "reviewFingerprint": "d60ee9bd5e8317d2c9e32dc47cf82798e275cf99a397b36ebbcbcfa3801514e2",
+        "configSetId": "default",
+        "generationId": "g2"
+      },
+      "config": {
+        "instanceDetectors": [
+          {
+            "id": "default",
+            "type": "path",
+            "glob": "${home}"
+          }
         ],
-        "excludeGlobs": ["**/*.log"]
+        "sets": [
+          {
+            "id": "default",
+            "generations": [
+              {
+                "id": "g2",
+                "order": 2,
+                "capture": {
+                  "files": [
+                    {
+                      "source": "${home}/.ripgreprc",
+                      "dest": "apps/ripgrep/.ripgreprc",
+                      "optional": true
+                    },
+                    {
+                      "source": "${xdg.config}/ripgrep/config",
+                      "dest": "apps/ripgrep/config",
+                      "optional": true
+                    },
+                    {
+                      "source": "${xdg.config}/ripgrep/ripgreprc",
+                      "dest": "apps/ripgrep/ripgreprc",
+                      "optional": true
+                    }
+                  ],
+                  "excludeGlobs": [
+                    "**/*.log"
+                  ]
+                },
+                "restore": [
+                  {
+                    "type": "copy",
+                    "source": "apps/ripgrep/.ripgreprc",
+                    "target": "${home}/.ripgreprc",
+                    "backup": true,
+                    "optional": true
+                  },
+                  {
+                    "type": "copy",
+                    "source": "apps/ripgrep/config",
+                    "target": "${xdg.config}/ripgrep/config",
+                    "backup": true,
+                    "optional": true
+                  },
+                  {
+                    "type": "copy",
+                    "source": "apps/ripgrep/ripgreprc",
+                    "target": "${xdg.config}/ripgrep/ripgreprc",
+                    "backup": true,
+                    "optional": true
+                  }
+                ],
+                "validate": [
+                  {
+                    "type": "settings-codec",
+                    "path": "apps/ripgrep/.ripgreprc",
+                    "codec": "ripgrep-portable-arguments-v1",
+                    "optional": true
+                  },
+                  {
+                    "type": "settings-codec",
+                    "path": "apps/ripgrep/config",
+                    "codec": "ripgrep-portable-arguments-v1",
+                    "optional": true
+                  },
+                  {
+                    "type": "settings-codec",
+                    "path": "apps/ripgrep/ripgreprc",
+                    "codec": "ripgrep-portable-arguments-v1",
+                    "optional": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     }
   },
 
-  "notes": "Captures ripgrep defaults, type definitions, and glob rules from the dominant ~/.ripgreprc convention and the alternate platform config location. ripgrep has no built-in config path; users point RIPGREP_CONFIG_PATH at one of these files. No credentials are involved."
+  "notes": "Linux captures only reviewed portable preference arguments. Unsupported arguments make the complete file unavailable. Windows retains its existing file capture. ripgrep reads the path selected by RIPGREP_CONFIG_PATH; Endstate does not configure that environment variable."
 }

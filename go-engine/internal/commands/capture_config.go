@@ -296,7 +296,13 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 	catalog = modules.FilterCatalogForPlatform(catalog, platform)
 	// Package matching and explicit selection cannot authorize a registry adapter.
 	for _, authority := range authorities {
-		if !authority.Supports(hmregistry.Capture) {
+		observed := false
+		for _, file := range request.Flags.linuxConfigFiles {
+			if file.CandidateID == authority.ModuleID {
+				observed = true
+			}
+		}
+		if !authority.Supports(hmregistry.Capture) || !observed {
 			delete(catalog, authority.ModuleID)
 		}
 	}
@@ -311,8 +317,25 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 	if err != nil {
 		return nil, err
 	}
+	planning := planCaptureConfigWithValidation(catalog, request.Apps, diagnostics, request.ValidationContext, request.Selection)
+	for index := range planning.GenerationPlans {
+		plan := &planning.GenerationPlans[index]
+		for _, authority := range authorities {
+			if authority.ModuleID != plan.Module.ID {
+				continue
+			}
+			plan.ObservedFiles = []bundle.SettingsFileCapturePlan{}
+			if plan.Set.ID == authority.ConfigSetID && plan.Generation.ID == authority.GenerationID {
+				for _, file := range request.Flags.linuxConfigFiles {
+					if file.CandidateID == plan.Module.ID {
+						plan.ObservedFiles = append(plan.ObservedFiles, file)
+					}
+				}
+			}
+		}
+	}
 	return &captureConfigPreparation{
-		RepoRoot: repoRoot, Catalog: catalog, Planning: planCaptureConfigWithValidation(catalog, request.Apps, diagnostics, request.ValidationContext, request.Selection),
+		RepoRoot: repoRoot, Catalog: catalog, Planning: planning,
 		OutputPath: outputPath, CatalogUnavailable: repoRoot == "", ValidationContext: request.ValidationContext,
 	}, nil
 }
