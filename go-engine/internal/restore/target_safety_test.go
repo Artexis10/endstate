@@ -6,6 +6,7 @@ package restore
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -69,5 +70,52 @@ func TestFilesystemIdentityKeepsHomeManagerSymlinkLeaf(t *testing.T) {
 	}
 	if err := ValidateFilesystemTarget(link); err == nil {
 		t.Fatal("direct mutation accepted an existing symlink")
+	}
+}
+
+func TestFilesystemTargetIdentitiesKeepAncestorClaimsAndLeafIdentity(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, physical := filepath.Join(root, "shared"), filepath.Join(root, "physical")
+	for _, directory := range []string{shared, physical} {
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(shared, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.Symlink("../physical", filepath.Join(shared, "nested")); err != nil {
+		t.Fatal(err)
+	}
+	referent := filepath.Join(root, "referent")
+	if err := os.WriteFile(referent, []byte("prior"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(referent, filepath.Join(physical, "settings")); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"settings", filepath.Join("missing", "settings")} {
+		t.Run(suffix, func(t *testing.T) {
+			target := filepath.Join(alias, "nested", suffix)
+			identities, err := FilesystemTargetIdentities(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range []string{target, filepath.Join(shared, "nested", suffix), filepath.Join(physical, suffix)} {
+				if !slices.Contains(identities, expected) {
+					t.Fatalf("ancestor containment identity %q missing from %q", expected, identities)
+				}
+			}
+			if slices.Contains(identities, referent) {
+				t.Fatalf("activation leaf claimed its referent: %q", identities)
+			}
+			if err := ValidateFilesystemTarget(target); err == nil {
+				t.Fatal("collision lookup granted direct mutation through an alias")
+			}
+		})
 	}
 }

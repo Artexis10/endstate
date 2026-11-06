@@ -121,6 +121,36 @@ func FilesystemTargetIdentity(target string) (string, error) {
 	return filepath.Clean(current), nil
 }
 
+// FilesystemTargetIdentities retains lexical containment and known identities
+// through existing ancestors. The leaf remains a link that activation replaces.
+func FilesystemTargetIdentities(target string) ([]string, error) {
+	lexical, err := FilesystemTargetIdentity(target)
+	if err != nil {
+		return nil, err
+	}
+	identities := []string{lexical}
+	seen := map[string]bool{lexical: true}
+	for ancestor := filepath.Dir(lexical); ; ancestor = filepath.Dir(ancestor) {
+		resolved, err := filepath.EvalSymlinks(ancestor)
+		if err == nil {
+			suffix, relErr := filepath.Rel(ancestor, lexical)
+			if relErr == nil {
+				identity, identityErr := FilesystemTargetIdentity(filepath.Join(resolved, suffix))
+				if identityErr == nil && !seen[identity] {
+					identities = append(identities, identity)
+					seen[identity] = true
+				}
+			}
+		}
+		// Missing or unreadable ancestors add no known alias; retain the lexical
+		// claim and inspect earlier ancestors for a resolvable missing suffix.
+		if filepath.Dir(ancestor) == ancestor {
+			break
+		}
+	}
+	return identities, nil
+}
+
 func actualFilesystemEntryName(parent, requested string, requestedInfo os.FileInfo) (string, error) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {

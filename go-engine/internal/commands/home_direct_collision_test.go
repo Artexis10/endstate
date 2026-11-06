@@ -214,3 +214,77 @@ func TestApplyImportOnlyHomeManagerDoesNotClaimDirectTarget(t *testing.T) {
 		t.Fatalf("import-only action blocked direct restore: %q %v", got, err)
 	}
 }
+
+func TestApplyHomeAncestorAliasCollision(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Home Manager symlink workflow")
+	}
+	for _, preview := range []bool{true, false} {
+		t.Run(map[bool]string{true: "preview", false: "live"}[preview], func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("ENDSTATE_ROOT", root)
+			realDir := filepath.Join(root, "real")
+			alias := filepath.Join(root, "alias")
+			if err := os.Mkdir(realDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(realDir, alias); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(realDir, "settings")
+			hmTarget := filepath.Join(alias, "settings")
+			payload := filepath.Join(root, "payload")
+			hmSource := filepath.Join(root, "native-source")
+			for p, v := range map[string]string{target: "prior", payload: "direct", hmSource: "home-manager"} {
+				if err := os.WriteFile(p, []byte(v), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			backend := &expectationHomeBackend{output: "/nix/store/frozen-home", targets: []string{hmTarget}}
+			directObserved := false
+			backend.activate = func(string) {
+				data, err := os.ReadFile(target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				directObserved = string(data) == "direct"
+				// Reproduce the pinned link stage's backup and symlink operations on disposable files.
+				if err := os.Rename(hmTarget, hmTarget+".endstate-backup"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(hmSource, hmTarget); err != nil {
+					t.Fatal(err)
+				}
+			}
+			old := newRealizerFn
+			newRealizerFn = func() (realizer.Realizer, error) { return backend, nil }
+			t.Cleanup(func() { newRealizerFn = old })
+			mf := nixManifest()
+			mf.HomeManager = &manifest.HomeManagerConfig{Flake: "path:/fixture#profile"}
+			mf.Restore = []manifest.RestoreEntry{{Type: "copy", Source: "payload", Target: target}}
+			data, err := json.Marshal(mf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestPath := filepath.Join(root, "manifest.json")
+			if err := os.WriteFile(manifestPath, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			var raw interface{}
+			var applyErr *envelope.Error
+			output := captureStderr(t, func() {
+				raw, applyErr = RunApply(ApplyFlags{Manifest: manifestPath, EnableRestore: true, NoBootstrap: true, DryRun: preview, Events: "jsonl"})
+			})
+			data, readErr := os.ReadFile(target)
+			result, ok := raw.(*ApplyResult)
+			if !ok {
+				t.Fatalf("unexpected result=%+v error=%+v", raw, applyErr)
+			}
+			promised := strings.Contains(output, "would_configure")
+			t.Logf("preview=%t error=%+v activated=%t directObserved=%t final=%q would_configure=%t readErr=%v", preview, applyErr, result.HomeManager.Activated, directObserved, data, promised, readErr)
+			if applyErr == nil || applyErr.Code != envelope.ErrRestoreFailed || !strings.Contains(output, "target_collision") || result.HomeManager.Activated || directObserved || string(data) != "prior" || promised {
+				t.Fatal("RunApply missed known overlap through ancestor symlink")
+			}
+		})
+	}
+}

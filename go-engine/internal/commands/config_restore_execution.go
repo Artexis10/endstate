@@ -867,14 +867,16 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 		}
 	}
 	for _, target := range options.HomeManagerTargets {
-		concrete, err := restore.FilesystemTargetIdentity(target)
+		identities, err := restore.FilesystemTargetIdentities(target)
 		if err != nil {
 			// Unavailable filesystem identity supplies no known overlapping claim.
 			continue
 		}
-		claims = append(claims, ownedConfigRestoreClaim{
-			claim: "file\x00" + strings.TrimSuffix(filepath.ToSlash(concrete), "/"), kind: "home-manager",
-		})
+		for _, identity := range identities {
+			claims = append(claims, ownedConfigRestoreClaim{
+				claim: "file\x00" + strings.TrimSuffix(filepath.ToSlash(identity), "/"), kind: "home-manager",
+			})
+		}
 	}
 	blockedGeneration := make(map[int]bool)
 	for left := 0; left < len(claims); left++ {
