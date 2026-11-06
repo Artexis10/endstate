@@ -215,8 +215,29 @@ The default output is `manifests/local/imported-unigetui.jsonc` (gitignored); ou
 | `verify` | Check current state against manifest without modifying |
 | `doctor` | Diagnose environment issues (missing drivers, permissions, etc.) |
 | `report` | Show history of previous runs and their outcomes |
+| `schedule` | Configure drift checks, inspect registration and results, run checks, or discard an uncertain upload |
 | `profile inspect <manifest-path> --json` | Read an extracted profile inventory without machine evaluation |
 | `state` | Manage endstate state (subcommands: reset, export, import) |
+
+### Scheduled drift checks
+
+Windows and Linux share manual drift checks and the durable upload queue.
+Native registration uses Windows Task Scheduler or a Linux systemd user timer with a usable existing user manager.
+Manual `run` and `discard-upload` do not require native registration to be available.
+A manual run still requires saved `enabled` intent.
+
+`status` reports saved intent, native registration observations, and the last run separately.
+`disable` retains the configuration, run history, and pending uploads.
+For example, register the tracked developer manifest, inspect the schedule, run a check, and disable registration:
+
+```bash
+endstate schedule enable --manifest manifests/examples/example-developer-workstation.jsonc --interval daily --time 09:00
+endstate schedule status --json
+endstate schedule run --json
+endstate schedule disable
+```
+
+The [CLI contract](docs/contracts/cli-json-contract.md#command-schedule) describes availability, recovery, and result fields.
 
 ---
 
