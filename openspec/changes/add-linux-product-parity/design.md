@@ -569,6 +569,99 @@ The first join does not complete task 8.4 for the whole registry. Reuse current
 file drift verification; retain native runtime, mapping review, full catalogue,
 GUI, and delivery obligations. Existing Windows contracts remain unchanged.
 
+### 23. Extend the existing transaction with one concrete desktop value
+
+Use the existing configuration preparation, snapshots, mutation lease, journal,
+comparison, recovery, and revert for the first GNOME preference. Add one
+`desktop-value` action and its injected reader/mutator boundary. Keep filesystem
+and registry behavior intact. Do not add a second transaction framework or
+implement unused KDE fields before its adapter needs them.
+
+Begin with `org.gnome.desktop.interface/clock-show-date`, a boolean at
+`/org/gnome/desktop/interface/clock-show-date`. A canonical bounded JSON document
+records its type, explicit user-value presence, and the value when present.
+Absent user state contains no value. Keep the effective default separate;
+capturing inheritance means retaining inheritance on the target machine.
+Reject malformed, contradictory, unsupported, and trailing payload data.
+An unavailable read never produces an absence document.
+
+The trusted schema-v3 Linux generation declares the desktop target, expected
+type, capture payload path, and `endstate-restore` strategy. The payload supplies
+desired state, never target authority. Reuse generation hashes, snapshots,
+fingerprints, staging, restore consent, and standalone content verification.
+Add a genuine desktop detector; neither a fake package nor a dconf file proves
+that the required desktop boundary is usable.
+
+GNOME target identity uses the resolved backing path and key, preserving case.
+The schema remains authority metadata; two schemas that own the same backing
+key conflict. Bind private transaction snapshots to the resolved user backend
+and profile namespace. Keep ephemeral process and bus identifiers outside that
+stable scope. The first native implementation supports proven fallback
+`user-db:user`. Establish the actual dconf backend and prove that every profile
+override candidate for the supported runtime is absent. Bind the user ID and
+GLib-resolved configuration directory's `dconf/user` namespace. Custom or service
+profiles remain unavailable until their resolution has a supported implementation;
+do not infer fallback from environment variables alone or add a profile parser.
+Changed scope or an unrelated third value prevents blind recovery
+over another owner. The existing pending transaction remains inspectable offline.
+
+Desktop-bearing intents use a new journal format version. Continue to encode
+and verify existing filesystem/registry journals with their exact version-1
+canonical representation and digest. Do not rewrite historical journals.
+Prior or desired absence resets only the selected user override. Verify every
+mutation through a fresh read, including recovery and explicit revert.
+
+The first packet implements tasks 10.1–10.3 through the concrete preference's
+generation, capture payload, detector boundary, collision checks, and standalone
+verifier with an injected hermetic backend. Production desktop detection remains
+unavailable and capabilities remain dark. This proves transaction integration,
+not native behavior. Leave tasks 10.4, 10.5, and 10.9 open; add no helper or unused
+KDE fields to this packet.
+
+Use maintained GIO and libdconf APIs through a small packaged native helper.
+The helper performs one-key inspection, typed read/write/reset,
+and synchronization; Go owns authorization and transaction control.
+[GIO user-value reads](https://docs.gtk.org/gio/method.Settings.get_user_value.html)
+distinguish supported overrides from inherited defaults, including locked values.
+GIO filters stored values through the schema and can hide a wrong-type value as
+absence. First use libdconf's raw `DCONF_READ_USER_VALUE` operation and check the
+stored type. Unsupported raw state prevents mutation; it never becomes absence.
+The [dconf command](https://github.com/GNOME/dconf/blob/master/bin/dconf.c)
+offers effective and default reads, which cannot prove that distinction.
+The helper uses typed boolean access and json-glib, with no custom JSON or
+GVariant text parser. Direct maintained C APIs avoid an unsupported DConf
+introspection binding and a custom foreign-function layer.
+
+This adds architecture-specific helper builds and GIO, libdconf, and json-glib
+runtime dependencies for GNOME. Keep the Go engine's CGO-free build. Probe the
+selected runtime explicitly. Missing dependencies or a different backend produce scoped desktop
+unavailability; do not install them or launch a session during discovery.
+Memory/keyfile test backends prove their boundary, never GNOME/dconf promotion.
+The runtime-bundle packet owns helper builds, installation, lookup, and native
+architecture/linkage evidence. This cost supplies exact prior-state reads that
+the command pair and a GIO-only Python helper cannot provide. Load the helper
+lazily; unrelated reads and old journals need no desktop runtime. An unresolved
+pending desktop mutation retains the existing global mutation stop.
+
+The native boundary is not ready until two read and mutation preconditions are
+resolved. A maintained reader must prove that an existing backing database is
+readable and structurally healthy before raw `NULL` means absence; libdconf
+discards those read errors. A missing database can represent legitimate absence.
+Do not write a GVDB parser. Also prove that the reader and the actual writer
+resolve the same user namespace before mutation. A caller's configuration
+directory can differ from the existing service's directory. Inspect ephemeral
+identities if required, but do not persist them as the stable recovery scope.
+An unreadable database or an unprovable writer scope reports unavailable.
+
+Build the foundation against that concrete preference's workflow. Prove inherited
+absence, explicit false, content drift, reconciliation, interrupted mutation,
+third-value conflict, and revert while preserving an unrelated preference.
+Then add KDE's own version-aware key boundary and collision rules. Distinct KDE
+keys may coexist; whole-file and ancestor-directory ownership must conflict.
+Keep both desktop capabilities dark until their separate native session gates
+pass. No new CLI command, manifest version, combined profile, or permission is
+introduced by this technical refinement.
+
 ## Risks / Trade-offs
 
 - **[Curated mapping initially leaves apps unresolved]** → Keep unresolved items visible and useful, ship the high-value corpus first, and grow mappings from observed demand. Never trade correctness for a misleading coverage number.

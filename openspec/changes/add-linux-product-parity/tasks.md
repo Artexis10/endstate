@@ -369,6 +369,14 @@ implementation packets may run in parallel only after 10.1–10.3 land.
 ./internal/desktopsettings` (or the final package selected by implementation).
 Promotion additionally requires the named real-session script for that desktop.
 
+Decision 23 binds the first transaction extension to GNOME `clock-show-date`.
+Include generation capture, the desktop detector, collision checks, and standalone
+content verification in its concrete workflow. Preserve version-1 history.
+Keep native helper packaging and real-session promotion as explicit dependent work.
+The initial 10.1–10.3 packet uses an injected hermetic backend through that full
+workflow. Production detection stays unavailable; 10.4, 10.5, and 10.9 stay open
+until native database health and reader/writer namespace proof are implemented.
+
 - [ ] 10.1 Extend durable configuration transactions with typed target identity, value/absence snapshots, atomic intent/journal state, verification, recovery, and revert
 - [ ] 10.2 Define canonical bounded value encodings and stable unavailable/ownership/partial-failure reason codes shared by desktop adapters
 - [ ] 10.3 Integrate typed-value operations with module authority, backup/recovery inspection, verifier dispatch, and collision detection

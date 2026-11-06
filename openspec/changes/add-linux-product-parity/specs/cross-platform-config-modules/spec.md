@@ -303,6 +303,10 @@ For every advertised restorable adapter, verification SHALL compare the expected
 ### Requirement: Desktop values use the durable configuration transaction model
 GNOME and KDE value operations SHALL extend a shared durable configuration transaction model before either desktop adapter is advertised. The model SHALL assign stable typed target identities, snapshot the prior value or absence before mutation, persist intent and journal state atomically, verify commit, classify partial failures, recover interrupted work, and support explicit revert. A standalone desktop command wrapper SHALL NOT bypass this transaction model.
 
+The first implementation SHALL extend the existing configuration transaction with boolean preference `org.gnome.desktop.interface/clock-show-date` at `/org/gnome/desktop/interface/clock-show-date`. Canonical bounded payloads SHALL distinguish explicit absence from `false`, reject unsupported or contradictory state, and keep effective defaults separate from user overrides. Trusted generation declarations SHALL supply target authority; payloads SHALL supply only desired state. An unavailable or schema-filtered wrong-type read SHALL NOT become absence.
+
+Desktop-bearing journals SHALL use a new format version. Existing filesystem and registry journal encodings, digests, readers, and offline inspection SHALL remain compatible without rewriting history. A private desktop snapshot SHALL bind the resolved backend/profile namespace and preserve case-sensitive target identity. Recovery SHALL refuse an unrelated third value or a changed runtime scope rather than overwrite it.
+
 #### Scenario: Prior value is inherited rather than user-set
 - **WHEN** a GNOME key has an effective default but no user override before apply
 - **THEN** the transaction snapshot SHALL record prior absence distinctly from the effective value
@@ -318,8 +322,44 @@ GNOME and KDE value operations SHALL extend a shared durable configuration trans
 - **THEN** recovery SHALL identify the in-progress typed target and reconcile or revert it deterministically
 - **AND** unrelated desktop settings SHALL remain untouched
 
+#### Scenario: Explicit false differs from inheritance
+- **WHEN** the selected preference has an explicit user value of `false`
+- **THEN** capture and verification SHALL retain that explicit value
+- **AND** they SHALL NOT replace it with absence or the effective default
+
+#### Scenario: Another owner changes the pending target
+- **WHEN** a pending desktop transaction finds a value that matches neither its prior nor desired state
+- **THEN** recovery SHALL report an ownership conflict and preserve that value
+- **AND** offline inspection SHALL retain the recorded prior and desired states
+
+#### Scenario: A historical filesystem journal is inspected
+- **WHEN** a new engine reads a version-1 filesystem or registry journal
+- **THEN** it SHALL verify the existing canonical representation and digest unchanged
+- **AND** desktop support SHALL NOT require a desktop session to inspect that journal
+
 ### Requirement: GNOME and KDE settings are value-scoped and reversible
 Linux desktop settings modules SHALL operate only on reviewed individual GNOME schema/key values or KDE file/group/key values through the durable typed-value transaction model. Each write SHALL preserve the prior value or absence, verify the desired typed value, and support explicit revert. Whole dconf databases, whole KDE config directories, account/keyring data, histories, recent items, device topology, and session/window state SHALL NOT be captured or restored. GNOME and KDE capabilities SHALL remain dark until their exact allowlists, supported value types, version ranges, and current real-session gates pass.
+
+The GNOME boundary SHALL use maintained GIO and libdconf APIs through a packaged native helper. Raw user-value reads and type checks SHALL precede accepting absence. The engine SHALL probe its runtime, backend, schema, type, and existing session explicitly. The helper SHALL use a maintained JSON implementation and SHALL NOT evaluate arbitrary GVariant text or own transaction policy. Missing runtime dependencies SHALL affect only desktop availability. A memory or keyfile backend SHALL NOT establish GNOME/dconf promotion evidence.
+
+The initial native scope SHALL require proven dconf fallback `user-db:user` after checking every supported profile override candidate. Its private identity SHALL bind the user ID and GLib-resolved configuration directory's `dconf/user` namespace. Custom or service profiles SHALL remain unavailable until their actual namespace resolution is implemented and verified. Desktop runtime loading SHALL remain lazy for unrelated reads and historical journals; an unresolved pending desktop mutation SHALL retain the existing recovery stop.
+
+A maintained reader SHALL establish backing-database health before raw `NULL` is treated as absence. A missing database MAY establish absence; an unreadable or invalid database SHALL report unavailable. Before mutation, the native boundary SHALL prove that the reader and actual writer resolve the same namespace. Unprovable or mismatched scope SHALL report unavailable without mutation. Ephemeral identities MAY support this check but SHALL NOT become durable recovery identities.
+
+#### Scenario: The backing database cannot be read
+- **WHEN** the user database exists but its content is unreadable or invalid
+- **THEN** inspection SHALL report unavailable instead of an absent key
+- **AND** apply SHALL leave the database and unrelated preferences unchanged
+
+#### Scenario: The writer uses another namespace
+- **WHEN** the reader and actual writer resolve different user databases
+- **THEN** apply SHALL report unavailable before writing any value
+- **AND** it SHALL NOT use the reader's snapshot to undo a write in the other database
+
+#### Scenario: A stored value violates the schema
+- **WHEN** the reviewed boolean key contains a raw user value of another type
+- **THEN** inspection SHALL report unsupported state before mutation
+- **AND** apply or revert SHALL NOT treat that value as an absent override
 
 #### Scenario: GNOME value round-trip
 - **WHEN** a selected GNOME module captures and applies one allowlisted schema/key
