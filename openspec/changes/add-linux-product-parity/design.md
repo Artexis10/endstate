@@ -938,18 +938,49 @@ from direct-restore safety validation; keep that validation unchanged. An
 external import action selects no Home Manager writer and contributes no claim.
 A direct/direct collision does not block a disjoint Home Manager activation.
 
-An activation-only flake may lack parent configuration metadata. Represent that
-projection as unavailable, without calling it an empty complete inventory or
-adding a refusal to the existing advanced input path. Recursive declarations
-describe roots rather than exact activated leaves, so do not claim their whole
-directory. Task 7.7 remains open for recursive and advanced-input coverage,
-strategy inference, undeclared fallbacks, and remaining native acceptance.
+An activation-only flake may lack parent configuration metadata, and recursive
+declarations describe roots rather than exact activated leaves. A recursive root
+never claims its directory. A real apply builds the frozen activation before any
+settings writer runs. In apply, the built leaves replace evaluated targets for
+claims and for captured placement confirmation; preview keeps the evaluated
+targets. Follow the package's `home-files` link once and require a store path and
+`gen-version` 1, Home Manager's own package-format tokens; never parse `activate`.
+Descend real directories only. Treat every other entry as one leaf, as Home
+Manager's `find -type f -or -type l` does. A link leaf, including a link to a
+directory, is one placement and never a claim on its referent. Map each leaf to
+the same relative path below the home directory that activation inherits: Home
+Manager links `$HOME/<path>` and checks that `$HOME` equals `home.homeDirectory`.
+
+Read the built tree only when another selected owner, including captured
+placements composed with an explicit configuration, has a file or desktop claim. Otherwise
+the tree decides nothing. Compare Home Manager leaves only with other owners'
+claims, and resolve live ancestor aliases once per tree directory, not per leaf.
+The entry bound limits only Endstate's own walk. A wrong firing withholds the
+whole activation, so set the bound above realistic recursive trees, measured on a
+100,000-leaf fixture, and name the declaration root that exceeded it. When the
+read fails or exceeds the bound, record a blocked activation, never a preparation
+error. Report the Home Manager item and its captured rows as `failed` with
+`target_detection_failed` before any settings writer runs. The command returns
+`RESTORE_FAILED` with that reason, as a collision does. All direct restores and
+package outcomes continue, because the blocked activation writes nothing.
+
+Activation blocks and `onChange` hooks, such as `dconf.settings`, can write
+outside `home-files`. They are not claims, and task 10.5 owns them.
+
+The projection also reports whether any enabled declaration is recursive. When
+the selected input has a recursive declaration or no parent configuration
+metadata, preview adds one `home_manager_collision_check_incomplete` warning to
+`data.warnings`. Its engine-authored message names apply as the complete check.
+Preview never presents the check as complete and adds no refusal.
 
 A wrong collision refusal prevents legitimate combined settings work, including
-unrelated settings within the atomic Home Manager activation. Block from known
-overlapping claims only. The outcome proof covers the reproduced overlap,
-parent/child overlap, preview, native XDG placement, existing symlink leaves,
-independent outcomes, and an external import action. No new classifier, store,
+unrelated settings within the atomic Home Manager activation. Block from known overlapping claims, or from an unreadable or oversized built
+tree when another owner has a file claim. The outcome proof covers the reproduced
+overlap, parent/child overlap, a direct restore inside a recursive root, an
+activation-only flake, a captured placement inside an explicit recursive root,
+the unreadable and oversized tree, the preview warning, native XDG placement,
+existing symlink leaves, independent outcomes, and an external import action.
+No new classifier, store,
 generic provider framework, or human approval is required.
 
 ### 29. Route captured settings through their trusted declared writer
@@ -986,7 +1017,9 @@ Do not guess XDG directories or claim targets that Home Manager cannot represent
 An absent optional source contributes no placement or content expectation.
 
 Reject duplicate captured and explicit ownership before map insertion can
-discard a claim. Reuse decision 28 for concrete Home Manager/direct collisions.
+discard a claim. In apply, compare captured placements with the explicit
+activation's built leaves. Otherwise Home Manager's overlap rule can discard a
+placement inside an explicit recursive root. Reuse decision 28 for concrete Home Manager/direct collisions.
 Captured placements belong to one atomic Home Manager owner, not a second
 direct writer. Preserve independent direct restores and package outcomes.
 

@@ -114,12 +114,12 @@ Each executable platform variant SHALL explicitly declare `home-manager` or `end
 - **THEN** it SHALL skip that set with remediation to use apply or rebuild
 - **AND** independent direct restore sets SHALL continue normally
 
-### Requirement: Selected settings writers reject known flat-target collisions
-The engine SHALL include selected flat Home Manager targets in its existing concrete-claim collision check alongside direct restore owners. Known exact and parent/child overlaps SHALL prevent both conflicting settings owners from mutating their targets. A blocked Home Manager target SHALL suppress the whole selected activation while preserving unrelated direct restore and package outcomes.
+### Requirement: Selected settings writers reject known Home Manager target collisions
+The engine SHALL include the selected Home Manager activation's targets in its existing concrete-claim collision check alongside direct restore owners. Known exact and parent/child overlaps SHALL prevent both conflicting settings owners from mutating their targets. A blocked Home Manager target SHALL suppress the whole selected activation while preserving unrelated direct restore and package outcomes.
 
 Home preparation SHALL keep target evidence ephemeral and separate from persisted provenance and file-content expectations. Native projection SHALL use enabled, nonrecursive declarations and evaluated target paths from the selected configuration, the frozen lock graph, and a matching activation derivation. Preview SHALL keep nonbuilding preparation and use the same target meaning.
 
-An import-only ownership action SHALL contribute no Home Manager writer. Existing Home Manager symlink leaves SHALL NOT cause a blanket refusal. Unavailable advanced-input projection SHALL remain unavailable evidence, without becoming an empty complete inventory or a new refusal. Recursive declarations SHALL NOT grant ownership of their whole directory; their complete collision coverage remains unaccepted.
+An import-only ownership action SHALL contribute no Home Manager writer. Existing Home Manager symlink leaves SHALL NOT cause a blanket refusal. Recursive declarations SHALL NOT grant ownership of their whole directory. In a real apply, the exact leaves of the built activation package's `home-files` tree SHALL replace evaluated targets as Home Manager claims, which covers recursive declarations and activation-only inputs. Each leaf SHALL map to the same relative path below the home directory that activation inherits, and a link leaf SHALL be one placement, never a claim on its referent. When another selected owner has a file or desktop claim and the built tree cannot be read or exceeds its entry bound, the activation SHALL fail with `target_detection_failed` before any settings writer runs, and direct restores and package outcomes SHALL continue. Preview SHALL NOT build; when recursive declarations or missing parent configuration metadata leave its evaluated claims incomplete, preview SHALL add the `home_manager_collision_check_incomplete` warning and SHALL NOT present them as a complete inventory or add a refusal.
 
 #### Scenario: Direct restore overlaps a selected Home Manager target
 - **WHEN** direct restore and a selected Home Manager activation have known overlapping flat targets
@@ -131,6 +131,28 @@ An import-only ownership action SHALL contribute no Home Manager writer. Existin
 - **WHEN** preview compares a direct target with a selected Home Manager flat target
 - **THEN** it SHALL use the evaluated Home Manager directory rather than process XDG variables
 - **AND** it SHALL show the same collision without building or presenting that activation as eligible
+
+#### Scenario: Direct restore overlaps a recursive Home Manager leaf
+- **WHEN** a real apply selects a Home Manager activation whose recursive declaration places a file that a direct restore also targets
+- **THEN** the built activation's leaves SHALL include that file before any settings writer runs
+- **AND** neither conflicting owner SHALL mutate it, and the command SHALL report `target_collision`
+
+#### Scenario: Captured placement inside an explicit recursive root
+- **WHEN** a real apply composes a captured placement with an explicit configuration whose recursive declaration places the same target
+- **THEN** the captured rows SHALL report `target_collision` and the composed activation SHALL NOT run
+
+#### Scenario: Activation-only input in apply
+- **WHEN** a real apply selects a Home Manager input without parent configuration metadata, and a direct restore targets a file that its built activation places
+- **THEN** neither owner SHALL mutate that file, and the command SHALL report `target_collision`
+
+#### Scenario: Built tree cannot be read
+- **WHEN** another selected owner has a file claim and the built tree cannot be read or exceeds its bound
+- **THEN** the activation SHALL fail with `target_detection_failed`, and direct restores and packages SHALL continue
+
+#### Scenario: Preview cannot see recursive leaves
+- **WHEN** preview selects a Home Manager input with recursive declarations or without parent configuration metadata
+- **THEN** it SHALL report the evaluated flat claims and add the `home_manager_collision_check_incomplete` warning
+- **AND** it SHALL NOT build or refuse the activation for that reason
 
 #### Scenario: A legitimate Home Manager leaf is a symlink
 - **WHEN** an existing Home Manager symlink leaf has no conflicting selected direct writer
@@ -146,7 +168,7 @@ An import-only ownership action SHALL contribute no Home Manager writer. Existin
 - **THEN** an import action SHALL remain inactive and SHALL NOT block independent direct restores
 
 #### Scenario: Unavailable advanced projection preserves existing behavior
-- **WHEN** Home Manager preparation cannot obtain optional parent configuration metadata
+- **WHEN** preview cannot obtain optional parent configuration metadata
 - **THEN** unavailable projection SHALL NOT add a refusal or claim a complete target inventory
 
 ### Requirement: User-owned Home Manager authority is not silently replaced
