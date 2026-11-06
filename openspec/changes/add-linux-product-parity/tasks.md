@@ -273,7 +273,8 @@ rollback, and collision prevention. It does not add app-specific codecs.
 ./internal/commands ./internal/bundle ./internal/realizer/nix
 ./internal/provision ./internal/modules ./internal/configrestore`.
 
-- [ ] 7.1 Match and collect live settings only through trusted schema-v3 Linux variants after package/evidence reconciliation
+- [x] 7.1 Match and collect live settings only through trusted schema-v3 Linux variants after package/evidence reconciliation
+  - Independent acceptance at `11bc1b8` reuses the full passing run at `7032a06`; relevant production code, registry, modules, and tests remain unchanged. Authority checks bind the Linux variant, package, generation, targets, and content policy before selected observed bytes enter the bundle. Production discovery and capture prove the no-Nix workflow; stale bindings, package-only authority, changed content, and linked parents cannot grant collection. Strategy routing, adapter breadth, native acceptance, and tasks 7.2, 7.7, and 7.8 remain separate.
 - [ ] 7.2 Complete typed/file Home Manager generation and target-placement round-trip tests through the inspectable generated flake
 - [x] 7.3 Route explicit Linux `endstate-restore` variants through consent, backup, staging validation, durable journal, target verification, and revert
   - Independent acceptance at `22d234f` reuses the full passing run at `dd8d49e`; all relevant source and tests remain unchanged. The production Linux module proves capture, direct restore, content verification, drift repair, and revert. Shared runtime evidence proves consent, preview, snapshots, staging validation, durable intent, process-death recovery, and explicit failure outcomes. Task 7.7 collisions and remaining task 7.8 provenance stay separate; this does not accept cross-platform mappings or native release environments.
