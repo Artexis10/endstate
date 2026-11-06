@@ -297,6 +297,15 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 	var homeResult *RollbackHomeResult
 	if flags.EnableRestore && homeRef != nil {
 		newGen, viaFallback, herr := rollbackHomeConfig(r, homeRef)
+		if newGen == 0 && herr != nil && homeRef.Generation > 0 {
+			if detail, ok := herr.Detail.(map[string]interface{}); ok && detail["stage"] == "commit" {
+				// This invalidates the attempted historical snapshot's completion;
+				// it supplies no new native identity for the unreadable outcome.
+				copyRef := *homeRef
+				copyRef.ActivationFailed = true
+				newHomeRef = &copyRef
+			}
+		}
 		verification, verificationReason := "verified", ""
 		if herr == nil {
 			reason, message := checkHomeFileExpectations(homeRef.FileExpectations)
@@ -311,13 +320,19 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 			copyRef := *homeRef
 			copyRef.Generation = newGen
 			copyRef.ActivationFailed = herr != nil
+			newHomeRef = &copyRef
 			if homeRef.Kind == "" {
+				// The backend proved the forward generation. A later enrichment
+				// read cannot erase it or prove that the old output remains active.
+				newHomeRef.ActivationOutput = ""
 				reader, ok := r.(realizer.HomeObserver)
 				if !ok {
+					newHomeRef.ActivationFailed = true
 					return nil, homeRollbackError(&realizer.Error{Code: realizer.ErrInputProvenanceUnresolved, Subcode: "home-ownership", Stage: "commit", Raw: "the backend cannot observe the reactivated Home Manager profile"})
 				}
 				active, observeErr := reader.ObserveHome()
 				if observeErr != nil {
+					newHomeRef.ActivationFailed = true
 					failure := &realizer.Error{Code: realizer.ErrInputProvenanceUnresolved, Subcode: "home-ownership", Stage: "commit", Raw: observeErr.Error()}
 					if native, ok := observeErr.(*realizer.Error); ok {
 						failure.Code, failure.Raw = native.Code, native.Raw
@@ -325,11 +340,11 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (result inter
 					return nil, homeRollbackError(failure)
 				}
 				if !active.Present || active.Generation != newGen {
+					newHomeRef.ActivationFailed = true
 					return nil, homeRollbackError(&realizer.Error{Code: realizer.ErrInputProvenanceUnresolved, Subcode: "home-ownership", Stage: "commit", Raw: "the reactivated Home Manager profile identity could not be verified"})
 				}
-				copyRef.ActivationOutput = active.ActivationOutput
+				newHomeRef.ActivationOutput = active.ActivationOutput
 			}
-			newHomeRef = &copyRef
 			if herr != nil {
 				if detail, ok := herr.Detail.(map[string]string); ok && detail["stage"] == "activation" {
 					newHomeRef = preserveHomeManagerRetryIdentity(newHomeRef)

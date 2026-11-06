@@ -100,3 +100,23 @@ func TestHomeActivationUnreadableAfterScriptRemainsUncertain(t *testing.T) {
 		})
 	}
 }
+
+func TestHomeActivationSpawnFailureDoesNotBecomeUncertainCommit(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	setActiveHomeLink(t, 7)
+	reads := 0
+	backend := &Backend{Run: func(args ...string) ([]byte, []byte, int, error) {
+		reads++
+		if reads == 1 {
+			return []byte("/nix/store/known-home\n"), nil, 0, nil
+		}
+		return nil, nil, -1, errors.New("native observation unavailable")
+	}, Script: func(string, ...string) ([]byte, []byte, int, error) {
+		return nil, nil, -1, &os.PathError{Op: "fork/exec", Path: "/nix/store/new-home/activate", Err: os.ErrNotExist}
+	}}
+	generation, err := backend.ActivatePreparedHome(&realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": "/nix/store/new-home"}})
+	failure := asRealizerErr(t, err)
+	if generation != 0 || failure.Code != envelope.ErrRealizerUnavailable || failure.Stage != "spawn" {
+		t.Fatalf("a process that never started acquired a commit: generation=%d, %+v", generation, failure)
+	}
+}

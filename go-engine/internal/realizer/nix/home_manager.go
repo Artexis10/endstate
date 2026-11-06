@@ -225,16 +225,16 @@ func (b *Backend) activateHomeOutput(output string) (int, error) {
 		return 0, err
 	}
 	_, stderr, exit, err := b.execScript(path.Join(output, "activate"))
+	if err != nil {
+		return 0, classify(-1, parsePlainLog(stderr), false)
+	}
 	after, observeErr := b.ObserveHome()
 	if observeErr != nil {
 		failure := homeObservationError(observeErr)
 		failure.Stage = "commit"
 		return 0, failure
 	}
-	if err != nil || exit != 0 {
-		if err != nil {
-			exit = -1
-		}
+	if exit != 0 {
 		failure := classify(exit, parsePlainLog(stderr), false)
 		if after.Present && after.ActivationOutput == output {
 			failure.Stage = "activation"

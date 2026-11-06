@@ -556,6 +556,9 @@ func recoverHomeManagerWithWarnings(flags CaptureFlags, r realizer.Realizer) (*m
 		}
 		homeHistory = true
 		home := g.HomeManager
+		if home.ActivationFailed && !hasHomeOutputIdentity(home) && active.Present && home.Generation == active.Generation {
+			return unavailable()
+		}
 		if outputHistory && home != matching {
 			continue
 		}

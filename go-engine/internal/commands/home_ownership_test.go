@@ -268,9 +268,153 @@ func TestHomeOwnershipUncertainActivationRetainsPackageCommit(t *testing.T) {
 				t.Fatalf("uncertain outcome lost its commit evidence: %+v", eerr)
 			}
 			history, err := provision.List()
-			if err != nil || len(history) != expectedRecords || history[0].Native != expectedNative || !history[0].Partial || history[0].HomeManager != nil || history[0].Rollback != rollback {
+			if err != nil || len(history) != expectedRecords || history[0].Native != expectedNative || !history[0].Partial || history[0].Rollback != rollback {
 				t.Fatalf("uncertain Home Manager identity erased committed packages or fabricated provenance: %+v, %v", history, err)
 			}
+			if rollback {
+				// Retain the failed historical target, without claiming a new native generation.
+				if home := history[0].HomeManager; home == nil || home.Generation != 3 || home.ActivationOutput != "/nix/store/home-output" || !home.ActivationFailed {
+					t.Fatalf("the uncertain rollback lost its historical failure evidence: %+v", home)
+				}
+			} else if history[0].HomeManager != nil {
+				t.Fatalf("the first uncertain apply invented a native home identity: %+v", history[0].HomeManager)
+			}
 		})
+	}
+}
+
+func TestHomeOwnershipFailedRetryWithUnreadableResultInvalidatesCompletion(t *testing.T) {
+	for _, rollback := range []bool{false, true} {
+		name := "apply"
+		if rollback {
+			name = "rollback"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newNativeFreezeFixture(t)
+			mf, flags := freezeManifest(t)
+			mf.Apps = nil
+			flags.Prune = false
+			if _, eerr := runApplyRealizer(flags, mf, f.backend, noopEmitter(), "initial-home", nil, nil, nil, nil, nil); eerr != nil {
+				t.Fatal(eerr)
+			}
+			f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
+				f.activeHome = "unavailable"
+				return nil, []byte("settings step failed"), 1, nil
+			}
+			native := f.backend.Run
+			f.backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+				if args[0] == "path-info" && f.activeHome == "unavailable" {
+					return nil, nil, -1, errors.New("native observation unavailable")
+				}
+				return native(args...)
+			}
+			var eerr *envelope.Error
+			if rollback {
+				_, eerr = runRealizerRollback(RollbackFlags{To: "1", Confirm: true, EnableRestore: true}, f.backend)
+			} else {
+				_, eerr = runApplyRealizer(flags, mf, f.backend, noopEmitter(), "failed-home-retry", nil, nil, nil, nil, nil)
+			}
+			history, err := provision.List()
+			if eerr == nil || err != nil || len(history) != 2 || !history[0].Partial || history[0].HomeManager == nil || !history[0].HomeManager.ActivationFailed {
+				t.Fatalf("the failed config-only attempt left an older success active: %+v, %v, %+v", history, err, eerr)
+			}
+			if history[0].HomeManager.Generation != history[1].HomeManager.Generation || history[0].HomeManager.ActivationOutput != history[1].HomeManager.ActivationOutput || history[0].Native != "" || f.additions != 0 || history[0].Rollback != rollback {
+				t.Fatalf("the failed attempt invented a native commit: %+v", history[0])
+			}
+			f.activeHome = "/nix/store/home-output"
+			if item := checkHomeManagerGeneration(f.backend, noopEmitter()); item.Status != "fail" {
+				t.Fatalf("recovered native reads revived an older completed activation: %+v", item)
+			}
+			if cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend); cfg != nil || len(warnings) != 1 {
+				t.Fatalf("capture revived the failed settings declaration: %+v, %v", cfg, warnings)
+			}
+			if action, err := externalHomeManagerAction(f.backend, "path:/generated#profile", true); action != nil || err != nil {
+				t.Fatalf("failed completion erased established native ownership: %+v, %v", action, err)
+			}
+		})
+	}
+}
+
+func TestHomeOwnershipLegacyRollbackRetainsCommitWhenEnrichmentFails(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+	if err := os.MkdirAll(filepath.Dir(profile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(os.Getenv("ENDSTATE_ROOT"), "snapshot"), profile+"-3-link"); err != nil {
+		t.Fatal(err)
+	}
+	f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
+		f.activeHome = "/nix/store/home-output"
+		if err := os.Symlink("home-manager-4-link", profile); err != nil {
+			t.Fatal(err)
+		}
+		return nil, nil, 0, nil
+	}
+	native := f.backend.Run
+	unavailable := false
+	f.backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+		if args[0] == "path-info" {
+			if args[1] == profile+"-3-link" {
+				return []byte("/nix/store/home-output\n"), nil, 0, nil
+			}
+			if unavailable {
+				return nil, nil, -1, errors.New("native observation unavailable after known activation")
+			}
+			unavailable = true
+		}
+		return native(args...)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "nix", HomeManager: &provision.HomeGenRef{Generation: 3, ActivationOutput: "/nix/store/home-output", Flake: "github:example/config#profile", FileExpectations: &provision.HomeFileExpectations{Files: []provision.HomeFileExpectation{}}}}); err != nil {
+		t.Fatal(err)
+	}
+	_, eerr := runRealizerRollback(RollbackFlags{To: "1", Confirm: true, EnableRestore: true}, f.backend)
+	history, err := provision.List()
+	if eerr == nil || err != nil || len(history) != 2 || !history[0].Partial || !history[0].Rollback || history[0].HomeManager == nil {
+		t.Fatalf("the enrichment read erased the proved config-only rollback: %+v, %v, %+v", history, err, eerr)
+	}
+	if home := history[0].HomeManager; home.Generation != 4 || home.ActivationOutput != "" || !home.ActivationFailed {
+		t.Fatalf("the uncertain rollback lost its proved generation or copied an unobserved output: %+v", home)
+	}
+	unavailable = false
+	if cfg, warnings := recoverHomeManagerWithWarnings(CaptureFlags{}, f.backend); cfg != nil || len(warnings) != 1 {
+		t.Fatalf("capture skipped the failed rollback in favor of older output provenance: %+v, %v", cfg, warnings)
+	}
+}
+
+func TestHomeOwnershipSpawnFailureReleasesUncommittedPreparation(t *testing.T) {
+	f := newNativeFreezeFixture(t)
+	profile := filepath.Join(os.Getenv("XDG_STATE_HOME"), "nix", "profiles", "home-manager")
+	if err := os.MkdirAll(filepath.Dir(profile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("home-manager-7-link", profile); err != nil {
+		t.Fatal(err)
+	}
+	f.activeHome = "/nix/store/home-output"
+	spawnFailed := false
+	f.backend.Script = func(string, ...string) ([]byte, []byte, int, error) {
+		spawnFailed = true
+		return nil, nil, -1, &os.PathError{Op: "fork/exec", Path: "/nix/store/home-output/activate", Err: os.ErrNotExist}
+	}
+	native := f.backend.Run
+	f.backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+		if spawnFailed && args[0] == "path-info" {
+			return nil, nil, -1, errors.New("native observation unavailable")
+		}
+		return native(args...)
+	}
+	mf := &manifest.Manifest{HomeManager: &manifest.HomeManagerConfig{Flake: "github:example/config#profile"}}
+	_, eerr := runApplyRealizer(ApplyFlags{EnableRestore: true}, mf, f.backend, noopEmitter(), "unstarted-home", nil, nil, nil, nil, nil)
+	if eerr == nil || eerr.Code != envelope.ErrRealizerUnavailable {
+		t.Fatalf("the activation spawn failure disappeared: %+v", eerr)
+	}
+	if detail, ok := eerr.Detail.(map[string]string); !ok || detail["stage"] != "spawn" {
+		t.Fatalf("the unstarted activation was reported as committed: %+v", eerr)
+	}
+	history, err := provision.List()
+	roots, globErr := filepath.Glob(filepath.Join(filepath.Dir(f.backend.Profile), "activation-root-*"))
+	if err != nil || len(history) != 0 || globErr != nil || len(roots) != 0 {
+		t.Fatalf("the unstarted config-only activation kept commit evidence or roots: %+v, %v, %v, %v", history, roots, err, globErr)
 	}
 }

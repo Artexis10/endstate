@@ -760,6 +760,18 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				}
 				if rerr.Stage == "commit" {
 					preparationCommitted = true
+					if homeRef == nil && preparedHome.resolution != nil && len(preparedHome.resolution.Outputs) == 1 {
+						output := preparedHome.resolution.OutputPaths[preparedHome.resolution.Outputs[0]]
+						if history, err := listGenerationsFn(); err == nil {
+							if previous, _ := matchingHomeManagerReference(history, output, 0); previous != nil && previous.Generation > 0 {
+								// Invalidate completion of this historical output, without
+								// claiming its generation is the unobserved post-state.
+								copyRef := *previous
+								copyRef.ActivationFailed = true
+								homeRef = &copyRef
+							}
+						}
+					}
 				}
 				emitter.EmitItem(flake, driverName, "failed", "install_failed", "Home-manager configuration activation failed", "home-manager")
 				emitter.EmitSummary("config", 1, 0, 0, 1)
