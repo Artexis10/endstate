@@ -532,7 +532,7 @@ func TestGenerateHomeFlakeWithPlacementsJoinsStagedFilesWithoutEditingExplicitIn
 	}
 	settings := &manifest.HomeManagerSettings{Files: map[string]string{".config/bar.conf": "./bar.conf"}}
 
-	ref, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/home/tester/.config/ripgrep/config"}}, "home.nix", nil)
+	ref, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/home/tester/.config/ripgrep/config"}}, "home.nix", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,10 +567,10 @@ func TestGenerateHomeFlakeWithPlacementsRejectsDuplicateAndOutsideHomeTargets(t 
 	settings := &manifest.HomeManagerSettings{Files: map[string]string{".config/bar.conf": "./bar.conf"}}
 	staged := filepath.Join(manifestDir, "bar.conf")
 
-	if _, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/home/tester/.config/bar.conf"}}, "", nil); !errors.Is(err, ErrHomeFileCollision) {
+	if _, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/home/tester/.config/bar.conf"}}, "", nil, nil); !errors.Is(err, ErrHomeFileCollision) {
 		t.Fatalf("duplicate explicit target was not rejected: %v", err)
 	}
-	if _, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/etc/bar.conf"}}, "", nil); err == nil || errors.Is(err, ErrHomeFileCollision) {
+	if _, err := GenerateHomeFlakeWithPlacements(stateDir, settings, manifestDir, []HomeFilePlacement{{Source: staged, Target: "/etc/bar.conf"}}, "", nil, nil); err == nil || errors.Is(err, ErrHomeFileCollision) {
 		t.Fatalf("outside-home target was accepted: %v", err)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(stateDir, "home-manager")); len(entries) != 0 {

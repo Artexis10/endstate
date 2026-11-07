@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 // StoreRoot is the directory that holds every built Nix output.
@@ -49,32 +52,42 @@ func (e *ErrHomeFilesTooLarge) Error() string {
 
 var errHomeFilesFormat = errors.New("unsupported Home Manager activation package layout")
 
+// homeFilesTree validates the layout of a built activation package and returns
+// its home-files tree. `home-files` and `gen-version` are Home Manager's own
+// package-format tokens: the package links its home-files tree once and records
+// format version 1. The tree must be a store path.
+func homeFilesTree(output, storeRoot string) (string, error) {
+	if !filepath.IsAbs(output) {
+		return "", fmt.Errorf("%w: activation output is not absolute", errHomeFilesFormat)
+	}
+	version, err := os.ReadFile(filepath.Join(output, "gen-version"))
+	if err != nil {
+		return "", fmt.Errorf("read Home Manager package format: %w", err)
+	}
+	if strings.TrimSpace(string(version)) != "1" {
+		return "", fmt.Errorf("%w: package format %q", errHomeFilesFormat, strings.TrimSpace(string(version)))
+	}
+	link := filepath.Join(output, "home-files")
+	target, err := os.Readlink(link)
+	if err != nil {
+		return "", fmt.Errorf("read Home Manager files link: %w", err)
+	}
+	if !storePathIn(filepath.ToSlash(target), filepath.ToSlash(storeRoot)) {
+		return "", fmt.Errorf("%w: home-files does not link a store path", errHomeFilesFormat)
+	}
+	return target, nil
+}
+
 // ReadHomeFiles lists the exact leaves Home Manager links for a built activation
-// package. `home-files` and `gen-version` are Home Manager's own package-format
-// tokens: the package links its home-files tree once and records format version
-// 1. The read follows that one link and requires a store path. It descends real
+// package. It follows the one home-files link (see homeFilesTree). It descends real
 // directories only and counts every other entry, links included, as one leaf, as
 // Home Manager's own `find -type f -or -type l` does. It never follows an in-tree
 // link, so a link back to an ancestor cannot loop and a link leaf never claims
 // its referent.
 func ReadHomeFiles(output, storeRoot string, limit int) ([]HomeFilesDir, error) {
-	if !filepath.IsAbs(output) {
-		return nil, fmt.Errorf("%w: activation output is not absolute", errHomeFilesFormat)
-	}
-	version, err := os.ReadFile(filepath.Join(output, "gen-version"))
+	target, err := homeFilesTree(output, storeRoot)
 	if err != nil {
-		return nil, fmt.Errorf("read Home Manager package format: %w", err)
-	}
-	if strings.TrimSpace(string(version)) != "1" {
-		return nil, fmt.Errorf("%w: package format %q", errHomeFilesFormat, strings.TrimSpace(string(version)))
-	}
-	link := filepath.Join(output, "home-files")
-	target, err := os.Readlink(link)
-	if err != nil {
-		return nil, fmt.Errorf("read Home Manager files link: %w", err)
-	}
-	if !storePathIn(filepath.ToSlash(target), filepath.ToSlash(storeRoot)) {
-		return nil, fmt.Errorf("%w: home-files does not link a store path", errHomeFilesFormat)
+		return nil, err
 	}
 
 	var result []HomeFilesDir
@@ -146,4 +159,50 @@ func deepestMajorityRoot(counts map[string]int, total int) string {
 		return "the home directory"
 	}
 	return "~/" + root
+}
+
+// ReadHomeFile returns the bytes of one leaf of a built activation package.
+// Dir components must be real directories, as in ReadHomeFiles. The leaf is a
+// regular file or a link to a regular file directly below the store root, which is
+// how Home Manager links a generated file. limit bounds the bytes read.
+func ReadHomeFile(output, storeRoot, relative string, limit int64) ([]byte, error) {
+	tree, err := homeFilesTree(output, storeRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !fs.ValidPath(relative) || relative == "." {
+		return nil, fmt.Errorf("Home Manager leaf %q is not a path below home", relative)
+	}
+	current := tree
+	parts := strings.Split(relative, "/")
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return nil, fmt.Errorf("read Home Manager leaf: %w", err)
+		}
+		if index < len(parts)-1 {
+			if !info.IsDir() {
+				return nil, fmt.Errorf("Home Manager leaf %q has a non-directory parent", relative)
+			}
+			continue
+		}
+		source := current
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(current)
+			if err != nil {
+				return nil, fmt.Errorf("read Home Manager leaf link: %w", err)
+			}
+			if !storePathIn(filepath.ToSlash(link), filepath.ToSlash(storeRoot)) {
+				return nil, fmt.Errorf("Home Manager leaf %q does not link a store path", relative)
+			}
+			source = link
+		}
+		data, _, err := safepath.ReadRegularFileBounded(source, limit)
+		if err != nil {
+			return nil, fmt.Errorf("read Home Manager leaf: %w", err)
+		}
+		return data, nil
+	}
+	return nil, fmt.Errorf("Home Manager leaf %q is not a path below home", relative)
 }

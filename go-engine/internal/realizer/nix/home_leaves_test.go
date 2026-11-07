@@ -133,3 +133,62 @@ func TestReadHomeFilesBoundNamesTheDirectoryThatHoldsMostEntries(t *testing.T) {
 		t.Fatalf("bound error does not name the root that holds most entries: %v", err)
 	}
 }
+
+func TestReadHomeFileReadsAGeneratedFileLinkedFromTheStore(t *testing.T) {
+	var store string
+	output, store := builtActivation(t, "1", func(files string) {
+		store = filepath.Dir(files)
+		generated := filepath.Join(store, "hash-poetry-config")
+		if err := os.WriteFile(generated, []byte("[virtualenvs]\nin-project = true\n"), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(files, ".config", "pypoetry"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(generated, filepath.Join(files, ".config", "pypoetry", "config.toml")); err != nil {
+			t.Fatal(err)
+		}
+		writeLeaf(t, filepath.Join(files, ".config", "empty"))
+	})
+	data, err := ReadHomeFile(output, store, ".config/pypoetry/config.toml", 1<<20)
+	if err != nil || string(data) != "[virtualenvs]\nin-project = true\n" {
+		t.Fatalf("built leaf = %q, %v", data, err)
+	}
+	if _, err := ReadHomeFile(output, store, ".config/pypoetry/config.toml", 8); err == nil {
+		t.Fatal("a leaf above the read bound was accepted")
+	}
+}
+
+func TestReadHomeFileRefusesLeavesThatLeaveTheBuiltStore(t *testing.T) {
+	for _, test := range []struct {
+		name, relative string
+		build          func(t *testing.T, files, outside string)
+	}{
+		{"missing leaf", ".config/absent", func(t *testing.T, files, outside string) { writeLeaf(t, filepath.Join(files, "other")) }},
+		{"link to a file outside the store", "link", func(t *testing.T, files, outside string) {
+			if err := os.Symlink(outside, filepath.Join(files, "link")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"link through a linked directory", "dir/leaf", func(t *testing.T, files, outside string) {
+			if err := os.Symlink(filepath.Dir(outside), filepath.Join(files, "dir")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a directory instead of a file", "dir", func(t *testing.T, files, outside string) {
+			writeLeaf(t, filepath.Join(files, "dir", "leaf"))
+		}},
+		{"a path above home", "../escape", func(t *testing.T, files, outside string) {}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			outside := filepath.Join(t.TempDir(), "leaf")
+			if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, store := builtActivation(t, "1", func(files string) { test.build(t, files, outside) })
+			if data, err := ReadHomeFile(output, store, test.relative, 1<<20); err == nil {
+				t.Fatalf("read %q", data)
+			}
+		})
+	}
+}

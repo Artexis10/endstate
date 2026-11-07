@@ -244,6 +244,7 @@ type PlanSet struct {
 	SettingsStrategy     string           `json:"-"`
 	ExecutionRemediation string           `json:"-"`
 	DetectionDetail      string           `json:"-"` // sanitized cause of a target-detection failure; shown only in the resolution message
+	ExecutionDetail      string           `json:"-"` // names what withheld a settings writer; shown only in the resolution message
 	Source               SourceCapture    `json:"source"`
 	TargetInstances      []TargetInstance `json:"targetInstances"`
 	Resolution           ConfigResolution `json:"resolution"`

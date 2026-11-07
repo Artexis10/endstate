@@ -109,7 +109,11 @@ func TestReleaseRegistryIncludesReviewedLinuxBeyondWindowsAdapters(t *testing.T)
 		if !ok {
 			continue
 		}
-		if entry.Disposition != FileRoundTrip || len(entry.Targets) != 1 || entry.Targets[0].Coordinate != target {
+		disposition := FileRoundTrip
+		if entry.ID == "poetry" {
+			disposition = TypedRoundTrip
+		}
+		if entry.Disposition != disposition || len(entry.Targets) != 1 || entry.Targets[0].Coordinate != target {
 			t.Fatalf("adapter %s = %+v", entry.ID, entry)
 		}
 		delete(want, entry.ID)

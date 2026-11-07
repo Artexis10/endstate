@@ -176,7 +176,7 @@ func (b *Backend) PrepareHome(flake string, build bool) (*realizer.HomePreparati
 	if err != nil {
 		return nil, err
 	}
-	targets, recursive, err := b.projectHomeTargets(r, name)
+	projection, err := b.projectHomeTargets(r, name)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +207,7 @@ func (b *Backend) PrepareHome(flake string, build bool) (*realizer.HomePreparati
 			r.OutputPaths[name] = path
 		}
 	}
-	return &realizer.HomePreparation{Resolution: r, FlatTargets: targets, RecursiveDeclarations: recursive}, nil
+	return &realizer.HomePreparation{Resolution: r, FlatTargets: projection.targets, RecursiveDeclarations: projection.recursive, DefinedOutside: projection.definedOutside}, nil
 }
 
 func (b *Backend) ActivatePreparedHome(r *realizer.InputResolution) (int, error) {

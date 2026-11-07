@@ -59,6 +59,9 @@ func ProjectConfigResolution(set PlanSet) ConfigResolution {
 	if set.DetectionDetail != "" && projected.Reason != nil && *projected.Reason == ReasonTargetDetectionFailed {
 		projected.Message += " Cause: " + set.DetectionDetail
 	}
+	if set.ExecutionDetail != "" && projected.Reason != nil && *projected.Reason == ReasonSettingsStrategyUnavailable {
+		projected.Message += " " + set.ExecutionDetail
+	}
 	if set.ExecutionRemediation != "" {
 		projected.Remediation = presentationRemediation(set.ExecutionRemediation)
 	}

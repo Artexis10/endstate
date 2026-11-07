@@ -74,10 +74,14 @@ type PreparationFinalizer interface{ FinalizePreparation(committed bool) }
 // A non-nil empty slice means evaluation found no enabled nonrecursive targets.
 // RecursiveDeclarations reports an enabled recursive declaration: its leaves are
 // not in FlatTargets, so evaluation alone cannot list every target.
+// DefinedOutside names the programs whose enable, package or settings option a file
+// outside Home Manager's own modules defines. It is nil when evaluation could not
+// tell, which callers treat as "defined"; a non-nil empty slice means none.
 type HomePreparation struct {
 	Resolution            *InputResolution
 	FlatTargets           []string
 	RecursiveDeclarations bool
+	DefinedOutside        []string
 }
 
 // HomePreparer freezes and optionally builds activation before package mutation.

@@ -93,3 +93,34 @@ func TestPrepareHomeProjectsNativeFlatTargetsWithoutBuilding(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareHomeReportsProgramsThatFilesOutsideHomeManagerDefine(t *testing.T) {
+	for _, test := range []struct {
+		name, projection string
+		want             []string
+	}{
+		{"defined", `{"drvPath":"/nix/store/package.drv","targets":[],"definedOutside":["git","poetry"]}`, []string{"git", "poetry"}},
+		{"none", `{"drvPath":"/nix/store/package.drv","targets":[],"definedOutside":[]}`, []string{}},
+		{"unknown", `{"drvPath":"/nix/store/package.drv","targets":[],"definedOutside":null}`, nil},
+		{"unknown on an activation-only flake", `{"drvPath":"/nix/store/package.drv","targets":null}`, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			backend := &Backend{Profile: filepath.Join(t.TempDir(), "profile")}
+			defer backend.FinalizePreparation(false)
+			backend.Run = func(args ...string) ([]byte, []byte, int, error) {
+				if args[0] == "eval" && args[len(args)-1] == "github:NixOS/nixpkgs/1111111111111111111111111111111111111111#homeConfigurations.profile" {
+					return []byte(test.projection), nil, 0, nil
+				}
+				data, ok := nativeResolutionFixture(args)
+				if !ok {
+					t.Fatalf("unexpected command: %v", args)
+				}
+				return data, nil, 0, nil
+			}
+			preparation, err := backend.PrepareHome("github:example/config#profile", false)
+			if err != nil || !reflect.DeepEqual(preparation.DefinedOutside, test.want) {
+				t.Fatalf("definedOutside = %#v, want %#v (%v)", preparation, test.want, err)
+			}
+		})
+	}
+}

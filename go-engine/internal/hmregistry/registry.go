@@ -338,6 +338,10 @@ func validateTypedEntry(entry *Entry) error {
 	if !ok {
 		return fmt.Errorf("typed-roundtrip disposition requires a typed codec")
 	}
+	// The writer renders only programs.<program>.settings, so the codec must name exactly that option.
+	if codec.Option() != "programs."+entry.Program+".settings" {
+		return fmt.Errorf("codec %q renders %q, not the settings option of program %q", entry.Codec, codec.Option(), entry.Program)
+	}
 	if !slices.ContainsFunc(entry.Options, func(option Option) bool { return option.Name == codec.Option() }) {
 		return fmt.Errorf("codec %q renders %q, which is not a harvested option of this entry", entry.Codec, codec.Option())
 	}

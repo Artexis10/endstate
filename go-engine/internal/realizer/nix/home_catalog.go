@@ -268,8 +268,9 @@ func HomeRelativeTarget(target string) (string, error) {
 }
 
 // GenerateHomeFlakeWithPlacements clones explicit settings before joining staged
-// files. The persistent wrapper owns bytes, never disposable staging paths.
-func GenerateHomeFlakeWithPlacements(stateDir string, settings *manifest.HomeManagerSettings, manifestDir string, files []HomeFilePlacement, configPath string, secrets []manifest.HomeManagerSecret) (string, error) {
+// files. The persistent wrapper owns bytes, never disposable staging paths. Typed
+// settings join as a separate module beside the explicit configuration.
+func GenerateHomeFlakeWithPlacements(stateDir string, settings *manifest.HomeManagerSettings, manifestDir string, files []HomeFilePlacement, configPath string, secrets []manifest.HomeManagerSecret, typed []TypedSetting) (string, error) {
 	owned := &manifest.HomeManagerSettings{}
 	if settings != nil {
 		data, err := json.Marshal(settings)
@@ -297,6 +298,8 @@ func GenerateHomeFlakeWithPlacements(stateDir string, settings *manifest.HomeMan
 	if err != nil {
 		return "", err
 	}
+	// home.nix becomes an import list when another module joins the generated one.
+	var imports []string
 	if configPath != "" {
 		if !filepath.IsAbs(configPath) {
 			configPath = filepath.Join(manifestDir, configPath)
@@ -305,8 +308,26 @@ func GenerateHomeFlakeWithPlacements(stateDir string, settings *manifest.HomeMan
 		if err != nil {
 			return "", err
 		}
-		staged["explicit.nix"], staged["placements.nix"] = explicit, homeNix
-		homeNix = []byte("{ ... }: { imports = [ ./explicit.nix ./placements.nix ]; }\n")
+		staged["explicit.nix"] = explicit
+		imports = append(imports, "./explicit.nix")
+	}
+	if len(typed) > 0 {
+		module, canonical, err := compileTypedModule(typed)
+		if err != nil {
+			return "", err
+		}
+		staged[typedModule] = module
+		for name, content := range canonical {
+			staged[name] = content
+		}
+	}
+	if configPath != "" || len(typed) > 0 {
+		staged["placements.nix"] = homeNix
+		imports = append(imports, "./placements.nix")
+		if len(typed) > 0 {
+			imports = append(imports, "./"+typedModule)
+		}
+		homeNix = []byte("{ ... }: { imports = [ " + strings.Join(imports, " ") + " ]; }\n")
 	}
 	return writeHomeFlake(stateDir, homeNix, staged, secrets)
 }
