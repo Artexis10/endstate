@@ -4760,5 +4760,22 @@
     }
   ],
   "failureTransitions": [],
-  "inventoryRemovals": []
+  "inventoryRemovals": [
+    {
+      "identity": {
+        "moduleId": "apps.poetry",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "reason": "Poetry becomes a schema-v3 flat module, which must declare one capture-contract scenario. That scenario proves Windows capture only, so the synthetic Windows config round trip is dropped. The conversion rule requires the converting change to add a Windows regression that restores legacy Poetry captures; this entry does not prove that the regression exists."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.ripgrep",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "reason": "ripgrep becomes a schema-v3 flat module, which must declare one capture-contract scenario. That scenario proves Windows capture only, so the synthetic Windows config round trip is dropped. The Linux provenance regression does not cover Windows restore."
+    }
+  ]
 }
