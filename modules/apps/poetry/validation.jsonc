@@ -1,12 +1,24 @@
 {
   "schemaVersion": 1,
   "moduleId": "apps.poetry",
-  "moduleRevision": "0e65bbfb14b59bf6af128f660b247bd9ebed3dfd5a8f3fff57bf8fe68700bfac",
+  "moduleRevision": "8483ee3ecd403225694b95a8dab319e16a9c1d60f7c93cfe61c0bca393f198bf",
   "synthetic": {
     "scenarios": [
       {
-        "id": "default-v1",
-        "mode": "config-roundtrip-v1"
+        "id": "platform-settings-capture",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "declarative",
+          "path": "modules/apps/poetry/validation-fixture-capture.jsonc",
+          "sha256": "1eb3fc178001b0c55f2883ce7d14d18e7f2ce00870ecc1d665012f47e1dafb49"
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "capture-provenance-only",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-11-07",
+          "evidence": "Windows flat settings retain default/g1 provenance without authored validators. This scenario covers Windows capture integrity and optional absence. The Linux typed generation requires separate decode, render and equivalence validation."
+        }
       }
     ]
   },

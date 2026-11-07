@@ -18,6 +18,24 @@
       ]
     },
     {
+      "moduleId": "apps.poetry",
+      "platform": "linux",
+      "configSetId": "default",
+      "generationId": "g1",
+      "fingerprints": [
+        "3a59541f5f400ce4e18d5f552d4da8fe7896b36754b01264a841891d92a92f54"
+      ]
+    },
+    {
+      "moduleId": "apps.poetry",
+      "platform": "windows",
+      "configSetId": "default",
+      "generationId": "g1",
+      "fingerprints": [
+        "0b453b9b6aa00bda7936d87d2fe259950a2e6bea8c8c565f2c16e2cfd8e98626"
+      ]
+    },
+    {
       "moduleId": "apps.ripgrep",
       "platform": "linux",
       "configSetId": "default",

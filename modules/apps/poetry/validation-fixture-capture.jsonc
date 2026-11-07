@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "coordinate": "config.sets[0].generations[0].capture.files[0]",
+      "kind": "file"
+    }
+  ]
+}

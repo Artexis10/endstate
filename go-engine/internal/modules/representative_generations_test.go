@@ -172,8 +172,8 @@ func TestRepositoryCatalogValidatesMixedSchemaGenerations(t *testing.T) {
 			t.Fatalf("module %s has unsupported effective schema %d", moduleID, mod.EffectiveSchemaVersion())
 		}
 	}
-	if !reflect.DeepEqual(v3IDs, map[string]struct{}{"apps.ripgrep": {}}) {
-		t.Fatalf("schema-v3 module IDs = %v, want [apps.ripgrep]", v3IDs)
+	if !reflect.DeepEqual(v3IDs, map[string]struct{}{"apps.poetry": {}, "apps.ripgrep": {}}) {
+		t.Fatalf("schema-v3 module IDs = %v, want [apps.poetry apps.ripgrep]", v3IDs)
 	}
 	if v1Count == 0 {
 		t.Fatal("mixed catalog has no schema-v1 modules")

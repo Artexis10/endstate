@@ -3,51 +3,123 @@
   // Provides verify/capture/restore configuration for Poetry (Python dependency manager)
   // Captures the global config.toml; never auth.toml (repository credentials).
 
+  "moduleSchemaVersion": 3,
   "id": "apps.poetry",
   "displayName": "Poetry",
   "sensitivity": "medium",
 
-  "matches": {
-    "exe": ["poetry.exe"],
-    "uninstallDisplayName": ["^Poetry"],
-    "pathExists": [
-      "%APPDATA%\\pypoetry\\config.toml"
-    ]
-  },
+  "platforms": {
+    "windows": {
+      "realization": "endstate-restore",
+      "matches": {
+        "exe": ["poetry.exe"],
+        "uninstallDisplayName": ["^Poetry"],
+        "pathExists": [
+          "${windows.appdata}/pypoetry/config.toml"
+        ]
+      },
+      "verify": [
+        { "type": "command-exists", "command": "poetry" }
+      ],
+      "restore": [
+        {
+          // Global settings: virtualenvs.*, installer.*, and configured (non-auth) repositories
+          "type": "copy",
+          "source": "./payload/apps/poetry/config.toml",
+          "target": "${windows.appdata}/pypoetry/config.toml",
+          "backup": true,
+          "optional": true
+        }
+      ],
+      "capture": {
+        "files": [
+          // Non-credential global config (virtualenv/install behavior, repository URLs)
+          { "source": "${windows.appdata}/pypoetry/config.toml", "dest": "apps/poetry/config.toml", "optional": true }
+        ],
+        "excludeGlobs": [
+          // auth.toml holds http-basic / pypi-token repository credentials — NEVER capture
+          "**/pypoetry/auth.toml"
+        ]
+      },
+      "secrets": {
+        "files": [
+          "${windows.appdata}/pypoetry/auth.toml"
+        ],
+        "warning": "Poetry stores repository credentials (http-basic.*, pypi-token.*) in auth.toml alongside config.toml. This file MUST NOT be captured or auto-restored. Re-add credentials with `poetry config` after restore.",
+        "restorer": "warn-only"
+      }
+    },
 
-  "verify": [
-    { "type": "command-exists", "command": "poetry" }
-  ],
-
-  "restore": [
-    {
-      // Global settings: virtualenvs.*, installer.*, and configured (non-auth) repositories
-      "type": "copy",
-      "source": "./payload/apps/poetry/config.toml",
-      "target": "%APPDATA%\\pypoetry\\config.toml",
-      "backup": true,
-      "optional": true
+    "linux": {
+      "realization": "home-manager",
+      "matches": {
+        "pathExists": [
+          "${xdg.config}/pypoetry/config.toml"
+        ]
+      },
+      "verify": [
+        { "type": "command-exists", "command": "poetry" }
+      ],
+      "homeManagerAdapter": {
+        "id": "poetry",
+        "reviewFingerprint": "e7bd75a4c60bc06db68c7f7eeb3287d33a832e50baf4404af1983191a8b82949",
+        "configSetId": "default",
+        "generationId": "g1"
+      },
+      "config": {
+        "instanceDetectors": [
+          {
+            "id": "default",
+            "type": "path",
+            "glob": "${home}"
+          }
+        ],
+        "sets": [
+          {
+            "id": "default",
+            "generations": [
+              {
+                "id": "g1",
+                "order": 1,
+                "capture": {
+                  "files": [
+                    { "source": "${xdg.config}/pypoetry/config.toml", "dest": "apps/poetry/config.toml", "optional": true }
+                  ],
+                  "excludeGlobs": [
+                    "**/pypoetry/auth.toml"
+                  ]
+                },
+                "restore": [
+                  {
+                    "type": "copy",
+                    "source": "apps/poetry/config.toml",
+                    "target": "${xdg.config}/pypoetry/config.toml",
+                    "backup": true,
+                    "optional": true
+                  }
+                ],
+                "validate": [
+                  {
+                    "type": "settings-codec",
+                    "path": "apps/poetry/config.toml",
+                    "codec": "poetry-settings-v1",
+                    "optional": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "secrets": {
+        "files": [
+          "${xdg.config}/pypoetry/auth.toml"
+        ],
+        "warning": "Poetry stores repository credentials (http-basic.*, pypi-token.*) in auth.toml alongside config.toml. This file MUST NOT be captured or auto-restored. Re-add credentials with `poetry config` after restore.",
+        "restorer": "warn-only"
+      }
     }
-  ],
-
-  "capture": {
-    "files": [
-      // Non-credential global config (virtualenv/install behavior, repository URLs)
-      { "source": "%APPDATA%\\pypoetry\\config.toml", "dest": "apps/poetry/config.toml", "optional": true }
-    ],
-    "excludeGlobs": [
-      // auth.toml holds http-basic / pypi-token repository credentials — NEVER capture
-      "**\\pypoetry\\auth.toml"
-    ]
   },
 
-  "secrets": {
-    "files": [
-      "%APPDATA%\\pypoetry\\auth.toml"
-    ],
-    "warning": "Poetry stores repository credentials (http-basic.*, pypi-token.*) in auth.toml alongside config.toml. This file MUST NOT be captured or auto-restored. Re-add credentials with `poetry config` after restore.",
-    "restorer": "warn-only"
-  },
-
-  "notes": "Captures Poetry's global config.toml (virtualenvs/installer behavior and configured repository URLs) from %APPDATA%\\pypoetry\\. The sibling auth.toml holding repository tokens and basic-auth credentials is explicitly excluded — re-add them with `poetry config` after restore. Confidence: high - %APPDATA%\\pypoetry config.toml/auth.toml split and POETRY_CONFIG_DIR override confirmed by official Poetry documentation."
+  "notes": "Captures Poetry's global config.toml (virtualenvs/installer behavior and configured repository URLs). The sibling auth.toml holding repository tokens and basic-auth credentials is explicitly excluded — re-add them with `poetry config` after restore. On Linux the file is decoded through the reviewed poetry-settings-v1 schema and applied through the Home Manager programs.poetry.settings option, never placed as a file; a config.toml with any key outside that schema is not captured. POETRY_CONFIG_DIR overrides the Windows location. Confidence: high - the pypoetry config.toml/auth.toml split is confirmed by official Poetry documentation."
 }
