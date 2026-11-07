@@ -176,8 +176,10 @@ func RenderTypedFixtures(ctx context.Context, registry *hmregistry.Registry, tim
 	return len(cases), nil
 }
 
-// checkProjectionControl evaluates a configuration without the typed module. Its
-// projection must exist and must not list the program.
+// checkProjectionControl evaluates two configurations without the typed module. The
+// projection of a bare one must exist and must not list the program. An explicit
+// configuration that defines only the program's settings must be listed, because
+// Home Manager would merge that definition into the typed module's file.
 func checkProjectionControl(backend *nix.Backend, work, program string) error {
 	flake, err := nix.GenerateHomeFlakeWithPlacements(work, nil, work, nil, "", nil, nil)
 	if err != nil {
@@ -192,6 +194,22 @@ func checkProjectionControl(backend *nix.Backend, work, program string) error {
 	}
 	if slices.Contains(prepared.DefinedOutside, program) {
 		return fmt.Errorf("the projection reports %s as defined outside Home Manager's modules without any typed settings", program)
+	}
+	explicit := filepath.Join(work, "settings-only.nix")
+	// The registry admits only letters, digits, '-' and '_' in a program name, so Go quoting is Nix quoting here.
+	if err := os.WriteFile(explicit, []byte(fmt.Sprintf("{ ... }: { programs.%q.settings = { }; }\n", program)), 0o600); err != nil {
+		return err
+	}
+	flake, err = nix.GenerateHomeFlakeWithPlacements(work, nil, work, nil, explicit, nil, nil)
+	if err != nil {
+		return err
+	}
+	prepared, err = backend.PrepareHome(flake, false)
+	if err != nil {
+		return fmt.Errorf("evaluate an explicit configuration that defines only %s settings: %w", program, backendFailure(err))
+	}
+	if !slices.Contains(prepared.DefinedOutside, program) {
+		return fmt.Errorf("the projection does not report %s when an explicit configuration defines only its settings", program)
 	}
 	return nil
 }

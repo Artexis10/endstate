@@ -21,18 +21,24 @@ import (
 //
 // definedOutside lists the programs for which a file outside Home Manager's modules
 // path defines enable, package or settings, which are the three options a typed
-// module sets. An option's files include its declaration default, so the modules path
-// separates the user's definitions from Home Manager's own. A program whose files
-// cannot be read counts as defined: a collision is reported rather than missed. The
-// expression is constant; no data enters the Nix source.
+// module sets. Reading an option's files forces the values of its winning
+// definitions, and a default-only option wins with its declaration default, which
+// can name a package missing at the pin and abort the whole evaluation. So files are
+// read only when a definition beats that default; highestPrio reads only priority
+// wrappers. The modules path then separates the user's definitions from Home
+// Manager's own. A program whose definitions throw counts as defined: a collision is
+// reported rather than missed. The expression is constant; no data enters the Nix
+// source.
 const homeTargetsProjection = `p: let
   files = if p ? config && p.config ? home && p.config.home ? file && p.config.home ? homeDirectory
     then builtins.filter (f: f.enable) (builtins.attrValues p.config.home.file)
     else null;
   modules = toString p._module.specialArgs.modulesPath + "/";
   own = file: let name = toString file; in builtins.substring 0 (builtins.stringLength modules) name == modules;
+  # 1500 is the module system's mkOptionDefault priority, which every declaration default carries.
   outside = program: builtins.any (name:
-    program ? ${name} && program.${name} ? files && builtins.any (file: !own file) program.${name}.files
+    program ? ${name} && program.${name} ? highestPrio && program.${name}.highestPrio < 1500
+      && builtins.any (file: !own file) program.${name}.files
   ) [ "enable" "package" "settings" ];
   defined = program: let read = builtins.tryEval (outside program); in !read.success || read.value;
   programs = p.options.programs;
