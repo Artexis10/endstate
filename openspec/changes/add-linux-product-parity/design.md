@@ -561,7 +561,8 @@ beside activation identity from the exact staged bytes used for activation.
 Verification proves activation ownership and expected target contents.
 Rollback verifies the prior activation's recorded expectations. Legacy history
 remains readable, but absent content evidence is visibly unverified. Typed
-settings retain their separate semantic comparison requirement.
+settings retain their separate semantic comparison requirement. A typed target
+records its built bytes after the decision 30 check.
 
 Implement the shared authority join first, then the reviewed native ripgrep
 lifecycle, then Home Manager content expectations and remaining adapter bindings.
@@ -1068,7 +1069,7 @@ and transactions. Preserve their recovery-before-materialization ordering.
 Home Manager placements use a separate leaf policy that permits its existing
 symlink leaves; direct mutation safety remains unchanged.
 
-Start this bridge with validated regular-file `copy` declarations. Report an
+Start this bridge with validated regular-file `copy` declarations. A typed-roundtrip binding reuses those declarations, and its writer emits the bound program option instead of a file placement (decision 30). Report an
 unsupported operation locally with `settings_strategy_unavailable`; do not
 reinterpret merges, deletion, trees, registry operations, or desktop values.
 This does not complete the typed-roundtrip framework or adapter cohorts.
@@ -1125,6 +1126,54 @@ direct transaction for those targets. Cover tampering, optional absence, XDG
 placement, duplicate owners, independent direct work, external and explicit-flake
 imports, standalone restore, and preview. Reuse the accepted collision evidence.
 Native activation and the full task outcomes remain open until their proof exists.
+
+### 30. Prove typed settings by building them through the runtime generator
+
+A typed-roundtrip adapter names one versioned settings codec. The codec holds its
+one reviewed target and a closed reviewed key schema, embedded as data. It decodes
+the target into booleans, integers, strings, and tables, and rejects every other key,
+type, datetime, non-finite number, and malformed document. Floats and arrays stay
+outside the first value model until a codec has fixtures for them. The registry entry
+supplies the program, and the codec records the rendering option once. Capture stores
+the canonical encoding of the decoded value; comments, ordering, and formatting do
+not enter the bundle. Equivalence is measured with the codec's parser.
+
+Apply uses the decision 29 writer. For a typed binding, the writer stages the
+canonical payload as it stages placements and writes a separate generated module.
+That module sets `programs.<p>.enable = true` and sets the program's settings
+option to `builtins.fromTOML` of the staged file. It sets the package to null when
+the package catalog maps the program's package and the pinned package option accepts
+null; otherwise it does not set the package. It imports
+beside the generated `home.nix` and the explicit configuration. An empty value
+contributes nothing, and its row reports skipped with `already_up_to_date`. The
+decision 28 projection of the explicit configuration reports which files define the
+program's `enable`, `package`, and `settings` options. A definition from a file
+outside Home Manager's modules path is a collision. Apply removes that typed set
+before it generates the combined module, and that set reports failed with
+`target_collision`; the explicit activation continues. The decision 28 leaf check
+then applies to the captured placements that remain.
+
+Release proof builds every codec fixture through the runtime generator with the
+release input pair and the default identity, without activation, and reads the
+target leaf. The required Nix catalog job fails when a built target does not decode
+to its fixture value.
+The production registry test fails when a schema leaf of a typed entry has no
+fixture. No rendered bytes are checked in.
+
+Apply repeats the proof for the user's values on the built activation before any
+settings writer runs. A target that does not decode to the captured value withholds
+the captured activation. Every captured Home Manager set in that activation reports
+skipped with `settings_strategy_unavailable` and a message that names the target,
+while the explicit activation continues. The built bytes that passed the check become
+the recorded file expectation for verify, drift, and rollback. An import module for an
+external owner targets the release Home Manager revision, and its remediation says so.
+
+A Home Manager placement is a link into the Nix store, which discovery refuses
+today, so a machine cannot recapture a typed or file setting after a Home Manager
+apply. Task 7.8 owns that recapture rule. This change adds
+`github.com/pelletier/go-toml/v2` at `v2.4.3`. The added maintenance cost is one
+pure Go dependency with no transitive module requirements. YAML, JSON, INI, Git
+configuration, multi-target codecs, and capture-only labels are later decisions.
 
 ## Risks / Trade-offs
 

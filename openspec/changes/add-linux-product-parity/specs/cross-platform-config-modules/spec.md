@@ -71,7 +71,7 @@ An explicit Linux platform variant SHALL be able to detect and capture its suppo
 - **AND** it SHALL not duplicate ownership of the same declared target
 
 ### Requirement: Every platform variant declares its settings realization strategy
-Each executable platform variant SHALL explicitly declare `home-manager` or `endstate-restore` as its realization strategy. `home-manager` SHALL compile typed settings or captured file placements into an inspectable Endstate-generated Home Manager module. `endstate-restore` SHALL use the existing explicit-consent, backup, validation, journal, and revert path. The engine SHALL NOT choose a strategy from file extension or host state.
+Each executable platform variant SHALL explicitly declare `home-manager` or `endstate-restore` as its realization strategy. `home-manager` SHALL compile typed settings or captured file placements into an inspectable Endstate-generated Home Manager module. `endstate-restore` SHALL use the existing explicit-consent, backup, validation, journal, and revert path. The engine SHALL NOT choose a strategy from file extension or host state. When captured sets compose with an explicit configuration, a typed setting whose program that configuration also defines SHALL leave the combined activation before the collision check and SHALL report `target_collision` with status failed. The explicit activation SHALL continue.
 
 #### Scenario: Home Manager variant activates declaratively
 - **WHEN** a selected Linux variant declares `home-manager`, configuration changes are enabled, and Endstate owns or may safely create the generated Home Manager activation
@@ -103,8 +103,18 @@ Each executable platform variant SHALL explicitly declare `home-manager` or `end
 - **THEN** that set SHALL report `settings_strategy_unavailable` without direct mutation
 - **AND** independent supported settings and package work SHALL remain eligible
 
+#### Scenario: Captured typed settings use their program option
+- **WHEN** apply selects a trusted `home-manager` generation bound to a `typed-roundtrip` adapter
+- **THEN** the generated typed module SHALL set the program's settings option from the staged canonical payload instead of placing the payload file
+- **AND** an explicit configuration that also defines that program SHALL remove only that typed set, which SHALL report failed with `target_collision`
+
+#### Scenario: Built activation does not reproduce captured typed values
+- **WHEN** the built target of a captured typed setting does not decode to the captured value
+- **THEN** apply SHALL withhold the captured activation with `settings_strategy_unavailable` before any settings writer runs
+- **AND** every captured Home Manager set in that activation SHALL report skipped while the explicit activation, direct restores, and package outcomes continue
+
 #### Scenario: Explicit flake does not inherit captured module ownership
-- **WHEN** captured placements require composition into an explicitly declared Home Manager flake
+- **WHEN** captured placements or typed settings require composition into an explicitly declared Home Manager flake
 - **THEN** their result rows SHALL report skipped with `home_manager_import_required` and a stable module reference in remediation
 - **AND** the engine SHALL NOT edit the flake or label its owner external without observed evidence
 - **AND** an independent explicit activation SHALL NOT make those captured rows successful
@@ -325,9 +335,22 @@ Each adapter SHALL declare exactly one reviewed disposition: `typed-roundtrip`, 
 - **AND** incomplete counts SHALL describe observed changes, without claiming that unread adapters were checked
 
 #### Scenario: Direct settings mapping has a proven codec
-- **WHEN** a Home Manager program writes a reviewed structured settings option directly to a known target and its source-to-target round-trip suite passes
+- **WHEN** a Home Manager program renders one reviewed target from one structured settings option and every fixture of its typed codec builds through the runtime generator to a target that decodes to the fixture value
 - **THEN** the adapter MAY use `typed-roundtrip` to decode live state and re-emit that settings option
-- **AND** the captured payload SHALL preserve only the reviewed portable values
+- **AND** the captured payload SHALL contain only the canonical encoding of the reviewed portable values
+
+#### Scenario: Typed codec cannot represent live content
+- **WHEN** a live typed target contains a key, type, datetime, non-finite number, or syntax outside its codec schema
+- **THEN** capture SHALL withhold that file and report `settings_content_unsupported`
+- **AND** it SHALL NOT drop the content and report equivalent settings
+
+#### Scenario: Registry names typed round-trip without a bound codec
+- **WHEN** an entry declares `typed-roundtrip` without a typed codec whose option is one of the entry's options and whose target is the entry's single target
+- **THEN** registry validation SHALL reject the entry
+
+#### Scenario: Typed codec lacks fixtures
+- **WHEN** a schema leaf of a production typed entry has no codec fixture
+- **THEN** the production registry test SHALL fail
 
 #### Scenario: Generator is not reliably invertible
 - **WHEN** a Home Manager module combines defaults, scripts, fragments, migrations, or multiple sources such that typed inversion is not proven

@@ -293,6 +293,7 @@ rollback, and collision prevention. It does not add app-specific codecs.
   - Decision 29 repairs the reproduced direct-copy fallback for a trusted `home-manager` variant. Partition staged sets by current trusted strategy, retain local unavailable/import outcomes, and never infer another writer. Preserve final post-install detection and freeze the combined activation before settings mutation.
   - Independent review accepts `b31ec57`, integrated as `04697ca`, after two correction rounds. In apply, the built `home-files` leaves are claims when another owner claims a file or desktop target. A direct restore or captured placement inside a recursive root or an activation-only flake reports `target_collision` before any writer runs. An unreadable or oversized tree fails only the activation with `target_detection_failed`. Mutations of each rule fail their named tests. Hermetic proof only; native activation stays with tasks 7.2, 9.15 and section 13. The macOS case-folding difference between preview and apply goes to the macOS change.
 - [ ] 7.8 Record effective inputs and platform/config identity in Home Manager/direct-restore verification, rollback, and Provisioning Generation output
+  - Decision 30 assigns recapture after a Home Manager apply here: discovery refuses store links today. One candidate rule accepts a link whose resolved bytes match the recorded expectation of the current Endstate activation.
 
 ## 8. Home Manager harvester, registry authority, and readiness gate
 
@@ -337,17 +338,26 @@ their shared files are exclusive.
 **Depends on:** 8.4, 8.7, and 8.10.
 
 **Shared-file rule:** cohort lanes own distinct codec files, schema-v3
-`modules/apps/<id>` declarations, package mappings, and fixtures only. They
+`modules/apps/<id>` declarations and their `modules/generation-history.json`
+entries, package mappings, and fixtures only. They
 SHALL NOT edit `catalog/home-manager/registry.jsonc`, shared registry/runtime
 dispatch, the production matrix test, or the real-Nix smoke. Section 9.13 owns
 that serialized integration. Design decision 16 R1, R2, and R4 also bind every
 cohort lane: each `module.jsonc` edit refreshes its validation sidecar, a new
 module directory ships its sidecar and reports denominator drift, and
 `home_catalog.go` is edited only after `home-catalog-data-driven` archives.
+A packet that converts a legacy Windows module to schema-v3 names
+`modules/generation-history.json` and the module's capture fixture. The serialized
+integration owner changes the module's ledger inventory row after main authorizes
+the row removal and before the integration pull request. A Windows regression
+proves that existing legacy captures still restore.
 
 **Framework red-first tests:** `TestTypedRoundTripDecodeEmitRenderDecodeEquivalence`,
 `TestRegistryRejectsSensitiveOrExecutableTargetWithoutSemanticCodec`,
-`TestAdvertisedAdaptersLifecycleAndSecretBoundary`.
+`TestAdvertisedAdaptersLifecycleAndSecretBoundary`,
+`TestRegistryAdmitsTypedRoundTripOnlyWithBoundTypedCodec`,
+`TestCapturedTypedSettingsWithholdActivationWhenBuiltTargetDiffers`,
+`TestCapturedTypedSettingsWithholdOnlyTypedSetWhenExplicitConfigDefinesProgram`.
 
 **Cohort gates:** each lane runs its named codec/module/discovery/bundle tests.
 The serialized integration runs `cd go-engine && GOCACHE=/tmp/endstate-lane-adapters-gocache
@@ -356,6 +366,7 @@ go test ./internal/settingscodec ./internal/hmregistry ./internal/linuxparity
 ./internal/commands`.
 
 - [ ] 9.1 Implement the typed-roundtrip framework and require decode → emit → Home Manager render → decode equivalence
+  - Decision 30: typed codecs in `settingscodec`, a separate typed module through the decision 29 writer, fixtures built by the required Nix catalog job through the runtime generator, and the built-activation check before writers. Poetry is the first adapter and converts its legacy Windows module under the section 9 conversion rule; 9.1 acts as the serialized integration owner for that ledger row, and main must first authorize the `apps.poetry/default-v1` removal. Content classes (9.2), YAML, JSON, INI, Git, multi-target codecs, capture-only labels, and native activation (9.15) stay separate.
 - [ ] 9.2 Replace generic byte preservation with reviewed data-only file policy; route command/secret/account/machine-capable targets to semantic codecs, narrower values, capture-only, or exclusion
 - [ ] 9.3 Harden Git parsing against opaque credential keys, executable transports, malformed quoted values, includes, aliases, auth, filters, drivers, and identity-sensitive state
 - [ ] 9.4 Add schema-v3 Linux variants and lifecycle proof for Git, Bash, Zsh, and SSH without credentials, keys, histories, or agent state
