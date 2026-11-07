@@ -1,0 +1,24 @@
+// Poetry global configuration, schema version 1. The keys are the portable
+// subset of Poetry 2.4.1 config.py (default_config and the config command's
+// unique_config_values): booleans, integers and one string. Paths, repository
+// tables, credentials, certificates and lists stay outside this version.
+// "virtualenvs.prefer-active-python" is deprecated upstream and not included.
+{
+  "format": "toml",
+  "option": "programs.poetry.settings",
+  "target": "${xdg.config}/pypoetry/config.toml",
+  "schema": {
+    "installer": { "max-workers": "int", "parallel": "bool", "re-resolve": "bool" },
+    "keyring": { "enabled": "bool" },
+    "requests": { "max-retries": "int" },
+    "solver": { "lazy-wheel": "bool" },
+    "system-git-client": "bool",
+    "virtualenvs": {
+      "create": "bool",
+      "in-project": "bool",
+      "options": { "always-copy": "bool", "no-pip": "bool", "system-site-packages": "bool" },
+      "prompt": "string",
+      "use-poetry-python": "bool"
+    }
+  }
+}

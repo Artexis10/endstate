@@ -25,7 +25,8 @@ func Supported(codec string) bool {
 	case BoundedRegularFileV1, GitConfigSafeV1, RipgrepPortableArgumentsV1:
 		return true
 	default:
-		return false
+		_, typed := Typed(codec)
+		return typed
 	}
 }
 
@@ -46,7 +47,8 @@ func TargetSupported(codec, target string) bool {
 			return false
 		}
 	default:
-		return false
+		typed, ok := Typed(codec)
+		return ok && target == typed.Target()
 	}
 }
 
@@ -59,6 +61,13 @@ var (
 func Transform(codec, target string, data []byte) ([]byte, error) {
 	if !TargetSupported(codec, target) {
 		return nil, fmt.Errorf("settings codec %q does not own target %q", codec, target)
+	}
+	if typed, ok := Typed(codec); ok {
+		value, err := typed.Decode(data)
+		if err != nil {
+			return nil, err
+		}
+		return typed.Encode(value)
 	}
 	switch codec {
 	case BoundedRegularFileV1:

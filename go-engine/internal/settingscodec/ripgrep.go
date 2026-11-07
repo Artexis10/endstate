@@ -15,7 +15,12 @@ const MaxContentSize int64 = 1 << 20
 
 // Validates reports whether a codec rejects every unsupported input rather
 // than sanitizing or preserving unknown content.
-func Validates(codec string) bool { return codec == RipgrepPortableArgumentsV1 }
+func Validates(codec string) bool {
+	if _, typed := Typed(codec); typed {
+		return true
+	}
+	return codec == RipgrepPortableArgumentsV1
+}
 
 // Validate checks original content without changing it. Transform remains the
 // canonicalization boundary for capture.
@@ -23,7 +28,11 @@ func Validate(codec string, data []byte) error {
 	if int64(len(data)) > MaxContentSize {
 		return fmt.Errorf("settings content exceeds the codec read bound")
 	}
-	if !Validates(codec) {
+	if typed, ok := Typed(codec); ok {
+		_, err := typed.Decode(data)
+		return err
+	}
+	if codec != RipgrepPortableArgumentsV1 {
 		return fmt.Errorf("settings codec %q has no rejecting content policy", codec)
 	}
 	_, err := portableRipgrepArguments(data)

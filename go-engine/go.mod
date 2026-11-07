@@ -15,6 +15,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gofrs/flock v0.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/tyler-smith/go-bip39 v1.1.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.56.0

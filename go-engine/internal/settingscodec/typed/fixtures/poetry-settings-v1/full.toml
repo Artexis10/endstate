@@ -1,0 +1,27 @@
+# Every key of the schema, with non-default values and a prompt that needs escapes.
+system-git-client = true
+
+[installer]
+max-workers = 4
+parallel = false
+re-resolve = true
+
+[keyring]
+enabled = false
+
+[requests]
+max-retries = 3
+
+[solver]
+lazy-wheel = false
+
+[virtualenvs]
+create = false
+in-project = true
+prompt = "{project_name}-\"py\"{python_version} é\\"
+use-poetry-python = true
+
+[virtualenvs.options]
+always-copy = true
+no-pip = true
+system-site-packages = true
