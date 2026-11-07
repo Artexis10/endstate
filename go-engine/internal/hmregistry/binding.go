@@ -37,6 +37,14 @@ type Authority struct {
 	Bound        bool
 	Actions      []Action
 	Reason       string
+	// Program, Disposition and Codec come from the reviewed entry. Option is the
+	// typed codec's rendering option, and NullPackage reports that the writer may
+	// set the program's package option to null; both are empty for other dispositions.
+	Program     string
+	Disposition Disposition
+	Codec       string
+	Option      string
+	NullPackage bool
 }
 
 func (authority Authority) Supports(action Action) bool {
@@ -159,6 +167,14 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 		return authority
 	}
 	authority.Bound = true
+	authority.Program, authority.Disposition, authority.Codec = entry.Program, entry.Disposition, entry.Codec
+	if entry.Disposition == TypedRoundTrip {
+		if typed, ok := settingscodec.Typed(entry.Codec); ok {
+			authority.Option = typed.Option()
+		}
+		// Binding already proved that the package catalog maps this program's package.
+		authority.NullPackage = packageAcceptsNull(entry)
+	}
 	if !settingscodec.Supported(entry.Codec) {
 		authority.Reason = "settings_codec_unavailable"
 		return authority
@@ -169,6 +185,11 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 		return authority
 	}
 	if projected.Realization != modules.RealizationEndstateRestore && projected.Realization != modules.RealizationHomeManager {
+		authority.Reason = "settings_strategy_unavailable"
+		return authority
+	}
+	if entry.Disposition == TypedRoundTrip && projected.Realization != modules.RealizationHomeManager {
+		// A typed value is applied only by rendering its option; copying its payload would be file placement.
 		authority.Reason = "settings_strategy_unavailable"
 		return authority
 	}
@@ -187,6 +208,17 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 	authority.Reason = ""
 	authority.Actions = []Action{Capture, Restore, Verify, Revert}
 	return authority
+}
+
+// nullablePackageType is the description nixpkgs gives `nullOr package`, the
+// type that mkPackageOption { nullable = true; } declares. The harvest pins the
+// description per release, so equality is a check of a fixed format.
+const nullablePackageType = "null or package"
+
+func packageAcceptsNull(entry Entry) bool {
+	return slices.ContainsFunc(entry.Options, func(option Option) bool {
+		return option.Name == "programs."+entry.Program+".package" && option.Type == nullablePackageType
+	})
 }
 
 func bindTargets(entry Entry, generation modules.GenerationDef, secrets *modules.SecretsDef) string {

@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -324,6 +325,26 @@ func validateEntry(entry *Entry, targets map[string]string) error {
 			return fmt.Errorf("file-roundtrip probe targets do not exactly match runtime targets")
 		}
 	}
+	if entry.Disposition == TypedRoundTrip {
+		return validateTypedEntry(entry)
+	}
+	return nil
+}
+
+// validateTypedEntry binds a typed-roundtrip entry to the one target and the one
+// option that its codec records, so the codec cannot render into another option.
+func validateTypedEntry(entry *Entry) error {
+	codec, ok := settingscodec.Typed(entry.Codec)
+	if !ok {
+		return fmt.Errorf("typed-roundtrip disposition requires a typed codec")
+	}
+	if !slices.ContainsFunc(entry.Options, func(option Option) bool { return option.Name == codec.Option() }) {
+		return fmt.Errorf("codec %q renders %q, which is not a harvested option of this entry", entry.Codec, codec.Option())
+	}
+	if len(entry.Targets) != 1 || entry.Targets[0].Coordinate != codec.Target() ||
+		len(entry.Probe.Targets) != 1 || entry.Probe.Targets[0] != codec.Target() {
+		return fmt.Errorf("typed-roundtrip targets and probe targets must be exactly %q", codec.Target())
+	}
 	return nil
 }
 
@@ -358,6 +379,9 @@ func validateProbeValue(value any, depth int) error {
 
 func supportedCodec(disposition Disposition, codec string) bool {
 	switch disposition {
+	case TypedRoundTrip:
+		_, ok := settingscodec.Typed(codec)
+		return ok
 	case FileRoundTrip:
 		return codec == settingscodec.BoundedRegularFileV1
 	case CuratedCodec:

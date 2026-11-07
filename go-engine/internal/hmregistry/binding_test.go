@@ -140,3 +140,66 @@ func TestJoinMissingRegistryCannotBeBypassedByModuleBinding(t *testing.T) {
 		t.Fatalf("missing registry authority = %+v", got)
 	}
 }
+
+func typedBindingFixture(t *testing.T, realization, packageType string) (*Registry, *modules.Module, []*packagecatalog.Entry) {
+	t.Helper()
+	registry := typedPoetryRegistry(t)
+	registry.Entries[0].Options[0].Type = packageType
+	if err := AcceptReviews(&registry); err != nil {
+		t.Fatal(err)
+	}
+	parsedRegistry, err := Parse(marshalRegistry(t, registry), testInputs(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := &modules.CaptureDef{Files: []modules.CaptureFile{{Source: poetryTarget, Dest: "apps/poetry/config.toml", Optional: true}}}
+	restore := []modules.RestoreDef{{Type: "copy", Source: "apps/poetry/config.toml", Target: poetryTarget, Backup: true, Optional: true}}
+	mod := modules.Module{ModuleSchemaVersion: 3, ID: "apps.poetry", DisplayName: "Poetry", Sensitivity: "medium", Platforms: map[string]modules.PlatformVariant{"linux": {
+		Realization: realization, Matches: modules.MatchCriteria{PathExists: []string{poetryTarget}},
+		HomeManagerAdapter: &modules.HomeManagerAdapterBinding{ID: "poetry", ReviewFingerprint: registry.Entries[0].ReviewFingerprint, ConfigSetID: "default", GenerationID: "g1"},
+		Config: &modules.ConfigDef{InstanceDetectors: []modules.InstanceDetectorDef{{ID: "default", Type: "path", Glob: "${home}"}}, Sets: []modules.ConfigSetDef{{ID: "default", Generations: []modules.GenerationDef{{
+			ID: "g1", Order: 1, Capture: capture, Restore: restore,
+			Validate: []modules.ValidationDef{{Type: "settings-codec", Path: "apps/poetry/config.toml", Codec: "poetry-settings-v1", Optional: true}},
+		}}}}},
+	}}}
+	body, err := json.Marshal(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := modules.ParseAndValidateModuleJSON(body, "module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := packagecatalog.ParseEntry([]byte(`{"schemaVersion":1,"id":"poetry","displayName":"Poetry","nix":{"attribute":"poetry"},"aliases":{"executable":["poetry"]},"configModule":"apps.poetry"}`), "poetry.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsedRegistry, parsed, []*packagecatalog.Entry{pkg}
+}
+
+func TestJoinGrantsTypedActionsOnlyToTheHomeManagerStrategy(t *testing.T) {
+	registry, mod, packages := typedBindingFixture(t, "home-manager", "null or package")
+	got := Join(registry, map[string]*modules.Module{mod.ID: mod}, packages)
+	if len(got) != 1 || !got[0].Bound || got[0].Reason != "" || !got[0].Supports(Restore) || got[0].Disposition != TypedRoundTrip || got[0].Codec != "poetry-settings-v1" || got[0].Program != "poetry" || got[0].Option != "programs.poetry.settings" {
+		t.Fatalf("home-manager typed authority = %+v", got)
+	}
+
+	registry, mod, packages = typedBindingFixture(t, "endstate-restore", "null or package")
+	got = Join(registry, map[string]*modules.Module{mod.ID: mod}, packages)
+	if len(got) != 1 || len(got[0].Actions) != 0 || got[0].Reason != "settings_strategy_unavailable" {
+		t.Fatalf("a typed value on endstate-restore must not be copied as a file: %+v", got)
+	}
+}
+
+func TestJoinReportsNullPackageFromTheHarvestedOptionType(t *testing.T) {
+	for _, test := range []struct {
+		packageType string
+		want        bool
+	}{{"null or package", true}, {"package", false}} {
+		registry, mod, packages := typedBindingFixture(t, "home-manager", test.packageType)
+		got := Join(registry, map[string]*modules.Module{mod.ID: mod}, packages)
+		if len(got) != 1 || !got[0].Supports(Restore) || got[0].NullPackage != test.want {
+			t.Fatalf("package option type %q: authority = %+v, want NullPackage %v", test.packageType, got, test.want)
+		}
+	}
+}

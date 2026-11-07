@@ -341,3 +341,70 @@ func TestValidateRejectsDuplicateTargetOwnership(t *testing.T) {
 		t.Fatalf("duplicate ownership error = %v", err)
 	}
 }
+
+const poetryTarget = "${xdg.config}/pypoetry/config.toml"
+
+func typedPoetryRegistry(t *testing.T) Registry {
+	t.Helper()
+	registry := validRegistry(t)
+	entry := &registry.Entries[0]
+	entry.ID, entry.Program, entry.DisplayName = "poetry", "poetry", "Poetry"
+	entry.PackageID, entry.ModuleID = "poetry", "apps.poetry"
+	entry.Disposition, entry.Codec = TypedRoundTrip, "poetry-settings-v1"
+	entry.Probe = &Probe{
+		Values:  map[string]any{"programs.poetry.settings": map[string]any{"virtualenvs": map[string]any{"in-project": true}}},
+		Targets: []string{poetryTarget},
+	}
+	entry.Options = []Option{
+		{Name: "programs.poetry.package", Type: "null or package", Declarations: []string{"modules/programs/poetry.nix"}},
+		{Name: "programs.poetry.settings", Type: "TOML value", Declarations: []string{"modules/programs/poetry.nix"}},
+	}
+	entry.Targets = []Target{{Coordinate: poetryTarget, Optional: true}}
+	entry.SourceHashes = map[string]string{"modules/programs/poetry.nix": strings.Repeat("b", 64)}
+	registry.Programs = []string{"poetry"}
+	if err := AcceptReviews(&registry); err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
+
+func TestRegistryAdmitsTypedRoundTripOnlyWithBoundTypedCodec(t *testing.T) {
+	if err := Validate(ptr(typedPoetryRegistry(t)), testInputs(t)); err != nil {
+		t.Fatalf("typed entry with its bound codec was refused: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*Entry)
+		want   string
+	}{
+		{"unknown codec", func(e *Entry) { e.Codec = "wishful-settings-v1" }, "not implemented"},
+		{"codec that is not typed", func(e *Entry) { e.Codec = "bounded-regular-file-v1" }, "not implemented"},
+		{"missing codec", func(e *Entry) { e.Codec = "" }, "requires a reviewed codec"},
+		{"codec option is not an option of the entry", func(e *Entry) {
+			e.Options = e.Options[:1]
+			e.Probe.Values = map[string]any{"programs.poetry.package": true}
+		}, "not a harvested option"},
+		{"second target", func(e *Entry) {
+			e.Targets = append(e.Targets, Target{Coordinate: poetryTarget + ".bak"})
+		}, "does not own"},
+		{"target the codec does not own", func(e *Entry) {
+			e.Targets = []Target{{Coordinate: "${xdg.config}/pypoetry/auth.toml"}}
+			e.Probe.Targets = []string{"${xdg.config}/pypoetry/auth.toml"}
+		}, "does not own"},
+		{"probe observes another target", func(e *Entry) { e.Probe.Targets = []string{poetryTarget, "${xdg.config}/pypoetry/extra.toml"} }, "probe targets"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := typedPoetryRegistry(t)
+			test.mutate(&registry.Entries[0])
+			if err := AcceptReviews(&registry); err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate(&registry, testInputs(t)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want it to contain %q", err, test.want)
+			}
+		})
+	}
+}
+
+func ptr[T any](value T) *T { return &value }

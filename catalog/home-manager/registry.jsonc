@@ -1128,8 +1128,8 @@
       "displayName": "Poetry",
       "packageId": "poetry",
       "moduleId": "apps.poetry",
-      "disposition": "file-roundtrip",
-      "codec": "bounded-regular-file-v1",
+      "disposition": "typed-roundtrip",
+      "codec": "poetry-settings-v1",
       "probe": {
         "values": {
           "programs.poetry.settings": {
@@ -1143,6 +1143,13 @@
         ]
       },
       "options": [
+        {
+          "name": "programs.poetry.package",
+          "type": "null or package",
+          "declarations": [
+            "modules/programs/poetry.nix"
+          ]
+        },
         {
           "name": "programs.poetry.settings",
           "type": "TOML value",
@@ -1160,7 +1167,7 @@
       "sourceHashes": {
         "modules/programs/poetry.nix": "70cfe8807ebe638bcb8096d60430e4a609ffd4ae42b57d10dd741e0acd0ad5eb"
       },
-      "reviewFingerprint": "82c1f9378fbcc06f02bc3e0a5caaca2e166e6c46c5d7db316d7fd4ce990342e2"
+      "reviewFingerprint": "e7bd75a4c60bc06db68c7f7eeb3287d33a832e50baf4404af1983191a8b82949"
     },
     {
       "id": "ripgrep",
