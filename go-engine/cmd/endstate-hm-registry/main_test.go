@@ -318,3 +318,25 @@ func TestRegistryWritesOnlyCompleteExplicitlyAcceptedCandidate(t *testing.T) {
 		t.Fatalf("zero observed changes bypassed frozen review validation: %v", err)
 	}
 }
+
+func TestRenderTypedFailsWhenNixCannotBuildTheFixtures(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux release-tool subprocess boundary")
+	}
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "nix"), []byte("#!/bin/sh\necho 'cannot build' >&2\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	registry := filepath.Join("..", "..", "..", "catalog", "home-manager", "registry.jsonc")
+	err := runRenderTyped(context.Background(), registry, time.Second)
+	if err == nil || !strings.Contains(err.Error(), "cannot build") {
+		t.Fatalf("a failed Nix build did not fail the render proof: %v", err)
+	}
+	if err := runRenderTyped(context.Background(), "", time.Second); err == nil {
+		t.Fatal("the render proof ran without a registry")
+	}
+}

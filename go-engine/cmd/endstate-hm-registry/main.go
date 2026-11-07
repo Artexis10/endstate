@@ -29,13 +29,20 @@ func main() {
 	docsPath := flag.String("docs-json", "", "path to the pinned Home Manager options.json")
 	sourceRoot := flag.String("home-manager-source", "", "path to the exact pinned Home Manager source checkout")
 	system := flag.String("system", defaultNixSystem(), "Linux Nix system used for pure managed-target probes")
-	probeTimeout := flag.Duration("probe-timeout", hmharvest.DefaultProbeTimeout, "positive deadline for each pure target evaluation")
+	probeTimeout := flag.Duration("probe-timeout", hmharvest.DefaultProbeTimeout, "positive deadline for each Nix call")
+	renderTyped := flag.Bool("render-typed", false, "build every typed codec fixture through the runtime generator without activation (needs only --registry)")
 	write := flag.Bool("write", false, "atomically write refreshed canonical registry JSON")
 	acceptReviews := flag.Bool("accept-reviews", false, "explicitly accept refreshed metadata/dispositions (required with --write)")
 	flag.Parse()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, *registryPath, *docsPath, *sourceRoot, *system, *probeTimeout, *write, *acceptReviews); err != nil {
+	var err error
+	if *renderTyped {
+		err = runRenderTyped(ctx, *registryPath, *probeTimeout)
+	} else {
+		err = run(ctx, *registryPath, *docsPath, *sourceRoot, *system, *probeTimeout, *write, *acceptReviews)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "endstate-hm-registry:", err)
 		os.Exit(1)
 	}
@@ -110,6 +117,24 @@ func run(ctx context.Context, registryPath, docsPath, sourceRoot, system string,
 		return err
 	}
 	fmt.Printf("wrote %s\n", registryPath)
+	return nil
+}
+
+// runRenderTyped is the release proof for typed settings: Home Manager must build
+// every reviewed fixture to a file that decodes to the fixture's value.
+func runRenderTyped(ctx context.Context, registryPath string, timeout time.Duration) error {
+	if registryPath == "" {
+		return fmt.Errorf("--registry is required")
+	}
+	registry, err := hmregistry.Load(registryPath)
+	if err != nil {
+		return err
+	}
+	built, err := hmharvest.RenderTypedFixtures(ctx, registry, timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("built %d typed settings fixtures; each decodes to its reviewed value\n", built)
 	return nil
 }
 

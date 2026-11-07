@@ -173,7 +173,7 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 			authority.Option = typed.Option()
 		}
 		// Binding already proved that the package catalog maps this program's package.
-		authority.NullPackage = packageAcceptsNull(entry)
+		authority.NullPackage = entry.PackageAcceptsNull()
 	}
 	if !settingscodec.Supported(entry.Codec) {
 		authority.Reason = "settings_codec_unavailable"
@@ -215,7 +215,9 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 // description per release, so equality is a check of a fixed format.
 const nullablePackageType = "null or package"
 
-func packageAcceptsNull(entry Entry) bool {
+// PackageAcceptsNull reports that the reviewed entry lets a module set the
+// program's package option to null.
+func (entry Entry) PackageAcceptsNull() bool {
 	return slices.ContainsFunc(entry.Options, func(option Option) bool {
 		return option.Name == "programs."+entry.Program+".package" && option.Type == nullablePackageType
 	})

@@ -98,6 +98,10 @@ jobs:
       - name: Evaluate every advertised target at the release revision
         working-directory: go-engine
         run: go run ./cmd/endstate-validation nix-mappings --repo "$GITHUB_WORKSPACE" --system '${{ matrix.system }}' > "$RUNNER_TEMP/nix-catalog.json"
+      - name: Build every typed settings fixture through the runtime generator
+        if: ${{ matrix.system == 'x86_64-linux' }}
+        working-directory: go-engine
+        run: go run ./cmd/endstate-hm-registry --render-typed --registry "$GITHUB_WORKSPACE/catalog/home-manager/registry.jsonc" --probe-timeout 6m
       - name: Upload mapping evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
