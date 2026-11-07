@@ -20,6 +20,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
+	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/state"
@@ -372,7 +373,13 @@ func finalizeCapturedHomeManager(session *configRestoreExecutionSession, home *p
 	return NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems), envErr
 }
 
+// markCapturedImportRequired names the module to import and the release Home
+// Manager revision whose options the module sets (decision 30).
 func markCapturedImportRequired(set *planner.PlanSet, flake string) {
-	set.ExecutionRemediation = "Import " + generatedHomeModulePath(flake) + " into the owning Home Manager configuration, then activate it."
+	remediation := "Import " + generatedHomeModulePath(flake) + " into the owning Home Manager configuration, then activate it."
+	if inputs, err := releaseinputs.Load(); err == nil {
+		remediation += " The module targets the release Home Manager revision " + inputs.HomeManager.Revision + "."
+	}
+	set.ExecutionRemediation = remediation
 	markConfigRestoreFailure(set, planner.ReasonHomeManagerImportRequired, planner.StatusSkipped)
 }

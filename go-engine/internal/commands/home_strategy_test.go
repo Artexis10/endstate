@@ -26,6 +26,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
+	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 )
 
 type capturedHomeBackend struct {
@@ -568,6 +569,9 @@ func TestCapturedHomeManagerObservedExternalOwnerRequiresImport(t *testing.T) {
 	}
 	if module := importModuleIn(t, hm.Remediation); module != result.HomeManager.OwnershipAction.ModulePath {
 		t.Fatalf("remediation names %q, ownership action names %q", module, result.HomeManager.OwnershipAction.ModulePath)
+	}
+	if inputs, err := releaseinputs.Load(); err != nil || !strings.Contains(*hm.Remediation, inputs.HomeManager.Revision) {
+		t.Fatalf("remediation does not name the release Home Manager revision: %q %v", *hm.Remediation, err)
 	}
 	if backend.activated != 0 {
 		t.Fatalf("external owner was activated over: %d", backend.activated)
