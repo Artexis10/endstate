@@ -195,9 +195,14 @@ type preparedHomeManager struct {
 	capturedFiles            map[string]*provision.HomeFileExpectations
 	capturedPreparationError error
 	forceBlock               planner.ResolutionReason
-	activationAttempted      bool
-	leafReads                map[*realizer.InputResolution]builtHomeLeavesRead
-	leafError                error
+	// explicitProjected and definedOutside come from the explicit configuration's
+	// own preparation, never from the combined one: the combined module defines
+	// the typed programs itself.
+	explicitProjected   bool
+	definedOutside      []string
+	activationAttempted bool
+	leafReads           map[*realizer.InputResolution]builtHomeLeavesRead
+	leafError           error
 	// checkIncomplete is set when evaluation alone cannot list every target:
 	// a recursive declaration, or no parent configuration metadata.
 	checkIncomplete bool
@@ -221,6 +226,7 @@ func prepareHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Real
 			return nil, inputResolutionError(prepareErr)
 		}
 		home.adoptPreparation(preparation)
+		home.explicitProjected, home.definedOutside = true, preparation.DefinedOutside
 		if !flags.DryRun && mf.HomeManager.Settings != nil {
 			// Missing evidence would make a new generated activation unverifiable.
 			// Refuse before package mutation; the caller can repair and retry apply.

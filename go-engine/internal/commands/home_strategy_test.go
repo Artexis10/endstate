@@ -50,6 +50,15 @@ type capturedHomeBackend struct {
 	// hiddenLeaves are built leaves that a recursive declaration expands to; evaluation
 	// reports no flat target for them.
 	hiddenLeaves []string
+	// typedTarget is the settings file that Home Manager renders from a generated
+	// typed module. renderTyped turns the staged canonical payload into the built
+	// file; nil builds the payload unchanged.
+	typedTarget string
+	renderTyped func([]byte) []byte
+	// definedOutside is what the explicit configuration's projection reports; nil means unknown.
+	definedOutside []string
+	// flakes records every flake that was prepared.
+	flakes []string
 }
 
 func (b *capturedHomeBackend) Realize(toAdd []realizer.Installable) (realizer.Result, error) {
@@ -97,6 +106,28 @@ func (b *capturedHomeBackend) PrepareHome(flake string, build bool) (*realizer.H
 		sum := sha256.Sum256(data)
 		expectations.Files = append(expectations.Files, provision.HomeFileExpectation{Target: filepath.ToSlash(target), SHA256: fmt.Sprintf("%x", sum)})
 	}
+	var rendered []byte
+	if staged, _ := filepath.Glob(filepath.Join(directory, "typed", "*.toml")); b.typedTarget != "" && len(staged) == 1 {
+		payload, err := os.ReadFile(staged[0])
+		if err != nil {
+			b.t.Fatal(err)
+		}
+		if b.renderTyped != nil {
+			payload = b.renderTyped(payload)
+		}
+		relative, err := filepath.Rel(os.Getenv("HOME"), b.typedTarget)
+		if err != nil {
+			b.t.Fatal(err)
+		}
+		source := filepath.Join(output, "typed")
+		if err := os.WriteFile(source, payload, 0444); err != nil {
+			b.t.Fatal(err)
+		}
+		files[b.typedTarget] = source
+		targets = append(targets, b.typedTarget)
+		leaves = append(leaves, filepath.ToSlash(relative))
+		rendered = payload
+	}
 	data, _ := json.Marshal(expectations)
 	if err := os.WriteFile(filepath.Join(output, "endstate-home-files.json"), data, 0444); err != nil {
 		b.t.Fatal(err)
@@ -107,8 +138,15 @@ func (b *capturedHomeBackend) PrepareHome(flake string, build bool) (*realizer.H
 	b.outputs[output] = files
 	if b.store != "" {
 		writeBuiltActivation(b.t, b.store, output, leaves...)
+		if rendered != nil {
+			relative, _ := filepath.Rel(os.Getenv("HOME"), b.typedTarget)
+			if err := os.WriteFile(filepath.Join(b.store, filepath.Base(output)+"-home-manager-files", filepath.FromSlash(relative)), rendered, 0o600); err != nil {
+				b.t.Fatal(err)
+			}
+		}
 	}
-	return &realizer.HomePreparation{Resolution: &realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": output}}, FlatTargets: targets}, nil
+	b.flakes = append(b.flakes, directory)
+	return &realizer.HomePreparation{Resolution: &realizer.InputResolution{Outputs: []string{"out"}, OutputPaths: map[string]string{"out": output}}, FlatTargets: targets, DefinedOutside: b.definedOutside}, nil
 }
 func (b *capturedHomeBackend) ActivatePreparedHome(resolution *realizer.InputResolution) (int, error) {
 	b.activated++
@@ -162,6 +200,33 @@ type capturedFixtureOptions struct {
 	// installMarker is a home-relative path that the ripgrep instance detector requires;
 	// the target host has it only after a package install creates it.
 	installMarker string
+	// typed captures the reviewed Poetry typed settings beside the ripgrep set.
+	typed bool
+}
+
+// typedPoetryConfig is a live Poetry file with a comment and unsorted keys, which
+// capture stores in canonical form.
+const typedPoetryConfig = "# project environments\n[virtualenvs]\nin-project = true\ncreate = false\n"
+
+// poetryModule is the production Poetry module with a live settings file in the source home.
+func poetryModule(t *testing.T, sourceHome string) *modules.Module {
+	t.Helper()
+	directory := filepath.Join(sourceHome, ".config", "pypoetry")
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "config.toml"), []byte(typedPoetryConfig), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile("../../../modules/apps/poetry/module.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modules.ParseModuleJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mod
 }
 
 func capturedStrategyFixture(t *testing.T, options capturedFixtureOptions) (string, string, string, manifest.ConfigCapture, *capturedHomeBackend) {
@@ -170,8 +235,17 @@ func capturedStrategyFixture(t *testing.T, options capturedFixtureOptions) (stri
 		t.Skip("trusted Linux captured Home Manager lifecycle")
 	}
 	var siblings func(string) []*modules.Module
-	if options.sibling {
-		siblings = func(sourceHome string) []*modules.Module { return directSiblingModule(t, sourceHome) }
+	if options.sibling || options.typed {
+		siblings = func(sourceHome string) []*modules.Module {
+			var extra []*modules.Module
+			if options.sibling {
+				extra = append(extra, directSiblingModule(t, sourceHome)...)
+			}
+			if options.typed {
+				extra = append(extra, poetryModule(t, sourceHome))
+			}
+			return extra
+		}
 	}
 	path, root, home, capture := configVerifyCaptureFixtureWithModule(t, func(mod *modules.Module, sourceHome string) {
 		variant := mod.Platforms["linux"]
@@ -192,7 +266,11 @@ func capturedStrategyFixture(t *testing.T, options capturedFixtureOptions) (stri
 			variant.Config.InstanceDetectors[0].Glob = "${home}/" + options.installMarker
 		}
 	}, siblings)
-	for _, name := range []string{"catalog/home-manager/registry.jsonc", "catalog/packages/ripgrep.jsonc"} {
+	catalogFiles := []string{"catalog/home-manager/registry.jsonc", "catalog/packages/ripgrep.jsonc"}
+	if options.typed {
+		catalogFiles = append(catalogFiles, "catalog/packages/poetry.jsonc")
+	}
+	for _, name := range catalogFiles {
 		data, err := os.ReadFile(filepath.Join("../../..", name))
 		if err != nil {
 			t.Fatal(err)
@@ -215,6 +293,14 @@ func capturedStrategyFixture(t *testing.T, options capturedFixtureOptions) (stri
 		t.Fatalf("fixture has no reviewed current Home Manager authority: %+v", snapshot.homeAuthorities)
 	}
 	backend := &capturedHomeBackend{t: t, root: root, store: useFakeHomeStore(t), targets: []string{filepath.Join(home, ".ripgreprc"), filepath.Join(home, ".config", "ripgrep", "config")}}
+	if options.typed {
+		if _, ok := snapshot.homeAuthorities["apps.poetry"]; !ok {
+			t.Fatalf("fixture has no reviewed current typed authority: %+v", snapshot.homeAuthorities)
+		}
+		backend.typedTarget = filepath.Join(home, ".config", "pypoetry", "config.toml")
+		// The explicit configuration of the fixture defines no program.
+		backend.definedOutside = []string{}
+	}
 	old := newRealizerFn
 	newRealizerFn = func() (realizer.Realizer, error) { return backend, nil }
 	t.Cleanup(func() { newRealizerFn = old })

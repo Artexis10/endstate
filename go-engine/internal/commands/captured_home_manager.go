@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
@@ -103,7 +105,11 @@ func homeTargetsOverlap(left, right string) bool {
 func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, session *configRestoreExecutionSession, home *preparedHomeManager, plan *planner.ConfigPlan, staged []preparedConfigRestoreExecution) []string {
 	indices := []int{}
 	files := []nix.HomeFilePlacement{}
+	typedSettings := []*typedHomeSetting{}
 	expectations := map[string]*provision.HomeFileExpectations{}
+	advanced := mf.HomeManager != nil && mf.HomeManager.Flake != ""
+	// Captured placements compose with an explicit configuration into one activation.
+	composes := !advanced && home.ownershipAction == nil
 	for _, item := range staged {
 		if !item.home {
 			continue
@@ -122,6 +128,28 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 		}
 		if len(item.homeFiles) == 0 {
 			markConfigRestoreFailure(set, planner.ReasonAlreadyUpToDate, planner.StatusSkipped)
+			continue
+		}
+		if authority.Disposition == hmregistry.TypedRoundTrip {
+			typed, reason, status := stageTypedHomeSetting(authority, item)
+			if typed == nil {
+				markConfigRestoreFailure(set, reason, status)
+				continue
+			}
+			if composes && home.definedByExplicitConfiguration(authority.Program) {
+				// Home Manager would merge two definitions of the program, so this set steps aside; the explicit activation continues.
+				markConfigRestoreFailure(set, planner.ReasonTargetCollision, planner.StatusFailed)
+				continue
+			}
+			expected, err := homeFilesExpectations(item.homeFiles)
+			if err != nil {
+				markConfigRestoreFailure(set, planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
+				continue
+			}
+			indices = append(indices, item.setIndex)
+			typedSettings = append(typedSettings, typed)
+			// A preview keeps the staged hash; apply replaces it with the built file's.
+			expectations[set.Source.CaptureID] = expected
 			continue
 		}
 		valid := true
@@ -149,9 +177,6 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 			markConfigRestoreFailure(&plan.Sets[index], reason, status)
 		}
 	}
-	advanced := mf.HomeManager != nil && mf.HomeManager.Flake != ""
-	// Captured placements compose with an explicit configuration into one activation.
-	composes := !advanced && home.ownershipAction == nil
 	var explicitClaims []string
 	if composes {
 		if flags.DryRun || home.resolution == nil {
@@ -169,14 +194,24 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 			}
 		}
 	}
+	// Typed settings reach Home Manager as a generated file, so they claim their target like a placement.
+	targets := make([]string, 0, len(files)+len(typedSettings))
+	for _, file := range files {
+		targets = append(targets, file.Target)
+	}
+	typedValues := make([]nix.TypedSetting, 0, len(typedSettings))
+	for _, typed := range typedSettings {
+		targets = append(targets, typed.target)
+		typedValues = append(typedValues, typed.setting)
+	}
 	collision := false
-	for left := range files {
-		for right := left + 1; right < len(files); right++ {
-			if homeTargetsOverlap(files[left].Target, files[right].Target) {
+	for left := range targets {
+		for right := left + 1; right < len(targets); right++ {
+			if homeTargetsOverlap(targets[left], targets[right]) {
 				collision = true
 			}
 		}
-		for _, claim := range homeTargetClaims(files[left].Target) {
+		for _, claim := range homeTargetClaims(targets[left]) {
 			if anyClaimOverlaps(explicitClaims, claim) {
 				collision = true
 			}
@@ -195,7 +230,7 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 	if mf.HomeManager != nil && !advanced {
 		settings, configPath, secrets = mf.HomeManager.Settings, mf.HomeManager.Config, mf.HomeManager.Secrets
 	}
-	ref, err := nix.GenerateHomeFlakeWithPlacements(state.StateDir(), settings, filepath.Dir(flags.Manifest), files, configPath, secrets)
+	ref, err := nix.GenerateHomeFlakeWithPlacements(state.StateDir(), settings, filepath.Dir(flags.Manifest), files, configPath, secrets, typedValues)
 	if err != nil {
 		if errors.Is(err, nix.ErrHomeFileCollision) {
 			home.forceBlock = planner.ReasonTargetCollision
@@ -219,10 +254,6 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 	if err != nil {
 		mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
 		return home.flatTargets
-	}
-	targets := make([]string, 0, len(files))
-	for _, file := range files {
-		targets = append(targets, file.Target)
 	}
 	if flags.DryRun {
 		known := map[string]bool{}
@@ -249,7 +280,27 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 		}
 	}
 	var nativeExpectations *provision.HomeFileExpectations
+	var builtTyped []provision.HomeFileExpectation
 	if !flags.DryRun {
+		// The typed proof runs on the built activation, before any settings writer runs.
+		var withheld []string
+		for _, typed := range typedSettings {
+			built, ok := typed.builtTypedExpectation(prepared.Resolution)
+			if !ok {
+				withheld = append(withheld, typed.target)
+				continue
+			}
+			builtTyped = append(builtTyped, built)
+			expectations[plan.Sets[typed.index].Source.CaptureID] = &provision.HomeFileExpectations{Files: []provision.HomeFileExpectation{built}}
+		}
+		if len(withheld) > 0 {
+			detail := withheldDetail(withheld)
+			for _, index := range indices {
+				plan.Sets[index].ExecutionDetail = detail
+			}
+			mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
+			return home.flatTargets
+		}
 		nativeExpectations, err = readHomeFileExpectations(prepared.Resolution)
 		if err != nil {
 			mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
@@ -259,7 +310,11 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 		for _, file := range nativeExpectations.Files {
 			actual[file.Target] = file.SHA256
 		}
-		for _, expected := range expectations {
+		for captureID, expected := range expectations {
+			if slices.ContainsFunc(typedSettings, func(typed *typedHomeSetting) bool { return plan.Sets[typed.index].Source.CaptureID == captureID }) {
+				// The typed proof above already compared the built value with the captured one.
+				continue
+			}
 			for _, file := range expected.Files {
 				if actual[file.Target] != file.SHA256 {
 					mark(planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
@@ -267,6 +322,8 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 				}
 			}
 		}
+		// The built bytes that passed the proof are the file expectation for verify, drift and rollback.
+		nativeExpectations.Files = append(nativeExpectations.Files, builtTyped...)
 	}
 	home.flake, home.generated, home.fileExpectations = ref, true, nativeExpectations
 	home.adoptPreparation(prepared)

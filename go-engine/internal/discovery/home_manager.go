@@ -126,7 +126,7 @@ func (adapter HomeManagerAdapter) Inventory(ctx context.Context) (AdapterInvento
 				message := "A reviewed settings path exists but could not be read consistently."
 				if errors.Is(err, errSettingsContentPolicy) {
 					code = "settings_content_unsupported"
-					message = "This settings file contains arguments outside its reviewed portable policy."
+					message = "This settings file contains content outside its reviewed portable policy."
 				}
 				result.Warnings = append(result.Warnings, Warning{
 					Code: code, Source: HomeManagerSettingsSource, ItemID: entry.ID, Message: message,

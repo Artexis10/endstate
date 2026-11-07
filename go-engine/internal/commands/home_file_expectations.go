@@ -69,7 +69,7 @@ func checkHomeFileExpectations(expectations *provision.HomeFileExpectations) (re
 			return driver.ReasonConfigDrift, fmt.Sprintf("Declared Home Manager file contents differ: %s", file.Target)
 		}
 	}
-	return "", fmt.Sprintf("The activation and %d declared files match recorded expectations; typed settings were not checked", len(expectations.Files))
+	return "", fmt.Sprintf("The activation and %d declared files match recorded expectations; settings that other Home Manager options render were not checked", len(expectations.Files))
 }
 
 func homeFileReadFailure(target string, err error) (reason, message string) {

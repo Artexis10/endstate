@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
@@ -386,7 +387,12 @@ func configVerifyCaptureFixtureWithModule(t *testing.T, configure func(*modules.
 		discoverLinuxFn = func(ctx context.Context, request discovery.Request, _ realizer.Realizer) (discovery.Result, error) {
 			request.SelectedSources = []string{discovery.HomeManagerSettingsSource}
 			result, err := discovery.Discover(ctx, request)
-			result.Settings = append(result.Settings, siblingCandidates...)
+			for _, candidate := range siblingCandidates {
+				// A sibling that the registry already announces is discovered, not injected.
+				if !slices.ContainsFunc(result.Settings, func(found discovery.SettingsCandidate) bool { return found.ID == candidate.ID }) {
+					result.Settings = append(result.Settings, candidate)
+				}
+			}
 			return result, err
 		}
 		withFakeGenerations(nil, errors.New("no managed profile"), func() {
