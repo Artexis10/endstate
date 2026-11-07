@@ -3,7 +3,7 @@
   "inventory": {
     "moduleCount": 367,
     "scenarioCount": 370,
-    "sha256": "df8d91c2aa25d2550d4e6d8b1c53333f5e84696227be3d90d3c1e6a4f8114b78",
+    "sha256": "275198237e49973b802b0ebb17ba2018218da1124b023189c455a323da568701",
     "rows": [
       {
         "moduleId": "apps.3ds-max",
@@ -1342,8 +1342,8 @@
       },
       {
         "moduleId": "apps.ripgrep",
-        "scenarioId": "default-v1",
-        "kind": "config-roundtrip-v1"
+        "scenarioId": "platform-settings-capture",
+        "kind": "capture-contract"
       },
       {
         "moduleId": "apps.rivatuner-statistics-server",
@@ -4760,5 +4760,14 @@
     }
   ],
   "failureTransitions": [],
-  "inventoryRemovals": []
+  "inventoryRemovals": [
+    {
+      "identity": {
+        "moduleId": "apps.poetry",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "reason": "Poetry becomes a schema-v3 flat module, which must declare one capture-contract scenario. That scenario proves Windows capture only, so the synthetic Windows config round trip is dropped. The conversion rule requires the converting change to add a Windows regression that restores legacy Poetry captures; this entry does not prove that the regression exists."
+    }
+  ]
 }
