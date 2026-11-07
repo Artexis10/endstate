@@ -148,7 +148,7 @@ func TestVerifyCapturedConfigSetWithAllDirectoryMembersExcludedIsSkipped(t *test
 		t.Fatal(err)
 	}
 	set.TargetGenerationDef.Restore = []modules.RestoreDef{{Type: "copy", Source: "prefs", Target: target, Exclude: []string{"**/owned.txt"}}}
-	item := verifyCapturedConfigSet(context.Background(), VerifyItem{Type: "config", ID: set.Source.CaptureID}, set, source, nil, nil, nil, "")
+	item := verifyCapturedConfigSet(context.Background(), VerifyItem{Type: "config", ID: set.Source.CaptureID}, set, source, nil, nil, nil, nil, "")
 	if item.Status != "skipped" || item.Reason != "config_content_unchecked" {
 		t.Fatalf("excluded captured content produced a pass: %+v", item)
 	}
@@ -176,14 +176,14 @@ func TestVerifyCapturedConfigSetFailureOutweighsUncheckedOperations(t *testing.T
 		}}, nil
 	}
 	t.Cleanup(func() { stageConfigRestoreSetFn, materializeConfigRestoreSetFn = oldStage, oldMaterialize })
-	item := verifyCapturedConfigSet(context.Background(), VerifyItem{Type: "config", ID: source.source.CaptureID}, set, source, nil, nil, nil, "")
+	item := verifyCapturedConfigSet(context.Background(), VerifyItem{Type: "config", ID: source.source.CaptureID}, set, source, nil, nil, nil, nil, "")
 	if item.Status != "fail" || item.Reason != "config_drift" {
 		t.Fatalf("known drift was hidden by unsupported operation: %+v", item)
 	}
 	if err := os.WriteFile(target, []byte("desired"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	item = verifyCapturedConfigSet(context.Background(), item, set, source, nil, nil, nil, "")
+	item = verifyCapturedConfigSet(context.Background(), item, set, source, nil, nil, nil, nil, "")
 	if item.Status != "skipped" || item.Reason != "config_content_unchecked" {
 		t.Fatalf("unchecked operation produced a pass: %+v", item)
 	}
@@ -195,7 +195,7 @@ func TestVerifyCapturedConfigSetWithoutCapturedContentIsSkipped(t *testing.T) {
 	set.TargetGenerationDef.Restore = []modules.RestoreDef{{
 		Type: "copy", Source: "optional.txt", Target: filepath.Join(set.TargetInstances[0].Root, "optional.txt"), Optional: true,
 	}}
-	item := verifyCapturedConfigSet(context.Background(), VerifyItem{Type: "config", ID: set.Source.CaptureID}, set, runtime.inputs.generationSources[0], nil, nil, nil, "")
+	item := verifyCapturedConfigSet(context.Background(), VerifyItem{Type: "config", ID: set.Source.CaptureID}, set, runtime.inputs.generationSources[0], nil, nil, nil, nil, "")
 	if item.Status != "skipped" || item.Reason != "config_content_unchecked" {
 		t.Fatalf("empty captured content produced a pass: %+v", item)
 	}

@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
@@ -100,4 +102,38 @@ func TestCapturedTypedSettingsWithholdOnlyTypedSetWhenExplicitConfigDefinesProgr
 	if _, err := os.Stat(filepath.Join(generated, "typed.nix")); !os.IsNotExist(err) {
 		t.Fatalf("the removed typed set still reached the combined module: %v", err)
 	}
+}
+
+func TestVerifyComparesRestoredTypedSettingsByValue(t *testing.T) {
+	// A string setting is where the canonical payload and Home Manager's file differ in bytes.
+	path, _, home, _, backend := capturedStrategyFixture(t, capturedFixtureOptions{typed: true, poetryConfig: "[virtualenvs]\nprompt = \"dev\"\n"})
+	// Home Manager's TOML writer quotes strings with double quotes; the canonical payload uses literal quotes.
+	backend.renderTyped = func([]byte) []byte { return []byte("[virtualenvs]\nprompt = \"dev\"\n") }
+	declareExplicitConfiguration(t, path, "{ ... }: { programs.git.enable = true; }\n")
+	raw, err := RunApply(ApplyFlags{Manifest: path, EnableRestore: true, NoBootstrap: true})
+	if err != nil {
+		t.Fatalf("apply: %+v", err)
+	}
+	assertResolution(t, resolutionFor(t, raw.(*ApplyResult).ConfigResultFields, "apps.poetry"), planner.StatusRestored, "")
+	loaded, loadErr := manifest.LoadManifest(path)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	captureID := ""
+	for _, capture := range loaded.ConfigCaptures {
+		if capture.ModuleID == "apps.poetry" {
+			captureID = capture.CaptureID
+		}
+	}
+	assertConfigVerify(t, path, captureID, "pass", "")
+
+	// A value that the user changes after the apply is still drift.
+	target := filepath.Join(home, ".config", "pypoetry", "config.toml")
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("[virtualenvs]\nprompt = \"other\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	assertConfigVerify(t, path, captureID, "fail", driver.ReasonConfigDrift)
 }

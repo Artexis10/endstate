@@ -72,6 +72,27 @@ func checkHomeFileExpectations(expectations *provision.HomeFileExpectations) (re
 	return "", fmt.Sprintf("The activation and %d declared files match recorded expectations; settings that other Home Manager options render were not checked", len(expectations.Files))
 }
 
+// readDeclaredHomeFile reads the regular file behind a Home Manager link, then
+// rechecks the link, so a target that changes during the read is reported.
+func readDeclaredHomeFile(target string, limit int64) ([]byte, error) {
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return nil, err
+	}
+	data, _, err := safepath.ReadRegularFileBounded(resolved, limit)
+	if err != nil {
+		return nil, err
+	}
+	after, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return nil, err
+	}
+	if resolved != after {
+		return nil, safepath.ErrSourceChanged
+	}
+	return data, nil
+}
+
 func homeFileReadFailure(target string, err error) (reason, message string) {
 	if os.IsNotExist(err) {
 		return driver.ReasonMissing, fmt.Sprintf("Declared Home Manager file is missing: %s", target)

@@ -121,8 +121,8 @@ func prepareCapturedHomeManager(flags ApplyFlags, mf *manifest.Manifest, r reali
 			markConfigRestoreFailure(set, planner.ReasonTargetDetectionFailed, planner.StatusFailed)
 			continue
 		}
-		authority, supported := session.runtime.catalog.homeAuthorities[set.Source.ModuleID]
-		if !supported || authority.ConfigSetID != planner.TargetConfigSetID(*set) || authority.GenerationID != set.Resolution.TargetGeneration {
+		authority, supported := session.runtime.catalog.currentHomeAuthority(*set)
+		if !supported {
 			markConfigRestoreFailure(set, planner.ReasonSettingsStrategyUnavailable, planner.StatusSkipped)
 			continue
 		}

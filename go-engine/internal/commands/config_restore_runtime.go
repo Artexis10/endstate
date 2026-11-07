@@ -418,6 +418,16 @@ func (snapshot *configCatalogSnapshot) pinHomeAuthorities(repoRoot string) {
 	}
 }
 
+// currentHomeAuthority returns a set's reviewed authority only when it binds the
+// set's target configuration set and generation.
+func (snapshot *configCatalogSnapshot) currentHomeAuthority(set planner.PlanSet) (hmregistry.Authority, bool) {
+	authority, ok := snapshot.homeAuthorities[set.Source.ModuleID]
+	if !ok || authority.ConfigSetID != planner.TargetConfigSetID(set) || authority.GenerationID != set.Resolution.TargetGeneration {
+		return hmregistry.Authority{}, false
+	}
+	return authority, true
+}
+
 func (runtime *configRestoreRuntime) hasHomeManagerSources() bool {
 	if runtime == nil {
 		return false

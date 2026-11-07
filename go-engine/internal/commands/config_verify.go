@@ -11,10 +11,13 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
+	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
 
 func verifyCapturedConfigurations(flags VerifyFlags, mf *manifest.Manifest, emitter *events.Emitter) ([]VerifyItem, *envelope.Error) {
@@ -62,7 +65,7 @@ func verifyCapturedConfigurations(flags VerifyFlags, mf *manifest.Manifest, emit
 			if !ok {
 				item.Status, item.Reason, item.Message = "fail", "payload_integrity_failed", "Captured payload is unavailable."
 			} else {
-				item = verifyCapturedConfigSet(ctx, item, set, source, runtime.processPatterns(set.Source.ModuleID), processObserver, boundary, stageParent)
+				item = verifyCapturedConfigSet(ctx, item, set, source, runtime.catalog.boundTypedCodec(set), runtime.processPatterns(set.Source.ModuleID), processObserver, boundary, stageParent)
 			}
 		}
 		status := "skipped"
@@ -78,7 +81,20 @@ func verifyCapturedConfigurations(flags VerifyFlags, mf *manifest.Manifest, emit
 	return items, nil
 }
 
-func verifyCapturedConfigSet(ctx context.Context, item VerifyItem, set planner.PlanSet, source configRestoreSource, patterns []string, observer configrestore.ProcessObserver, boundary configrestore.HostBoundary, stageParent string) VerifyItem {
+// boundTypedCodec returns the codec of a set that the registry binds to
+// typed-roundtrip for its target generation, and nil for every other set.
+func (snapshot *configCatalogSnapshot) boundTypedCodec(set planner.PlanSet) *settingscodec.TypedCodec {
+	authority, ok := snapshot.currentHomeAuthority(set)
+	if !ok || authority.Disposition != hmregistry.TypedRoundTrip {
+		return nil
+	}
+	codec, _ := settingscodec.Typed(authority.Codec)
+	return codec
+}
+
+// verifyCapturedConfigSet compares one captured set with its target. A non-nil
+// typed codec compares a Home Manager set by decoded value.
+func verifyCapturedConfigSet(ctx context.Context, item VerifyItem, set planner.PlanSet, source configRestoreSource, typed *settingscodec.TypedCodec, patterns []string, observer configrestore.ProcessObserver, boundary configrestore.HostBoundary, stageParent string) VerifyItem {
 	stage, err := stageConfigRestoreSetFn(ctx, migration.StageRequest{
 		CaptureID: set.Source.CaptureID, PayloadRoot: source.payloadRoot, PayloadManifest: source.payloadManifest,
 		SourceGeneration: set.Source.Generation, TargetGeneration: set.TargetGenerationDef,
@@ -96,6 +112,9 @@ func verifyCapturedConfigSet(ctx context.Context, item VerifyItem, set planner.P
 		files, err := configrestore.ResolveHomeFiles(ctx, configrestore.Request{Stage: stage, Plan: set, Boundary: boundary, ProcessPatterns: patterns, ProcessObserver: observer})
 		if err != nil {
 			return configVerifyReadFailure(item, err)
+		}
+		if typed != nil && len(files) == 1 {
+			return verifyTypedHomeFile(item, typed, files[0])
 		}
 		expected, err := homeFilesExpectations(files)
 		if err != nil {
@@ -134,6 +153,39 @@ func verifyCapturedConfigSet(ctx context.Context, item VerifyItem, set planner.P
 		item.Status, item.Reason = "pass", ""
 		item.Message = "Target configuration matches captured desired content."
 	}
+	return item
+}
+
+// verifyTypedHomeFile compares the captured value with the live target by the
+// codec's decoding. Home Manager renders the value in its own layout, so the live
+// bytes differ from the staged canonical encoding by design (decision 30).
+func verifyTypedHomeFile(item VerifyItem, codec *settingscodec.TypedCodec, file configrestore.HomeFile) VerifyItem {
+	staged, _, err := safepath.ReadRegularFileBounded(file.Source, settingscodec.MaxContentSize)
+	if err != nil {
+		item.Status, item.Reason, item.Message = "fail", "config_read_failed", err.Error()
+		return item
+	}
+	want, err := codec.Decode(staged)
+	if err != nil {
+		item.Status, item.Reason, item.Message = "fail", "staging_validation_failed", err.Error()
+		return item
+	}
+	if len(want) == 0 {
+		// Apply renders nothing for an empty value, so the target holds no captured content.
+		item.Status, item.Reason, item.Message = "skipped", "config_content_unchecked", "The captured settings value is empty, so no content is checked."
+		return item
+	}
+	live, err := readDeclaredHomeFile(file.Target, settingscodec.MaxContentSize)
+	if err != nil {
+		item.Status = "fail"
+		item.Reason, item.Message = homeFileReadFailure(file.Target, err)
+		return item
+	}
+	if got, err := codec.Decode(live); err != nil || !codec.Equal(got, want) {
+		item.Status, item.Reason, item.Message = "fail", driver.ReasonConfigDrift, "Declared Home Manager settings differ from the captured value: "+file.Target
+		return item
+	}
+	item.Status, item.Reason, item.Message = "pass", "", "Target configuration matches captured desired content."
 	return item
 }
 

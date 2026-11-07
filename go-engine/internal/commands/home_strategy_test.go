@@ -202,6 +202,8 @@ type capturedFixtureOptions struct {
 	installMarker string
 	// typed captures the reviewed Poetry typed settings beside the ripgrep set.
 	typed bool
+	// poetryConfig replaces typedPoetryConfig as the live Poetry file.
+	poetryConfig string
 }
 
 // typedPoetryConfig is a live Poetry file with a comment and unsorted keys, which
@@ -209,13 +211,16 @@ type capturedFixtureOptions struct {
 const typedPoetryConfig = "# project environments\n[virtualenvs]\nin-project = true\ncreate = false\n"
 
 // poetryModule is the production Poetry module with a live settings file in the source home.
-func poetryModule(t *testing.T, sourceHome string) *modules.Module {
+func poetryModule(t *testing.T, sourceHome, config string) *modules.Module {
 	t.Helper()
+	if config == "" {
+		config = typedPoetryConfig
+	}
 	directory := filepath.Join(sourceHome, ".config", "pypoetry")
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "config.toml"), []byte(typedPoetryConfig), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "config.toml"), []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile("../../../modules/apps/poetry/module.jsonc")
@@ -242,7 +247,7 @@ func capturedStrategyFixture(t *testing.T, options capturedFixtureOptions) (stri
 				extra = append(extra, directSiblingModule(t, sourceHome)...)
 			}
 			if options.typed {
-				extra = append(extra, poetryModule(t, sourceHome))
+				extra = append(extra, poetryModule(t, sourceHome, options.poetryConfig))
 			}
 			return extra
 		}
