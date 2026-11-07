@@ -5,13 +5,13 @@ package hmharvest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
@@ -151,12 +151,12 @@ func RenderTypedFixtures(ctx context.Context, registry *hmregistry.Registry, tim
 		if err != nil {
 			return 0, fmt.Errorf("typed entry %s fixture %s: %w", c.entry, c.fixture, err)
 		}
-		if err := checkReleasePins(flake, inputs); err != nil {
-			return 0, err
-		}
 		prepared, err := backend.PrepareHome(flake, true)
 		if err != nil {
 			return 0, fmt.Errorf("typed entry %s fixture %s: build the activation: %w", c.entry, c.fixture, backendFailure(err))
+		}
+		if err := checkReleasePins(prepared.Resolution, inputs); err != nil {
+			return 0, fmt.Errorf("typed entry %s fixture %s: %w", c.entry, c.fixture, err)
 		}
 		if !slices.Contains(prepared.DefinedOutside, c.program) {
 			return 0, fmt.Errorf("typed entry %s fixture %s: the projection does not report %s as defined outside Home Manager's modules", c.entry, c.fixture, c.program)
@@ -224,17 +224,36 @@ func backendFailure(err error) error {
 	return err
 }
 
-// checkReleasePins fails when an environment override changed the pins that the
-// generator wrote, because the proof must hold for the pair that ships.
-func checkReleasePins(flake string, inputs releaseinputs.Inputs) error {
-	directory, _, _ := strings.Cut(flake, "#")
-	data, err := os.ReadFile(filepath.Join(directory, "flake.nix"))
-	if err != nil {
-		return err
+// checkReleasePins fails when the evaluated lock graph does not lock the release
+// pair, because the proof must hold for the pair that ships. An environment
+// override of a pin changes the locked revision.
+func checkReleasePins(resolution *realizer.InputResolution, inputs releaseinputs.Inputs) error {
+	if resolution == nil {
+		return fmt.Errorf("the activation has no lock graph")
 	}
-	for _, ref := range []string{inputs.Nixpkgs.FlakeRef, inputs.HomeManager.FlakeRef} {
-		if !strings.Contains(string(data), ref) {
-			return fmt.Errorf("the generated flake does not use the release input %s", ref)
+	var graph struct {
+		Root  string `json:"root"`
+		Nodes map[string]struct {
+			Inputs map[string]json.RawMessage `json:"inputs"`
+			Locked struct {
+				Rev string `json:"rev"`
+			} `json:"locked"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(resolution.LockGraph, &graph); err != nil {
+		return fmt.Errorf("the activation lock graph is unreadable: %w", err)
+	}
+	// The flake generator names exactly these two root inputs.
+	for _, pin := range []struct{ input, revision string }{
+		{"nixpkgs", inputs.Nixpkgs.Revision},
+		{"home-manager", inputs.HomeManager.Revision},
+	} {
+		var node string
+		if err := json.Unmarshal(graph.Nodes[graph.Root].Inputs[pin.input], &node); err != nil {
+			return fmt.Errorf("the activation lock graph does not lock the input %s", pin.input)
+		}
+		if locked := graph.Nodes[node].Locked.Rev; locked != pin.revision {
+			return fmt.Errorf("the activation locked %s at %q, not at the release revision %s", pin.input, locked, pin.revision)
 		}
 	}
 	return nil

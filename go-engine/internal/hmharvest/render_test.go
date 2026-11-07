@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/hmregistry"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/releaseinputs"
 	"github.com/Artexis10/endstate/go-engine/internal/settingscodec"
 )
@@ -66,13 +67,6 @@ func TestTypedRoundTripDecodeEmitRenderDecodeEquivalence(t *testing.T) {
 			if err != nil || !strings.Contains(string(module), "./typed/"+filepath.Base(staged[0])) {
 				t.Fatalf("the typed module does not read its staged file: %v\n%s", err, module)
 			}
-			inputs, err := releaseinputs.Load()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := checkReleasePins(flake, inputs); err != nil {
-				t.Fatal(err)
-			}
 		})
 	}
 	t.Run("render", func(t *testing.T) {
@@ -119,24 +113,26 @@ func TestRenderFailsWhenTheBuiltFileDiffersFromTheFixture(t *testing.T) {
 	}
 }
 
-func TestRenderRefusesAnOverriddenReleasePin(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the Home Manager flake generator serves Linux and macOS")
-	}
-	cases, err := typedCases(productionRegistry(t), settingscodec.TypedFixtures)
-	if err != nil || len(cases) == 0 {
-		t.Fatalf("no typed fixture case: %v", err)
-	}
+// lockGraph is a flake.lock with the generator's two root inputs at these revisions.
+func lockGraph(nixpkgs, homeManager string) []byte {
+	return []byte(`{"version":7,"root":"root","nodes":{
+  "root":{"inputs":{"nixpkgs":"nixpkgs","home-manager":"home-manager"}},
+  "nixpkgs":{"locked":{"type":"github","owner":"NixOS","repo":"nixpkgs","rev":"` + nixpkgs + `"}},
+  "home-manager":{"inputs":{"nixpkgs":["nixpkgs"]},"locked":{"type":"github","owner":"nix-community","repo":"home-manager","rev":"` + homeManager + `"}}}}`)
+}
+
+func TestRenderRefusesAnActivationThatLockedAnotherHomeManager(t *testing.T) {
 	inputs, err := releaseinputs.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ENDSTATE_HOME_MANAGER_PIN", "github:example/home-manager/0000000000000000000000000000000000000000")
-	flake, err := cases[0].generate(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	release := &realizer.InputResolution{LockGraph: lockGraph(inputs.Nixpkgs.Revision, inputs.HomeManager.Revision)}
+	if err := checkReleasePins(release, inputs); err != nil {
+		t.Fatalf("the release pair was refused: %v", err)
 	}
-	if err := checkReleasePins(flake, inputs); err == nil {
-		t.Fatal("the proof accepted a flake that does not use the release input pair")
+	// ENDSTATE_HOME_MANAGER_PIN changes the Home Manager revision that the evaluation locks.
+	overridden := &realizer.InputResolution{LockGraph: lockGraph(inputs.Nixpkgs.Revision, "0000000000000000000000000000000000000000")}
+	if err := checkReleasePins(overridden, inputs); err == nil {
+		t.Fatal("the proof accepted an activation that locked another Home Manager revision")
 	}
 }
