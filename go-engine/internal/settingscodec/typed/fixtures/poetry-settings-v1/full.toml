@@ -14,6 +14,7 @@ max-retries = 3
 
 [solver]
 lazy-wheel = false
+min-release-age = 7
 
 [virtualenvs]
 create = false

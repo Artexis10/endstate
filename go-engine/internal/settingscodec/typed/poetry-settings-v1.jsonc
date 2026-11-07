@@ -11,7 +11,7 @@
     "installer": { "max-workers": "int", "parallel": "bool", "re-resolve": "bool" },
     "keyring": { "enabled": "bool" },
     "requests": { "max-retries": "int" },
-    "solver": { "lazy-wheel": "bool" },
+    "solver": { "lazy-wheel": "bool", "min-release-age": "int" },
     "system-git-client": "bool",
     "virtualenvs": {
       "create": "bool",
