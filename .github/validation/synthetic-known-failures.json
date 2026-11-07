@@ -4763,6 +4763,14 @@
   "inventoryRemovals": [
     {
       "identity": {
+        "moduleId": "apps.poetry",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "reason": "Poetry becomes a schema-v3 flat module, which must declare one capture-contract scenario. That scenario proves Windows capture only, so the synthetic Windows config round trip is dropped. A Windows regression in the converting change proves that legacy and new Poetry captures still restore."
+    },
+    {
+      "identity": {
         "moduleId": "apps.ripgrep",
         "scenarioId": "default-v1",
         "kind": "config-roundtrip-v1"
