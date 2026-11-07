@@ -180,7 +180,7 @@ func typedBindingFixture(t *testing.T, realization, packageType string) (*Regist
 func TestJoinGrantsTypedActionsOnlyToTheHomeManagerStrategy(t *testing.T) {
 	registry, mod, packages := typedBindingFixture(t, "home-manager", "null or package")
 	got := Join(registry, map[string]*modules.Module{mod.ID: mod}, packages)
-	if len(got) != 1 || !got[0].Bound || got[0].Reason != "" || !got[0].Supports(Restore) || got[0].Disposition != TypedRoundTrip || got[0].Codec != "poetry-settings-v1" || got[0].Program != "poetry" || got[0].Option != "programs.poetry.settings" {
+	if len(got) != 1 || !got[0].Bound || got[0].Reason != "" || !got[0].Supports(Restore) || got[0].Disposition != TypedRoundTrip || got[0].Codec != "poetry-settings-v1" || got[0].Program != "poetry" {
 		t.Fatalf("home-manager typed authority = %+v", got)
 	}
 

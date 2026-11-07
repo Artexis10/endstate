@@ -58,7 +58,7 @@ func stageTypedHomeSetting(authority hmregistry.Authority, item preparedConfigRe
 	}
 	return &typedHomeSetting{
 		index: item.setIndex, target: file.Target, codec: codec, value: value,
-		setting: nix.TypedSetting{Program: authority.Program, Option: authority.Option, NullPackage: authority.NullPackage, Canonical: canonical},
+		setting: nix.TypedSetting{Program: authority.Program, NullPackage: authority.NullPackage, Canonical: canonical},
 	}, "", ""
 }
 

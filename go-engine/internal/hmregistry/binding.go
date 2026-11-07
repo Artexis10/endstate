@@ -37,13 +37,12 @@ type Authority struct {
 	Bound        bool
 	Actions      []Action
 	Reason       string
-	// Program, Disposition and Codec come from the reviewed entry. Option is the
-	// typed codec's rendering option, and NullPackage reports that the writer may
-	// set the program's package option to null; both are empty for other dispositions.
+	// Program, Disposition and Codec come from the reviewed entry. NullPackage
+	// reports that the writer may set the program's package option to null; it is
+	// false for other dispositions.
 	Program     string
 	Disposition Disposition
 	Codec       string
-	Option      string
 	NullPackage bool
 }
 
@@ -169,9 +168,6 @@ func bindEntry(entry Entry, catalog map[string]*modules.Module, packages []*pack
 	authority.Bound = true
 	authority.Program, authority.Disposition, authority.Codec = entry.Program, entry.Disposition, entry.Codec
 	if entry.Disposition == TypedRoundTrip {
-		if typed, ok := settingscodec.Typed(entry.Codec); ok {
-			authority.Option = typed.Option()
-		}
 		// Binding already proved that the package catalog maps this program's package.
 		authority.NullPackage = entry.PackageAcceptsNull()
 	}

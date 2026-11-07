@@ -29,7 +29,7 @@ func TestGenerateHomeFlakeWithPlacementsWritesTypedSettingsAsASeparateModule(t *
 		t.Fatal(err)
 	}
 	canonical := []byte("[virtualenvs]\nin-project = true\n")
-	typed := TypedSetting{Program: "poetry", Option: "programs.poetry.settings", NullPackage: true, Canonical: canonical}
+	typed := TypedSetting{Program: "poetry", NullPackage: true, Canonical: canonical}
 
 	ref, err := GenerateHomeFlakeWithPlacements(stateDir, nil, manifestDir, nil, "home.nix", nil, []TypedSetting{typed})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestGenerateHomeFlakeWithPlacementsWritesTypedSettingsAsASeparateModule(t *
 func TestGenerateHomeFlakeWithPlacementsLeavesThePackageAloneWhenItCannotBeNull(t *testing.T) {
 	typedGenerationIdentity(t)
 	ref, err := GenerateHomeFlakeWithPlacements(t.TempDir(), nil, t.TempDir(), nil, "", nil, []TypedSetting{
-		{Program: "poetry", Option: "programs.poetry.settings", Canonical: []byte("[virtualenvs]\nin-project = true\n")},
+		{Program: "poetry", Canonical: []byte("[virtualenvs]\nin-project = true\n")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -90,21 +90,8 @@ func TestGenerateHomeFlakeWithPlacementsLeavesThePackageAloneWhenItCannotBeNull(
 	}
 }
 
-func TestGenerateHomeFlakeWithPlacementsRefusesTypedSettingsOutsideTheSettingsOption(t *testing.T) {
-	typedGenerationIdentity(t)
-	for _, setting := range []TypedSetting{
-		{Program: "poetry", Option: "programs.poetry.extraConfig", Canonical: []byte("x = 1\n")},
-		{Program: "poetry", Option: "programs.git.settings", Canonical: []byte("x = 1\n")},
-		{Program: "", Option: "programs..settings", Canonical: []byte("x = 1\n")},
-	} {
-		if _, err := GenerateHomeFlakeWithPlacements(t.TempDir(), nil, t.TempDir(), nil, "", nil, []TypedSetting{setting}); err == nil {
-			t.Errorf("typed setting for %q was rendered into %q", setting.Program, setting.Option)
-		}
-	}
-}
-
 func TestTypedModuleKeepsAHostileProgramNameInsideOneQuotedAttribute(t *testing.T) {
-	module, _, err := compileTypedModule([]TypedSetting{{Program: `a"; evil = "`, Option: `programs.a"; evil = ".settings`, Canonical: []byte("x = 1\n")}})
+	module, _, err := compileTypedModule([]TypedSetting{{Program: `a"; evil = "`, Canonical: []byte("x = 1\n")}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -73,7 +73,7 @@ func typedCases(registry *hmregistry.Registry, fixturesOf func(codec string) ([]
 			}
 			cases = append(cases, typedCase{
 				entry: entry.ID, program: entry.Program, fixture: fixture.Name, codec: codec, value: value, leaf: leaf,
-				setting: nix.TypedSetting{Program: entry.Program, Option: codec.Option(), NullPackage: entry.PackageAcceptsNull(), Canonical: canonical},
+				setting: nix.TypedSetting{Program: entry.Program, NullPackage: entry.PackageAcceptsNull(), Canonical: canonical},
 			})
 		}
 	}
