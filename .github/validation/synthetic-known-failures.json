@@ -4760,5 +4760,14 @@
     }
   ],
   "failureTransitions": [],
-  "inventoryRemovals": []
+  "inventoryRemovals": [
+    {
+      "identity": {
+        "moduleId": "apps.ripgrep",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "reason": "ripgrep moves to a schema-v3 flat module whose Windows proof is a capture-contract scenario; its Windows restore keeps an independent engine regression."
+    }
+  ]
 }
