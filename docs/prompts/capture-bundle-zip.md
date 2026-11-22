@@ -1,4 +1,4 @@
-# /opsx:new — Capture Bundle: Zip-Based Profile Packaging
+# `openspec-new-change` skill — Capture Bundle: Zip-Based Profile Packaging
 
 ## Context
 
@@ -142,7 +142,7 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
 
 ---
 
-# /opsx:ff — Fast-Forward Checklist
+# `openspec-ff-change` skill — Fast-Forward Checklist
 
 Before implementation, verify:
 - [ ] Existing capture tests still pass
@@ -153,7 +153,7 @@ Before implementation, verify:
 
 ---
 
-# /opsx:apply — Implementation Order
+# `openspec-apply-change` skill — Implementation Order
 
 1. **OpenSpec change** — create `openspec/changes/capture-bundle-zip/` with proposal, design, tasks
 2. **OpenSpec spec** — create `openspec/specs/capture-bundle-zip.md` with invariants
@@ -168,7 +168,7 @@ Before implementation, verify:
 
 ---
 
-# /opsx:verify — Verification Plan
+# `openspec-verify-change` skill — Verification Plan
 
 ```powershell
 # Unit tests
@@ -191,7 +191,7 @@ endstate apply --manifest .\some-bare-manifest.jsonc --dry-run --json
 
 ---
 
-# /opsx:archive — Post-Merge
+# `openspec-archive-change` skill — Post-Merge
 
 - Update GUI issue tracker: "Support zip profile format in profile discovery and apply flow"
 - Update README capture documentation
