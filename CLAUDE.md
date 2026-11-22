@@ -74,7 +74,7 @@ Go standard `testing`; unit tests in `go-engine/internal/*/` are hermetic and CI
 
 ## OpenSpec
 
-Behavior specs are enforced at Level 2 by the lefthook pre-push hook. Specs live in `openspec/specs/`, changes in `openspec/changes/`. Emergency bypass: `OPENSPEC_BYPASS=1 git push`.
+Behavior specs are enforced at Level 2 by the lefthook pre-push hook (the strict gate needs Node >= 22.20.0, the OpenSpec 2.1.1 engines floor). Specs live in `openspec/specs/`, changes in `openspec/changes/`. Emergency bypass: `OPENSPEC_BYPASS=1 git push`.
 
 ## Forbidden Patterns
 
