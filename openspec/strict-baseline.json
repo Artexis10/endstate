@@ -1,6 +1,6 @@
 {
   "openspec_version": "2.1.1",
-  "comment": "Strict-validation warnings that existed when this repo moved to OpenSpec 2.1.1. CI fails on any warning not listed. Regenerate only to shrink it: node scripts/openspec_strict_gate.mjs --write-baseline -- <cmd>",
+  "comment": "Strict-validation warnings that existed when this repo moved to OpenSpec 2.1.1. CI fails on any warning not listed. Regenerate only to shrink it or to carry a renamed requirement: node scripts/openspec_strict_gate.mjs --write-baseline -- <cmd>",
   "keys": [
     "too-long apply-restore-envelope :: Each restore item status has one meaning",
     "too-long apply-restore-envelope :: JSON Envelope Restore Extensions and Journal",
