@@ -8,6 +8,8 @@ Go rewrite of the Endstate engine — a declarative system provisioning and reco
 github.com/Artexis10/endstate/go-engine
 ```
 
+The module path keeps the old owner after the repository moved to `substrate-systems/endstate`. Rename it only together with every import and `-ldflags -X` string.
+
 Requires Go 1.26 or later.
 
 ## Structure

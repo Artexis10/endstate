@@ -43,15 +43,15 @@ After uploading release assets, the workflow SHALL verify that both `endstate.ex
 
 ### Requirement: Stable, predictable artifact download URLs
 Release assets SHALL be accessible at stable URLs following the pattern:
-`https://github.com/Artexis10/endstate/releases/download/v{VERSION}/{filename}`
+`https://github.com/substrate-systems/endstate/releases/download/v{VERSION}/{filename}`
 
 #### Scenario: Binary URL is stable
 - **WHEN** release `v{VERSION}` exists with `endstate.exe` attached
-- **THEN** `https://github.com/Artexis10/endstate/releases/download/v{VERSION}/endstate.exe` SHALL return the binary with HTTP 200
+- **THEN** `https://github.com/substrate-systems/endstate/releases/download/v{VERSION}/endstate.exe` SHALL return the binary with HTTP 200
 
 #### Scenario: Checksum URL is stable
 - **WHEN** release `v{VERSION}` exists with `endstate.exe.sha256` attached
-- **THEN** `https://github.com/Artexis10/endstate/releases/download/v{VERSION}/endstate.exe.sha256` SHALL return the checksum file with HTTP 200
+- **THEN** `https://github.com/substrate-systems/endstate/releases/download/v{VERSION}/endstate.exe.sha256` SHALL return the checksum file with HTTP 200
 
 ### Requirement: Artifact build runs on windows-latest
 The build job SHALL run on `windows-latest` to produce a native Windows binary without cross-compilation.
