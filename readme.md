@@ -10,9 +10,9 @@ Website: <https://substratesystems.io/endstate> · Download: <https://substrates
 
 **Author:** Hugo Ander Kivi
 **Primary Language:** Go
-**Status:** Stable — [latest release](https://github.com/Artexis10/endstate/releases/latest)
+**Status:** Stable — [latest release](https://github.com/substrate-systems/endstate/releases/latest)
 
-[![CI](https://github.com/Artexis10/endstate/actions/workflows/go-ci.yml/badge.svg)](https://github.com/Artexis10/endstate/actions/workflows/go-ci.yml)
+[![CI](https://github.com/substrate-systems/endstate/actions/workflows/go-ci.yml/badge.svg)](https://github.com/substrate-systems/endstate/actions/workflows/go-ci.yml)
 
 ---
 
@@ -126,7 +126,7 @@ endstate/
 
 ```bash
 # Clone the repo
-git clone https://github.com/Artexis10/endstate.git
+git clone https://github.com/substrate-systems/endstate.git
 cd endstate
 
 # Build the CLI
@@ -438,7 +438,7 @@ cd go-engine && go test -v ./...
 
 ## Status
 
-Endstate is stable and actively released — see [Releases](https://github.com/Artexis10/endstate/releases) for the latest version. The CLI contract (JSON schema 1.0) is locked. Capture, apply, verify, restore, and drift detection are production-ready. Endstate Cloud generations are durable only after their explicit commit succeeds; the managed recovery claim remains gated on a recorded clean-Windows recovery-drill receipt. Winget is the primary Windows driver, with macOS/Linux (Nix) in progress.
+Endstate is stable and actively released — see [Releases](https://github.com/substrate-systems/endstate/releases) for the latest version. The CLI contract (JSON schema 1.0) is locked. Capture, apply, verify, restore, and drift detection are production-ready. Endstate Cloud generations are durable only after their explicit commit succeeds; the managed recovery claim remains gated on a recorded clean-Windows recovery-drill receipt. Winget is the primary Windows driver, with macOS/Linux (Nix) in progress.
 
 > A desktop GUI is available as a separate free, open-source app built on top of Endstate's core, with an optional paid Endstate Cloud tier — [substratesystems.io/endstate](https://substratesystems.io/endstate)
 
